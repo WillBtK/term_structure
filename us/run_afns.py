@@ -49,10 +49,17 @@ def estimate_afns(
     n: int = 3,
     time_step_size: float | None = None,
     yield_adjustment_term_active: bool = True,
+    warm_start: dict | None = None,
 ):
-    """Estimate plain AFNS (n=3) via the vendored engine, trying the engine's
-    alternative initial solutions until one converges. Returns a dict of the
-    optimal parameters and the filtered states, or raises if all starts fail.
+    """Estimate plain AFNS (n=3) via the vendored engine.
+
+    Tries a sequence of initial solutions and keeps the best by log-likelihood,
+    breaking on the first that converges. If ``warm_start`` is given (a dict with
+    ``K, theta, Sigma, H, lambda_`` and optional ``lambda_svensson``, e.g. the
+    output of a prior lower-frequency fit), it is tried FIRST — which makes a
+    large daily MLE tractable by starting near the optimum — with the engine's
+    three ``initial_solution`` alternatives kept as fallbacks. Returns a dict of
+    the optimal parameters and the filtered states, or raises if all fail.
     """
     from arbfree_dyn_ns.main import initial_solution
     from arbfree_dyn_ns.optimization import kalman_optimize, compute_Q
@@ -67,13 +74,30 @@ def estimate_afns(
         dt_days = np.median(np.diff(yields.index.values).astype("timedelta64[D]").astype(float))
         time_step_size = float(dt_days) / 365.2425
 
-    best = None
+    # Build the ordered list of (label, theta0, K0, H0, Sigma0, lam0, lam_sv0).
+    starts = []
+    if warm_start is not None:
+        starts.append(
+            (
+                "warm",
+                np.asarray(warm_start["theta"], dtype=float).ravel(),
+                np.asarray(warm_start["K"], dtype=float),
+                np.asarray(warm_start["H"], dtype=float),
+                np.asarray(warm_start["Sigma"], dtype=float),
+                float(warm_start["lambda_"]),
+                warm_start.get("lambda_svensson"),
+            )
+        )
     for alt in range(3):
         theta0, K0, H0, Sigma0, lam0, lam_sv0 = initial_solution(
             N, n, grid, yield_adjustment_term_active, alternative=alt
         )
+        starts.append((f"alt{alt}", theta0, K0, H0, Sigma0, lam0, lam_sv0))
+
+    best = None
+    for label, theta0, K0, H0, Sigma0, lam0, lam_sv0 in starts:
         try:
-            logger.info("kalman_optimize: start alternative=%d", alt)
+            logger.info("kalman_optimize: start=%s", label)
             out = kalman_optimize(
                 yields,
                 theta0,
@@ -90,12 +114,12 @@ def estimate_afns(
                 time_step_size=time_step_size,
             )
         except Exception:
-            logger.exception("kalman_optimize failed for alternative=%d", alt)
+            logger.exception("kalman_optimize failed for start=%s", label)
             continue
 
         optres, H_opt, K_opt, Sigma_opt, lam_opt, lam_sv_opt, theta_opt = out[:7]
         ll = -float(optres.fun)  # optres.fun is the negative log-likelihood
-        logger.info("alternative=%d converged=%s loglik=%.2f", alt, optres.success, ll)
+        logger.info("start=%s converged=%s loglik=%.2f", label, optres.success, ll)
         if best is None or ll > best["loglik"]:
             best = dict(
                 loglik=ll,
@@ -127,25 +151,37 @@ def estimate_afns(
     return best
 
 
-def run_afns(freq: str = "monthly", start=None, end=None, n: int = 3) -> pd.DataFrame:
-    """Full run -> canonical tidy frame (date, maturity, term_premium,
-    expected_rate, fitted_yield) in decimal, on COMMON_GRID."""
-    from term_premium import decompose
-
+def _panel(freq, start, end):
     panel = build_yield_panel(grid=COMMON_GRID)
     if start is not None:
         panel = panel[panel.index >= pd.Timestamp(start)]
     if end is not None:
         panel = panel[panel.index <= pd.Timestamp(end)]
-    panel = _resample(panel, freq).dropna()
+    return _resample(panel, freq).dropna()
+
+
+def run_afns(
+    freq: str = "monthly",
+    start=None,
+    end=None,
+    n: int = 3,
+    warm_start: dict | None = None,
+    return_fit: bool = False,
+):
+    """Full run -> canonical tidy frame (date, maturity, term_premium,
+    expected_rate, fitted_yield) in decimal, on COMMON_GRID. If ``return_fit``,
+    returns (frame, fit_dict) so the parameters can warm-start a later run."""
+    from term_premium import decompose
+
+    panel = _panel(freq, start, end)
     logger.info("estimating AFNS on %d obs (%s..%s), freq=%s, n=%d",
                 len(panel), panel.index.min().date(), panel.index.max().date(), freq, n)
 
-    fit = estimate_afns(panel, n=n)
+    fit = estimate_afns(panel, n=n, warm_start=warm_start)
     logger.info("estimation done: loglik=%.2f success=%s lambda=%.4f",
                 fit["loglik"], fit["success"], fit["lambda_"])
 
-    return decompose(
+    frame = decompose(
         states=fit["states"],
         K=fit["K"],
         theta=fit["theta"],
@@ -155,6 +191,19 @@ def run_afns(freq: str = "monthly", start=None, end=None, n: int = 3) -> pd.Data
         lambda_svensson=fit["lambda_svensson"],
         dates=panel.index,
     )
+    return (frame, fit) if return_fit else frame
+
+
+def run_daily_warmstarted(start="1987-01-01", end=None, n: int = 3):
+    """Fit monthly (fast) to get a good starting point, then warm-start a daily
+    full-sample fit. Returns (daily_frame, monthly_fit, daily_fit)."""
+    _, monthly_fit = run_afns(freq="monthly", start=start, end=end, n=n, return_fit=True)
+    logger.info("monthly warm-start ready (loglik=%.2f); starting daily fit",
+                monthly_fit["loglik"])
+    daily_frame, daily_fit = run_afns(
+        freq="daily", start=start, end=end, n=n, warm_start=monthly_fit, return_fit=True
+    )
+    return daily_frame, monthly_fit, daily_fit
 
 
 def _main() -> None:

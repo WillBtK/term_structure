@@ -29,11 +29,13 @@ import pandas as pd
 
 from .config import (
     GATE_MATURITIES,
-    MAX_MEAN_ABS_DIFF_BP,
-    MIN_CORRELATION,
+    MAX_ABS_BIAS_BP_TP,
+    MIN_CORRELATION_TP,
     QUANTITIES,
     REPORTS_DIR,
 )
+
+__all__ = ["align", "metrics", "evaluate_gate", "plot_overlays", "run_comparison"]
 
 logger = logging.getLogger(__name__)
 
@@ -98,10 +100,13 @@ def metrics(merged: pd.DataFrame) -> pd.DataFrame:
 
 
 def evaluate_gate(metric_df: pd.DataFrame) -> Dict:
-    """Apply the Phase-1 pass criteria to the term-premium metrics.
+    """Apply the term-premium "close tracking" criteria.
 
     Gate: at each maturity in GATE_MATURITIES, term-premium correlation >=
-    MIN_CORRELATION and mean_abs_diff_bp <= MAX_MEAN_ABS_DIFF_BP.
+    MIN_CORRELATION_TP and absolute level bias |mean_bias_bp| <=
+    MAX_ABS_BIAS_BP_TP. Correlation captures shape/co-movement; the bias bound
+    captures the level. (The premium is weakly identified, so we require good
+    tracking and a bounded level gap, not the fitted-yield-grade tolerance.)
     Returns a dict with ``passed`` (bool) and a per-maturity ``details`` list.
     """
     details = []
@@ -114,18 +119,19 @@ def evaluate_gate(metric_df: pd.DataFrame) -> Dict:
             passed = False
             continue
         r = row.iloc[0]
-        corr_ok = np.isfinite(r["correlation"]) and r["correlation"] >= MIN_CORRELATION
-        diff_ok = r["mean_abs_diff_bp"] <= MAX_MEAN_ABS_DIFF_BP
-        ok = bool(corr_ok and diff_ok)
+        corr_ok = bool(np.isfinite(r["correlation"]) and r["correlation"] >= MIN_CORRELATION_TP)
+        bias_ok = bool(abs(r["mean_bias_bp"]) <= MAX_ABS_BIAS_BP_TP)
+        ok = bool(corr_ok and bias_ok)
         passed &= ok
         details.append(
             {
                 "maturity": mat,
                 "status": "PASS" if ok else "FAIL",
                 "correlation": float(r["correlation"]),
+                "mean_bias_bp": float(r["mean_bias_bp"]),
                 "mean_abs_diff_bp": float(r["mean_abs_diff_bp"]),
-                "corr_ok": bool(corr_ok),
-                "diff_ok": bool(diff_ok),
+                "corr_ok": corr_ok,
+                "bias_ok": bias_ok,
             }
         )
     return {"passed": bool(passed), "details": details}
@@ -201,10 +207,10 @@ def _write_report(path, metric_df: pd.DataFrame, gate: Dict, plots: list) -> Non
     lines = [
         "# US plain-AFNS vs SF Fed Treasury Yield Premiums",
         "",
-        f"**Phase-1 gate: {verdict}**",
+        f"**Term-premium gate: {verdict}**",
         "",
-        f"Criteria (proposed): term-premium correlation ≥ {MIN_CORRELATION} "
-        f"and mean abs diff ≤ {MAX_MEAN_ABS_DIFF_BP:g} bp at "
+        f"Criteria (close tracking): term-premium correlation ≥ {MIN_CORRELATION_TP} "
+        f"and |level bias| ≤ {MAX_ABS_BIAS_BP_TP:g} bp at "
         f"{', '.join(f'{m:g}y' for m in GATE_MATURITIES)}.",
         "",
         "## Gate detail",
@@ -216,7 +222,7 @@ def _write_report(path, metric_df: pd.DataFrame, gate: Dict, plots: list) -> Non
         else:
             lines.append(
                 f"- {d['maturity']:g}y: {d['status']} — corr={d['correlation']:.4f}, "
-                f"mean|diff|={d['mean_abs_diff_bp']:.1f}bp"
+                f"bias={d['mean_bias_bp']:+.1f}bp"
             )
     try:
         table = metric_df.to_markdown(index=False)

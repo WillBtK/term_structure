@@ -55,10 +55,11 @@ def test_large_divergence_fails_gate():
                         lambda d, m: base[(d, m)] + 0.02)
     gate = evaluate_gate(metrics(align(ours, bench)))
     assert gate["passed"] is False
-    # correlation still high (constant offset) but diff gate fails.
+    # correlation still high (constant 50bp offset) but the level-bias gate fails.
     for d in gate["details"]:
         assert d["status"] == "FAIL"
-        assert d["diff_ok"] is False
+        assert d["bias_ok"] is False
+        assert d["corr_ok"] is True
 
 
 def test_align_requires_columns():
