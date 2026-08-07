@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Data caches and generated artifacts (per-country data/ and validation reports)
+# Keep the directories tracked (.gitkeep) but ignore their contents.
+us/data/*
+germany/data/*
+japan/data/*
+uk/data/*
+validation/reports/*
+!**/.gitkeep
+*.pkl
+*.parquet
+
+# joblib / engine caches and logs
+.cache/
+*.log
+
+# OS
+.DS_Store

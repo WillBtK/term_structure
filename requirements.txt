@@ -1,0 +1,24 @@
+# Data layer (/us) and validation harness dependencies.
+#
+# These are the packages needed to run `/us` (GSW fetch + reconstruction) and
+# the `/validation` comparison core. Versions are pinned consistent with the
+# engine lock (model/requirements.lock.txt) for the "pin first, upgrade later"
+# validation-fidelity phase.
+#
+# The full AFNS engine in /model additionally needs numba, sympy, IPython, etc.
+# — install those from model/requirements.lock.txt in a Python <=3.12 venv when
+# running the model itself.
+
+numpy==1.26.2
+pandas==2.1.3
+scipy==1.11.4
+pyarrow>=14,<16          # parquet caches
+requests>=2.31           # GSW / SF Fed downloads (urllib fallback if absent)
+
+# Optional but recommended
+matplotlib==3.8.2        # validation overlay plots (skipped if absent)
+openpyxl==3.1.2          # read SF Fed .xlsx if that is the published format
+tabulate>=0.9            # nicer Markdown tables in the validation report
+
+# Testing
+pytest>=8
