@@ -78,9 +78,21 @@ def parse_gsw_csv(text: str) -> pd.DataFrame:
     Keeps the six Svensson parameters and any published ``SVENYNN`` yield
     columns (for the cross-check). Values are coerced to float; the index is a
     sorted DatetimeIndex.
+
+    Real-file quirks handled: ~9 descriptive preamble lines before the header
+    (dynamic detection), missing-value sentinels (``NA``/``ND``/blank/``#N/A``),
+    and early-history rows (pre-~1980) that carry only the 3-factor NS
+    parameters with ``BETA3``/``TAU2`` blank — those rows survive here (they are
+    valid NS observations) and are filtered downstream by ``reconstruct_grid``'s
+    ``TAU2 > 0`` guard only when the Svensson curvature is actually needed.
     """
     skip = _find_header_row(text)
-    df = pd.read_csv(io.StringIO(text), skiprows=skip)
+    df = pd.read_csv(
+        io.StringIO(text),
+        skiprows=skip,
+        na_values=["NA", "ND", "#N/A", "N/A", "."],
+        keep_default_na=True,
+    )
 
     # Normalise the date column (named 'Date') to the index.
     date_col = next((c for c in df.columns if c.strip().lower() == "date"), None)

@@ -12,10 +12,15 @@ from pathlib import Path
 # Canonical quantities compared, all in DECIMAL (e.g. 0.0123).
 QUANTITIES = ["term_premium", "expected_rate", "fitted_yield"]
 
-# Maturities (years) on which the pass/fail gate is evaluated. The overall
-# comparison reports every overlapping maturity; the gate focuses on 5y and 10y
-# where the term premium is most economically meaningful.
-GATE_MATURITIES = [5.0, 10.0]
+# Maturities (years) on which the pass/fail gate is evaluated.
+#
+# The SF Fed "Treasury Yield Premiums" model *estimates* on the same eight
+# maturities as our COMMON_GRID (3m, 6m, 1y, 2y, 3y, 5y, 7y, 10y), but it only
+# *publishes* the term-premium / expected-rate decomposition for the 2-year and
+# 10-year yields. The gate therefore evaluates 2y and 10y — the maturities where
+# a benchmark term premium actually exists. (The full-grid fitted-yield
+# comparison in compare_afns still runs on every overlapping maturity.)
+GATE_MATURITIES = [2.0, 10.0]
 
 # ---------------------------------------------------------------------------
 # Pass criteria (PROPOSED — confirm with the project owner once the first real

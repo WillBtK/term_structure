@@ -66,6 +66,33 @@ class ColumnSpec:
         )
 
 
+def sf_fed_spec_template(date_column: str = "Date") -> ColumnSpec:
+    """A 2y/10y ColumnSpec skeleton to finalize against the live file's headers.
+
+    The SF Fed publishes the decomposition for **2-year and 10-year** yields
+    only (it estimates on the full 3m..10y grid but publishes just these two).
+    Each maturity has a term premium, an expected-average-short-rate, and the
+    fitted (model) yield. The column *names* below are PLACEHOLDERS — on the
+    first reachable fetch, inspect ``raw.columns`` and replace them with the
+    file's real headers, then confirm ``values_in_percent``.
+
+    Usage on first access::
+
+        raw = pd.read_excel(path)          # or read_csv
+        print(list(raw.columns))           # <- read the real header names
+        spec = sf_fed_spec_template()
+        # edit spec.<quantity>[maturity] = "<real column name>" as needed
+        series = normalize(raw, spec)
+    """
+    return ColumnSpec(
+        date_column=date_column,
+        values_in_percent=True,  # confirm against the file
+        term_premium={2.0: "TP_2Y_PLACEHOLDER", 10.0: "TP_10Y_PLACEHOLDER"},
+        expected_rate={2.0: "EXP_2Y_PLACEHOLDER", 10.0: "EXP_10Y_PLACEHOLDER"},
+        fitted_yield={2.0: "FIT_2Y_PLACEHOLDER", 10.0: "FIT_10Y_PLACEHOLDER"},
+    )
+
+
 def _download_bytes(url: str) -> bytes:
     try:
         import requests

@@ -26,7 +26,7 @@ def _make_frame(dates, maturities, tp, exp, fit):
 
 def test_perfect_match_passes_gate():
     dates = pd.date_range("2015-01-01", periods=60, freq="MS")
-    mats = [5.0, 10.0]
+    mats = [2.0, 10.0]
     rng = np.random.default_rng(0)
     tp_map = {(d, m): float(rng.normal()) / 100 for d in dates for m in mats}
     tp = lambda d, m: tp_map[(d, m)]
@@ -45,7 +45,7 @@ def test_perfect_match_passes_gate():
 
 def test_large_divergence_fails_gate():
     dates = pd.date_range("2015-01-01", periods=60, freq="MS")
-    mats = [5.0, 10.0]
+    mats = [2.0, 10.0]
     rng = np.random.default_rng(1)
     base = {(d, m): float(rng.normal()) / 100 for d in dates for m in mats}
     ours = _make_frame(dates, mats, lambda d, m: base[(d, m)], lambda d, m: 0.02,
@@ -71,8 +71,8 @@ def test_align_requires_columns():
 
 def test_gate_missing_maturity_is_fail():
     dates = pd.date_range("2015-01-01", periods=30, freq="MS")
-    # Only 5y present; 10y missing from the overlap -> gate must fail.
-    ours = _make_frame(dates, [5.0], lambda d, m: 0.0, lambda d, m: 0.0, lambda d, m: 0.0)
+    # Only 2y present; 10y missing from the overlap -> gate must fail.
+    ours = _make_frame(dates, [2.0], lambda d, m: 0.0, lambda d, m: 0.0, lambda d, m: 0.0)
     bench = ours.copy()
     gate = evaluate_gate(metrics(align(ours, bench)))
     assert gate["passed"] is False

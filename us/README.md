@@ -37,6 +37,7 @@ panel = build_yield_panel()          # date x maturity, decimal yields -> feed /
   b3·(L1(n/τ2)−e^(−n/τ2))`, with `L1(x)=(1−e^(−x))/x`. Implemented standalone
   because the vendored engine's numeric `ns_yield` has a β₃-denominator bug
   (see `model/README.md`); a test guards against reintroducing it.
-- **Egress:** `www.federalreserve.gov` is blocked in some environments. Refresh
-  the cache where egress is open, or set `GSW_URL` to a mirror. The reconstructed
-  10y is cross-checked against the published `SVENY10` (expected < 1 bp).
+- **Egress:** `www.federalreserve.gov` is blocked by this environment's egress
+  policy. See `validation/README.md` → "Unblocking the real data" for the
+  allowlist steps and the first-access runbook. The reconstructed 10y is
+  cross-checked against the published `SVENY10` (expected < 1 bp).
