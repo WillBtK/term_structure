@@ -35,8 +35,10 @@ panel = build_yield_panel()          # date x maturity, decimal yields -> feed /
   in **decimal** (÷100) to match `/model`'s contract.
 - Svensson yield: `y(n) = b0 + b1·L1(n/τ1) + b2·(L1(n/τ1)−e^(−n/τ1)) +
   b3·(L1(n/τ2)−e^(−n/τ2))`, with `L1(x)=(1−e^(−x))/x`. Implemented standalone
-  because the vendored engine's numeric `ns_yield` has a β₃-denominator bug
-  (see `model/README.md`); a test guards against reintroducing it.
+  (numpy only), cross-checked to < 1 bp against the Fed's published `SVENY`.
+- `us/engine.py` feeds this panel to the Julia term-premium engine
+  (`model/engine_julia`) and returns the canonical decomposition frame; see
+  `model/README.md`.
 - **Egress:** `www.federalreserve.gov` must be on the environment's egress
   allowlist (it currently is). See `validation/README.md` → "Data access" if it
   is ever blocked again. The reconstructed 10y is cross-checked against the

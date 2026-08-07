@@ -1,34 +1,30 @@
-"""Term-premium decomposition for the (AF)NS model.
+"""Term-premium decomposition math for a Gaussian affine (AF)NS model.
 
-The vendored engine estimates the state-space model and prices arbitrage-free
-yields, but does not split a yield into its expectations and term-premium
-components. This module adds that step.
+The production engine is ``TermStructureModels.jl`` (see ``us/engine.py`` and
+``model/engine_julia``). These pure-numpy/scipy functions are our own,
+independently-validated implementation of the AFNS decomposition, retained as a
+lightweight **cross-check** of the engine's output (they were validated against
+synthetic ground truth to 3e-7 bp; see ``validation/FINDINGS_phase1d.md``).
 
 For a Gaussian affine model the nominal yield is
 
     y(tau) = fitted arbitrage-free yield = B(tau)'x + a(tau)          (Q pricing)
 
-where ``B`` are the Nelson-Siegel factor loadings and ``a(tau) = -C(tau)/tau`` is
-the yield-adjustment (convexity) term the engine already computes. The
-expectations component is the average expected future short rate under the
-**physical (P)** measure,
+where ``B`` are the factor loadings and ``a(tau)`` the yield-adjustment
+(convexity) term. The expectations component is the average expected future
+short rate under the **physical (P)** measure,
 
     y~(tau) = (1/tau) * integral_0^tau E^P_t[r_{t+s}] ds
             = rho'theta + rho' * [ K^{-1}(I - e^{-K tau}) / tau ] * (x_t - theta)
 
-with short rate ``r_t = rho'x_t`` (``rho = lim_{tau->0} B(tau)``), P-mean
-``theta`` and P mean-reversion ``K`` (both estimated by the engine). The term
-premium is the difference:
+with short rate ``r_t = rho'x_t``, P-mean ``theta`` and P mean-reversion ``K``.
+The term premium is the difference ``TP(tau) = y(tau) - y~(tau)``, matching the
+SF Fed convention (fitted = expected + term premium). Reference:
+Christensen, Diebold & Rudebusch (2011); the expected-short-rate projection is
+the standard Gaussian-ATSM result.
 
-    TP(tau) = y(tau) - y~(tau).
-
-This matches the SF Fed convention (fitted = expected + term premium). See
-Christensen, Diebold & Rudebusch (2011) for the AFNS yield-adjustment term; the
-expected-short-rate projection is the standard Gaussian-ATSM result.
-
-The core functions (``expected_rate_yields``, ``fitted_yields``,
-``term_premium``) are pure numpy/scipy and unit-testable without the engine;
-``decompose`` wires them to the engine's ``nss`` loadings.
+All functions here are pure numpy/scipy and unit-testable with no external
+dependencies (``model/tests/test_term_premium.py``).
 """
 from __future__ import annotations
 
@@ -39,8 +35,6 @@ __all__ = [
     "expected_rate_yields",
     "fitted_yields",
     "term_premium",
-    "short_rate_loading",
-    "decompose",
 ]
 
 
@@ -102,74 +96,3 @@ def fitted_yields(states: np.ndarray, B: np.ndarray, a: np.ndarray) -> np.ndarra
 def term_premium(fitted: np.ndarray, expected: np.ndarray) -> np.ndarray:
     """TP = fitted arbitrage-free yield - expected-average-short-rate yield."""
     return np.asarray(fitted, dtype=float) - np.asarray(expected, dtype=float)
-
-
-def short_rate_loading(lambda_: float, lambda_svensson=None, eps: float = 1e-8) -> np.ndarray:
-    """Short-rate loading rho = lim_{tau->0} B(tau), read off the NS loadings.
-
-    Avoids hardcoding the factor order: evaluates ``nss.B_matrix`` at a tiny
-    maturity. For (AF)NS this yields [1, 1, (1,) 0, 0] — level + slope(s), with
-    curvature loadings vanishing at the short end.
-    """
-    from arbfree_dyn_ns.nss import B_matrix
-
-    row = B_matrix(lambda_, np.array([eps], dtype=float), lambda_svensson).values[0]
-    return np.asarray(row, dtype=float)
-
-
-def decompose(
-    states,
-    K,
-    theta,
-    Sigma,
-    lambda_,
-    grid,
-    lambda_svensson=None,
-    dates=None,
-):
-    """Full decomposition from engine parameters -> canonical tidy frame.
-
-    Builds the NS loadings ``B`` and the yield-adjustment ``a = -C/tau`` from the
-    engine's ``nss`` module (using the estimated ``Sigma``, ``lambda``), computes
-    the fitted yield, the P expected-rate yield, and the term premium, and
-    returns a long-format ``pandas.DataFrame`` with columns
-    ``date, maturity, term_premium, expected_rate, fitted_yield`` (decimal) —
-    the schema consumed by ``validation.compare_afns``.
-
-    ``states`` is (T, n); ``dates`` (len T) supplies the date index (defaults to
-    a RangeIndex if omitted).
-    """
-    import pandas as pd
-
-    from arbfree_dyn_ns.nss import B_matrix, C_vector
-
-    states = np.asarray(states, dtype=float)
-    grid = np.asarray(grid, dtype=float).ravel()
-
-    B = B_matrix(lambda_, grid, lambda_svensson).values  # (m, n)
-    a = np.asarray(C_vector(lambda_, grid, None, Sigma, lambda_svensson), dtype=float)
-    rho = short_rate_loading(lambda_, lambda_svensson)
-
-    fit = fitted_yields(states, B, a)
-    exp = expected_rate_yields(states, K, theta, rho, grid)
-    tp = term_premium(fit, exp)
-
-    if dates is None:
-        dates = np.arange(states.shape[0])
-    dates = np.asarray(dates)
-
-    frames = []
-    for j, tau in enumerate(grid):
-        frames.append(
-            pd.DataFrame(
-                {
-                    "date": dates,
-                    "maturity": float(tau),
-                    "term_premium": tp[:, j],
-                    "expected_rate": exp[:, j],
-                    "fitted_yield": fit[:, j],
-                }
-            )
-        )
-    out = pd.concat(frames, ignore_index=True)
-    return out[["date", "maturity", "term_premium", "expected_rate", "fitted_yield"]]

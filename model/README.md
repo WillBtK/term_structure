@@ -1,64 +1,52 @@
-# `/model` — shared AFNS engine (vendored)
+# `/model` — shared term-structure engine
 
-This is the single, country-agnostic estimation engine for the whole project.
-Per the top-level `README.md`, there is **one model, one codebase**: only the
-per-country data ingestion (`/us`, `/germany`, ...) differs — never fork the
-model per country.
+The estimation/term-premium engine for the project. Per the top-level
+`README.md` there is **one model, one codebase**: only per-country data ingestion
+(`/us`, `/germany`, ...) differs.
 
-## Provenance
+## Engine: `TermStructureModels.jl` (Julia, MIT)
 
-Vendored from `snejens/arbfree_dynamic_nelson_siegel` @ `2a402a8` (2024-05-19).
-It implements the arbitrage-free Dynamic (Generalized) Nelson-Siegel model of
-Christensen, Diebold & Rudebusch (2011), estimated by Kalman filter + MLE, with
-an optional Svensson (5-factor, `n=5`) extension alongside the 3-factor (`n=3`)
-form.
+We use [`TermStructureModels.jl`](https://github.com/econPreference/TermStructureModels.jl)
+— a Gaussian affine term-structure model (JSZ constrained by the AFNS
+restriction of Christensen–Diebold–Rudebusch 2011), estimated by Bayesian MCMC,
+which natively decomposes yields into an expected-average-short-rate component
+and a term premium.
 
-> **License:** upstream has none. See `LICENSE.NOTE.md` — do not distribute
-> externally until a license is granted.
+**Why this engine.** We first built on a vendored Python AFNS repo
+(`snejens/arbfree_dynamic_nelson_siegel`) but a like-for-like comparison
+(`validation/FINDINGS_phase1e.md`) showed that engine tracked the SF Fed
+benchmark far worse than this one (2y term-premium correlation 0.43 vs 0.85) and
+it carried no license. It has been removed; this MIT-licensed, purpose-built
+package is the engine.
 
-## Layout
+### Layout
+- `engine_julia/` — pinned Julia project: `Project.toml` + `Manifest.toml`
+  (TermStructureModels v0.6.0, CSV, DataFrames) and `estimate_tp.jl`, the driver
+  that reads a yield-panel CSV (percent) and writes the canonical term-premium
+  frame (decimal). Called from Python via `us/engine.py`.
+- `term_premium.py` — our own pure-numpy/scipy AFNS decomposition math, validated
+  against synthetic ground truth (3e-7 bp) and kept as an independent
+  **cross-check** of the Julia output. Not on the production path.
+- `tests/` — unit tests for `term_premium.py`.
 
-- `arbfree_dyn_ns/` — the vendored Python package (verbatim except `config.py`).
-- `arbfree_dyn_ns/config_upstream.py.orig` — the original upstream `config.py`.
-- `requirements.lock.txt` — upstream's exact late-2023 pins. We reproduce these
-  first for numerical fidelity during SF Fed validation, then upgrade later.
+### Data contract
+`us/engine.estimate_term_premium(panel)` consumes a `DataFrame` indexed by date,
+columns = maturities in years, values = zero yields in **decimal**, and returns
+the canonical long frame `date, maturity, term_premium, expected_rate,
+fitted_yield` (decimal) — consumed by `validation/compare_afns`.
 
-## Key modules and the estimation interface
+## Environment / reproducibility
 
-- `nss.py` — Nelson-Siegel-Svensson factor loadings; `B_matrix(lambda, grid,
-  lambda_svensson)` and `C_vector(...)` build the affine yield map `y = B x + C`.
-  ⚠️ **Known upstream bug:** the numeric `ns_yield()` computes the β₃ (Svensson)
-  term with denominator `lambda_ * T` instead of `lambda_svensson * T` (compare
-  the correct symbolic `nss_formula`). Do **not** reuse `ns_yield()` for Svensson
-  yield reconstruction; `/us/reconstruct.py` implements the correct formula
-  standalone. This does not affect the Kalman/MLE path, which uses `B_matrix`.
-- `kalman.py` — Kalman filter (numba-jit).
-- `optimization.py` — `kalman_optimize(...)`: the MLE driver over the state-space
-  parameters. Imports IPython for progress display.
-- `curves.py`, `packing.py`, `utils.py` — curve helpers, parameter (un)packing,
-  utilities.
-- `buba_data.py`, `lw_data.py` — upstream's Bundesbank / Krippner loaders. Kept
-  for reference; **not used** by the US pipeline. They illustrate the data
-  contract our loaders follow.
-
-### Data contract (what a country loader must produce)
-
-`optimization.kalman_optimize` consumes `synth_yields`: a `pandas.DataFrame`
-indexed by observation date, with **columns = maturities in years** (the grid)
-and **values = zero-coupon yields in decimal** (e.g. `0.0423`, not `4.23`).
-`/us` produces exactly this on the common grid `[0.25, 0.5, 1, 2, 3, 5, 7, 10]`.
-
-See `main.py` (`synth_yields_for_main`, `initial_solution`) for how upstream
-wires a data source, an initial parameter guess, and `kalman_optimize` together
-— the US driver follows the same shape with our grid and `data_source="us"`.
-
-## Environment
-
-Requires Python ≤3.12 (numba 0.58.1 / llvmlite 0.41.1 pins). Set
-`ARBFREE_BASE_PATH` to choose where caches/logs/pickles are written (defaults to
-`~/.cache/arbfree-dyn-ns`).
+Requires Julia (installed via juliaup) plus the pinned project.
 
 ```bash
-python -m venv .venv && . .venv/bin/activate
-pip install -r model/requirements.lock.txt
+# 1) Install Julia (juliaup). Needs egress to the Julia channels:
+#    *.julialang.org (installer + package servers) and *.julialang.net (storage).
+curl -fsSL https://install.julialang.org | sh -s -- -y
+# 2) Instantiate the pinned engine project (packages resolve from Manifest.toml):
+julia --project=model/engine_julia -e 'using Pkg; Pkg.instantiate()'
 ```
+
+The Python side (`us/engine.py`) finds julia via `JULIA_BIN` or
+`~/.juliaup/bin/julia`, and honors `JULIA_DEPOT_PATH`. First run precompiles the
+Julia packages (a few minutes); subsequent runs are fast.

@@ -1,17 +1,13 @@
-# Data layer (/us) and validation harness dependencies.
+# Python dependencies for the data layer (/us), the validation harness
+# (/validation), and the term_premium.py cross-check math (/model).
 #
-# These are the packages needed to run `/us` (GSW fetch + reconstruction) and
-# the `/validation` comparison core. Versions are pinned consistent with the
-# engine lock (model/requirements.lock.txt) for the "pin first, upgrade later"
-# validation-fidelity phase.
-#
-# The full AFNS engine in /model additionally needs numba, sympy, IPython, etc.
-# — install those from model/requirements.lock.txt in a Python <=3.12 venv when
-# running the model itself.
+# The estimation engine itself is Julia (TermStructureModels.jl); see
+# model/README.md for the Julia install + the engine's pinned Project/Manifest.
+# The Python side only shells out to it (us/engine.py), so no Julia deps here.
 
 numpy==1.26.2
 pandas==2.1.3
-scipy==1.11.4
+scipy==1.11.4            # term_premium.py (matrix exponential)
 pyarrow>=14,<16          # parquet caches
 requests>=2.31           # GSW / SF Fed downloads (urllib fallback if absent)
 

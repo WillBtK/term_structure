@@ -30,11 +30,10 @@ Both sides are long-format frames with columns
   `Fit Treasury Yields`, columns `FTERMP/FEXPTR/FYIELDnnYR`) into the canonical
   frame — daily, decimal, integer maturities 1..10y (overlap with our grid:
   {1,2,3,5,7,10}y).
-- **Ours (AFNS):** run the vendored `/model` engine on the US GSW yield panel
-  (`us.fetch_gsw.build_yield_panel`) and decompose the fit into the risk-neutral
-  expected-rate path and the term premium, emitted in the canonical schema.
-  This model-integration step needs the full numba/sympy/IPython stack and is the
-  **next step**.
+- **Ours (AFNS):** `us.engine.run(freq, start, end)` builds the US GSW panel and
+  runs the Julia engine (`model/engine_julia`, TermStructureModels.jl) to produce
+  the term-premium decomposition in the canonical schema. (Our own
+  `model/term_premium.py` provides an independent pure-Python cross-check.)
 
 ### Data layer validated against the benchmark's inputs
 
@@ -54,12 +53,13 @@ from validation.sf_fed import load_sf_fed_series
 bench = load_sf_fed_series(refresh=True)          # canonical SF Fed frame
 print(bench.head())
 PY
-# full comparison, once the /model side produces `ours`:
+# full comparison (Julia engine produces `ours`):
 python - <<'PY'
+from us.engine import run
 from validation.sf_fed import load_sf_fed_series
 from validation.compare_afns import run_comparison
+ours  = run(freq="monthly", start="1987-01-01")   # Julia engine -> canonical frame
 bench = load_sf_fed_series()
-ours  = ...  # from the /model run on the US panel (canonical schema)
 res = run_comparison(ours, bench)
 print("PASS" if res["gate"]["passed"] else "FAIL", res["report_path"])
 PY
@@ -91,8 +91,8 @@ a documented escape hatch.
    8-point grid).
 2. **SF Fed benchmark.** `load_sf_fed_series(refresh=True)` caches the canonical
    frame from `FRBSF_Term_Model_Data.xlsx` (1998–present, 1..10y).
-3. **Model run + decomposition** (the remaining hard core): estimate plain AFNS
-   on the US panel via `/model`, decompose into expected-rate path + term
-   premium in the canonical schema, then `run_comparison(ours, bench)` and check
-   the 2y/10y gate. Provision a Python ≤3.12 venv with
-   `model/requirements.lock.txt` (numba/sympy/IPython) for this step.
+3. **Model run + decomposition.** `us.engine.run(...)` estimates the AFNS via the
+   Julia engine and returns the canonical frame; `run_comparison(ours, bench)`
+   checks the 2y/10y term-premium gate. Requires Julia (see `model/README.md`).
+   Current result (monthly 1987+): fitted yields ~3–4 bp vs SF Fed; term premium
+   2y corr 0.85, 10y corr 0.83 (see `FINDINGS_phase1e.md`).

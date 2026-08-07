@@ -3,14 +3,9 @@
 The Fed Board / GSW curve is stored parametrically (Svensson six-parameter
 form); we reconstruct the yield at any maturity on demand rather than storing a
 dense grid. This module implements the Svensson zero-coupon yield formula
-*standalone* on purpose:
-
-  * The vendored engine's numeric ``arbfree_dyn_ns.nss.ns_yield`` has a bug in
-    its Svensson (beta3) term — it divides by ``lambda_ * T`` instead of
-    ``lambda_svensson * T`` (see model/README.md). We do not want that in the
-    data path.
-  * Keeping this dependency-light (numpy only) makes it trivially testable
-    without the heavy numba/sympy/IPython stack the engine needs.
+standalone (numpy only) — a small, self-contained, unit-tested reference for the
+published GSW convention, cross-checked against the Fed's own published SVENY
+columns to < 1 bp.
 
 Convention: BETA0-3 are in PERCENT and TAU1-2 in YEARS (as published). The
 Svensson yield below therefore comes out in percent; ``reconstruct_grid``
