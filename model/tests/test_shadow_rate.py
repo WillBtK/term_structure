@@ -43,6 +43,16 @@ def test_omega_grid_matches_reference_and_monotone():
     assert np.all(np.diff(fast) >= -1e-9)  # non-decreasing
 
 
+def test_omega_closed_form_matches_numeric_diagonal():
+    # CR (WP2013-07 p.12) closed form vs the numeric conditional-variance integral
+    # (ρ'V(τ)ρ). For diagonal Σ these are the same object -> cross-validates both.
+    u = np.linspace(0.0, 10.0, 40)
+    cf = sr.omega_closed_form(LAM, SIGMA, u)      # SIGMA is diagonal
+    num = sr.omega_on_grid(LAM, SIGMA, u)
+    assert np.allclose(cf, num, atol=5e-4)
+    assert cf[0] == pytest.approx(0.0, abs=1e-12)
+
+
 def test_collapse_to_plain_afns_at_high_rates():
     # High shadow short rate: ELB yields collapse to unbounded (shadow) yields.
     # Collapse is tight at the short/medium end; a tiny wedge persists at the very

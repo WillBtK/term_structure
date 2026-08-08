@@ -19,12 +19,21 @@ State `x = (L, S, C)` (level, slope, curvature). Conventions:
 - **ELB yield:** `y_lb(τ) = (1/τ) ∫_0^τ f_lb(u) du` (numeric quadrature).
 
 ω(tau) — the conditional volatility of the shadow short rate at horizon τ under
-the risk-neutral (Q) dynamics — is the key modeling choice. We use the AFNS
-Q-conditional standard deviation of `s`:
-      ω(tau)^2 = rho' V(tau) rho,   V(tau) = ∫_0^τ e^{-K^Q u} ΣΣ' e^{-K^Q' u} du,
-with the AFNS risk-neutral mean-reversion `K^Q = [[0,0,0],[0,λ,-λ],[0,0,λ]]`.
-This matches Christensen-Rudebusch; it is flagged here as the assumption to
-confirm against the external shadow-rate benchmarks in validation.
+the risk-neutral (Q) dynamics. Verified against Christensen & Rudebusch, "Est-
+imating Shadow-Rate Term Structure Models with Near-Zero Yields" (FRB SF WP
+2013-07): their eq. for the shadow forward (their eq. 8) has loadings
+`[1, e^{-λτ}, λτ e^{-λτ}]`, the forward yield-adjustment `A_f = -∂A/∂T =
+-½ B'ΣΣ'B`, the ELB forward `f_lb = f·Φ(f/ω)+ω·φ(f/ω)` (bound=0; generalized to
+ELB≠0 per CR 2016), and the closed-form ω²(τ) on p.12. For the independent-
+factor (diagonal Σ) B-AFNS(3) we use, that closed form is
+
+      ω(τ)² = σ11²·τ + σ22²·(1-e^{-2λτ})/(2λ)
+            + σ33²·[(1-e^{-2λτ})/(4λ) - ½τe^{-2λτ} - ½λτ²e^{-2λτ}]
+
+(`omega_closed_form`), which for diagonal Σ equals `ρ'V(τ)ρ`,
+`V(τ)=∫_0^τ e^{-K^Q u}ΣΣ'e^{-K^Q' u}du`, `K^Q=[[0,0,0],[0,λ,-λ],[0,0,λ]]`
+(`omega_on_grid`) — the two agree in tests. (For a *full* Σ, CR's ω² carries
+extra cross terms; use the numeric path there.)
 
 All quantities except `f_s` depend only on parameters (λ, Σ, ELB), not on the
 state — so `precompute(...)` builds them once per parameter vector and
@@ -111,6 +120,34 @@ def omega(lambda_: float, Sigma: np.ndarray, tau: np.ndarray) -> np.ndarray:
     return out
 
 
+def omega_closed_form(lambda_: float, Sigma: np.ndarray, tau: np.ndarray) -> np.ndarray:
+    """ω(tau) via the Christensen-Rudebusch closed form (WP 2013-07, p.12), for
+    the **independent-factor** (diagonal Σ) B-AFNS(3):
+
+        ω(τ)² = σ11²·τ + σ22²·(1-e^{-2λτ})/(2λ)
+              + σ33²·[(1-e^{-2λτ})/(4λ) - ½τe^{-2λτ} - ½λτ²e^{-2λτ}].
+
+    Exact and fast (no quadrature). For a *full* lower-triangular Σ, CR's ω²
+    includes additional cross terms that differ from ρ'V(τ)ρ; use the numeric
+    ``omega_on_grid`` there. We estimate with diagonal Σ, so this is exact.
+    """
+    tau = np.asarray(tau, dtype=float)
+    s = np.diag(np.asarray(Sigma, dtype=float))
+    l = float(lambda_)
+    e2 = np.exp(-2.0 * l * tau)
+    v = (
+        s[0] ** 2 * tau
+        + s[1] ** 2 * (1.0 - e2) / (2.0 * l)
+        + s[2] ** 2 * ((1.0 - e2) / (4.0 * l) - 0.5 * tau * e2 - 0.5 * l * tau**2 * e2)
+    )
+    return np.sqrt(np.clip(v, 0.0, None))
+
+
+def _is_diagonal(M: np.ndarray, tol: float = 1e-12) -> bool:
+    M = np.asarray(M, dtype=float)
+    return bool(np.all(np.abs(M - np.diag(np.diag(M))) <= tol))
+
+
 def omega_on_grid(lambda_: float, Sigma: np.ndarray, u: np.ndarray) -> np.ndarray:
     """ω on a sorted grid `u` (with u[0]=0) via one cumulative-trapezoid pass.
 
@@ -176,7 +213,9 @@ def precompute(lambda_: float, Sigma: np.ndarray, elb: float,
     u = np.linspace(0.0, tau_max, K)
     b_u = forward_loadings(lambda_, u)
     a_u = forward_convexity(lambda_, u, Sigma)
-    omega_u = omega_on_grid(lambda_, Sigma, u)
+    # Exact CR closed form for diagonal (independent-factor) Σ; numeric otherwise.
+    omega_u = (omega_closed_form(lambda_, Sigma, u) if _is_diagonal(Sigma)
+               else omega_on_grid(lambda_, Sigma, u))
 
     # Per-maturity trapezoidal weights over u up to τ_i, divided by τ_i.
     W = np.zeros((grid.size, K))
