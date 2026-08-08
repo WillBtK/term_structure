@@ -42,20 +42,26 @@ def _panel(freq, start, end):
 
 
 def run_shadow(freq: str = "monthly", start="1987-01-01", end=None,
-               elb: float | None = None, maxiter: int = 4000):
-    """Estimate the US shadow-rate AFNS and return a results dict."""
+               elb: float | None = None, maxiter: int = 4000,
+               warm_start: "ekf.ShadowParams | None" = None):
+    """Estimate the US shadow-rate AFNS (full K^P) and return a results dict.
+
+    `warm_start` (e.g. a prior diagonal-K^P fit) initializes the optimizer.
+    """
     elb = ELB if elb is None else elb
     panel = _panel(freq, start, end)
     grid = np.asarray(panel.columns, dtype=float)
     Y = panel.to_numpy(dtype=float)
     dt = 7.0 / 365.2425 if freq == "daily" else 1.0 / 12
-    logger.info("estimating shadow AFNS on %d obs (%s..%s) ELB=%.4f",
+    logger.info("estimating shadow AFNS (full K^P) on %d obs (%s..%s) ELB=%.4f",
                 len(panel), panel.index.min().date(), panel.index.max().date(), elb)
 
     npy = 24
-    params, res, ll = ekf.estimate(Y, grid, elb, dt, maxiter=maxiter, n_per_year=npy)
-    logger.info("estimation done: loglik=%.1f success=%s lambda=%.4f kappa=%s",
-                ll, res.success, params.lambda_, np.round(params.kappa, 4))
+    params, res, ll = ekf.estimate(Y, grid, elb, dt, warm_start=warm_start,
+                                   maxiter=maxiter, n_per_year=npy)
+    logger.info("estimation done: loglik=%.1f success=%s lambda=%.4f eig(K^P)=%s",
+                ll, res.success, params.lambda_,
+                np.round(np.sort(np.linalg.eigvals(params.K).real), 4))
 
     xs, fits = ekf.filter_states(params, Y, grid, elb, dt, n_per_year=npy)
     shadow = xs[:, 0] + xs[:, 1]                    # s = L + S
