@@ -59,22 +59,98 @@ reconstruction matches published `SVENY` to **0.005 bp**. The EKF/Kim measuremen
 loops mask missing maturities per date, so the ragged early sample is used
 without dropping the 1960s.
 
-## Strand C — regime-switching AFNS (1961+)  [run in progress]
+## Historical term premium to 1961 (single-regime, bias-corrected)  ★ stagflation
+
+Plain-AFNS on the full **1961-2026** sample (782 monthly obs, ragged early 10y),
+with BRW bias-correction (persistence pushed to near-unit-root, ρ 0.990→0.999).
+10y term premium by era:
+
+| era | 10y TP (ML) | 10y TP (bias-corrected) |
+|---|---|---|
+| 1970s stagflation (1970-85) | 2.03% | **1.35%** |
+| post-1990 | 0.90% | 1.37% |
+| peak (bias-corrected) | — | **3.95% (1992-09)** |
+
+Annual bias-corrected 10y TP climbs through the era: ~0.2-1.5% in the 1970s, then
+**2.5-2.9% in 1983-85** (the Volcker-disinflation / high-real-yield aftermath).
+
+**The key, slightly counter-intuitive result:** under properly persistent
+(bias-corrected) dynamics the *pure 1970s stagflation* term premium is **moderate
+(~1.3% at 10y), not extreme** — because with a near-unit-root short rate, the high
+1970s long yields are mostly attributed to rationally-expected high *future* short
+rates (persistent inflation), leaving a moderate premium. The premium is *higher*
+in the early-1980s to early-1990s disinflation than at the 1970s inflation peak
+itself. Note the direction of the bias-correction is state-dependent: it *lowers*
+the 1970s premium (more of the high rate is "expected") but *raises* the low-rate
+post-1990 premium — a clean illustration of why the persistence assumption, not
+the fit, drives the level (the whole ACM-sensitivity point). Caveat: the shape is
+sensitive to whether the 1970s is allowed its own dynamics — see regime-switching.
+
+## Strand C — regime-switching AFNS (1961+)
 
 Markov-switching AFNS on the P-dynamics (`model/regime_switching.py`, Kim 1994
 filter, 2 regimes, common arbitrage-free Q-loadings). Synthetic 2-regime ground
-truth is recovered (regime sequence classified >90% correct). Empirical 1961+
-estimation and the regime-conditional / stagflation term premium are being
-estimated; results to be appended here.
+truth is recovered (regime sequence >90% correct; 7 unit tests). Empirical 1961+
+fit (782 obs, warm-started from the plain-AFNS optimum): loglik **30368 vs 30032**
+single-regime (+335 — a distinct regime genuinely improves the fit).
 
-## Strand D — ML estimation of the ELB  [run in progress]
+Two regimes emerge with sharply different character:
+
+| | calm regime | **high-inflation regime** |
+|---|---|---|
+| long-run level θ_L | 1.7% | **11.2%** |
+| factor vols σ (level/slope/curv) | 50/81/243 bp | **97/322/508 bp** |
+| stay-probability | 0.95 | 0.86 |
+| share of months | 77% | **23%** |
+
+**The high-inflation regime is dated sensibly** — smoothed probability peaks in
+**1973-75** (first oil shock, prob 0.79-0.98) and **1980-82** (second oil shock /
+Volcker, 0.85-1.00), covering ~52% of 1970-85; it is essentially absent in the
+calm 1990s-2010s. So the model cleanly *identifies when* the stagflation regime
+was, with its own much higher mean and roughly double the factor volatility.
+
+**Honest caveat on the level.** This fit hit its iteration budget without meeting
+the tight convergence tolerance (`success=False`), and the regime-*conditional*
+term premium — a counterfactual "if the economy sat in the θ_L=11% regime at date
+t" — is noisy and can go negative (the current state usually sits far below an 11%
+mean). So the clean *quantitative* stagflation term-premium level is best taken
+from the single-regime bias-corrected estimate above (**~1.3% at 10y**, peaking
+~2.9% in the mid-1980s); the regime model's robust contribution is the *dating* of
+the high-inflation regime and the confirmation that it carries distinctly higher
+persistence and volatility. A longer, multi-start regime run (or a 3-regime
+variant) is the natural refinement if a converged regime-conditional level is
+wanted.
+
+## Summary — the stagflation term premium
+
+Combining the two historical runs: a stagflation regime is real and identifiable
+(1973-75, 1980-82) with ~2× the factor volatility of calm periods, but the 10y
+*term premium* attributable to it is **moderate, ~1-1.5%**, not extreme — because
+under properly persistent dynamics most of the high 1970s long yields reflect
+rationally-expected high future short rates, not premium. The premium peaked
+*after* the inflation peak (early-1980s to early-1990s, ~2.5-4%). And the whole
+level is sensitive to the persistence assumption — exactly the ACM-style
+sensitivity that motivated the bias-correction, now quantified.
+
+## Strand D — ML estimation of the ELB (US, 1987+)
 
 `ekf.estimate(..., estimate_elb=True)` adds the ELB as a free parameter
-(Christensen-Rudebusch). Likelihood-profile tests confirm identification when
-yields approach the bound. US identification is expected to be weak (the US
-barely hit the bound); the ML value, its profile, and the comparison to the
--0.35% calibration are being estimated and will be appended. For Germany/Japan
-(clearly negative rates) this becomes the primary ELB method.
+(Christensen-Rudebusch). On the US:
+
+- **ML ELB = +0.16%** (vs the -0.35% calibration), likelihood gain +223.
+- The profile is **asymmetric**: the data sharply rules out any bound *above*
+  ~+0.2% (a floor cannot sit above the lowest observed yields — the negloglik
+  collapses), but is nearly flat going *more negative* (Δloglik only ~180 from 0%
+  to -2%). So the US ELB is **identified from above, weakly from below** — the ML
+  value just pins to the observed short-yield floor (US yields never went
+  negative). This confirms keeping the US ELB a calibrated input with a
+  sensitivity band, and explains the Phase-2 shallow shadow rate: the data prefer
+  a near-zero bound, not a deeply negative one.
+- For Germany/Japan (clearly negative rates) ML estimation will be well-identified
+  and is the primary ELB method. The revealed bound abroad (SNB/ECB/BoJ ≈
+  -0.75/-0.50/-0.10%) anchors the institutional cash-holding cost — "digital cash"
+  makes warehousing large balances *harder*, so the bound is more, not less,
+  binding than a retail storage-cost calculation implies.
 
 ## Strand E — portability / surveys (decision)
 
