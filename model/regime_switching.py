@@ -287,17 +287,36 @@ def default_init(yields, grid, S: int = 2) -> RSParams:
 
 
 def estimate(yields, grid, dt, S: int = 2, warm_start: "RSParams | None" = None,
-             maxiter: int = 8000, n_per_year: int = 24, restarts: int = 2, seed: int = 0):
+             maxiter: int = 8000, n_per_year: int = 24, restarts: int = 2, seed: int = 0,
+             fix_lambda: "float | None" = None):
     """QML/Kim-filter estimation via Nelder-Mead with restarts.
 
     Multi-start guards against the multi-modal regime likelihood; label-switching
     is resolved post-hoc by ordering regimes by persistence (see ``order_regimes``).
+
+    ``fix_lambda`` holds the common NS decay λ fixed (dropping it from the
+    optimized vector) — used to share λ with a spliced shadow-rate model so the
+    L/S/C factors are directly comparable, and it removes a weakly-identified
+    parameter (aiding convergence).
     """
     from scipy.optimize import minimize
 
     init = warm_start if warm_start is not None else default_init(yields, grid, S)
-    x0 = init.pack()
-    obj = lambda v: negloglik(v, yields, grid, dt, S, n_per_year)
+    lam_idx = 9 * S  # index of log(lambda) in RSParams.pack()
+
+    if fix_lambda is not None:
+        loglam = float(np.log(max(fix_lambda, _FLOOR)))
+
+        def _full(v):
+            return np.insert(v, lam_idx, loglam)  # re-insert the fixed log(lambda)
+        x0 = np.delete(init.pack(), lam_idx)
+        obj = lambda v: negloglik(_full(v), yields, grid, dt, S, n_per_year)
+        finalize = lambda v: RSParams.unpack(_full(v), S)
+    else:
+        x0 = init.pack()
+        obj = lambda v: negloglik(v, yields, grid, dt, S, n_per_year)
+        finalize = lambda v: RSParams.unpack(v, S)
+
     rng = np.random.default_rng(seed)
     res = None
     for r in range(max(restarts, 1)):
@@ -307,7 +326,15 @@ def estimate(yields, grid, dt, S: int = 2, warm_start: "RSParams | None" = None,
         if res.success:
             break
         x0 = res.x + 0.05 * rng.standard_normal(res.x.size)
-    return order_regimes(RSParams.unpack(res.x, S)), res, -float(res.fun)
+    return order_regimes(finalize(res.x)), res, -float(res.fun)
+
+
+def regime_mixed(arr: np.ndarray, prob: np.ndarray) -> np.ndarray:
+    """Mix a regime-conditional array ``(T,S,...)`` by regime probabilities
+    ``(T,S)`` into ``(T,...)`` — e.g. mixed factors from ``kim_filter['states']``
+    or a mixed term premium from ``regime_term_premium(...)['term_premium']``."""
+    return np.einsum("ts,ts...->t...", np.asarray(prob, dtype=float),
+                     np.asarray(arr, dtype=float))
 
 
 def order_regimes(p: RSParams) -> RSParams:

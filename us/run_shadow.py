@@ -22,6 +22,7 @@ import pandas as pd
 
 from model import ekf
 from model import shadow_rate as sr
+from model import term_premium as tp
 from us.config import COMMON_GRID, ELB
 from us.fetch_gsw import build_yield_panel
 
@@ -81,15 +82,27 @@ def run_shadow(freq: str = "monthly", start="1987-01-01", end=None,
     free = np.array([sr.elb_yields(xs[t], pre_free) for t in range(len(xs))])
     wedge = fits - free                            # (T, m), ~0 away from bound
 
+    # Shadow-model term premium: fitted (ELB) yield minus the expected-average
+    # *floored* short rate under P (collapses to the plain-AFNS TP away from bound).
+    expected = tp.expected_floored_short_rate_yields(
+        xs, params.K, params.theta, np.diag(params.sigma), elb, sr.RHO, grid,
+        n_per_year=npy)
+    premium = fits - expected                       # (T, m)
+
     idx = panel.index
     shadow_df = pd.DataFrame({"date": idx, "shadow_short_rate": shadow})
+    factors_df = pd.DataFrame(xs, index=idx, columns=["L", "S", "C"])
     fitted_df = pd.DataFrame(fits, index=idx, columns=grid)
     wedge_df = pd.DataFrame(wedge, index=idx, columns=grid)
+    expected_df = pd.DataFrame(expected, index=idx, columns=grid)
+    premium_df = pd.DataFrame(premium, index=idx, columns=grid)
     return {
         "params": params, "loglik": ll, "success": bool(res.success),
         "elb": elb, "grid": grid, "dates": idx,
-        "shadow": shadow_df, "fitted": fitted_df, "wedge": wedge_df,
-        "yield_fit_mad_bp": float(np.mean(np.abs(fits - Y)) * 1e4),
+        "shadow": shadow_df, "factors": factors_df, "fitted": fitted_df,
+        "wedge": wedge_df, "expected_rate": expected_df, "term_premium": premium_df,
+        "states": xs,
+        "yield_fit_mad_bp": float(np.nanmean(np.abs(fits - Y)) * 1e4),
     }
 
 

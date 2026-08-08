@@ -30,9 +30,11 @@ from __future__ import annotations
 
 import numpy as np
 from scipy.linalg import expm
+from scipy.stats import norm
 
 __all__ = [
     "expected_rate_yields",
+    "expected_floored_short_rate_yields",
     "fitted_yields",
     "term_premium",
 ]
@@ -79,6 +81,88 @@ def expected_rate_yields(
         loading = rho @ avg_transition  # (n,)
         out[:, j] = const + dev @ loading
     return out
+
+
+def _pmeasure_vol_on_grid(K: np.ndarray, Sigma: np.ndarray, rho: np.ndarray,
+                          u: np.ndarray) -> np.ndarray:
+    """P-measure conditional vol of the short rate at horizons ``u`` (u[0]=0):
+
+        sigma^P(u) = sqrt( rho' [∫_0^u e^{-K v} ΣΣ' e^{-K' v} dv] rho ).
+
+    Cumulative-trapezoid over ``u`` — O(len(u)) matrix exponentials.
+    """
+    K = np.asarray(K, dtype=float)
+    SS = np.asarray(Sigma, dtype=float) @ np.asarray(Sigma, dtype=float).T
+    rho = np.asarray(rho, dtype=float).ravel()
+    g = np.empty(u.size)
+    for k, t in enumerate(u):
+        E = expm(-K * t)
+        g[k] = rho @ (E @ SS @ E.T) @ rho
+    var = np.zeros(u.size)
+    du = np.diff(u)
+    var[1:] = np.cumsum(0.5 * (g[1:] + g[:-1]) * du)
+    return np.sqrt(np.clip(var, 0.0, None))
+
+
+def expected_floored_short_rate_yields(
+    states: np.ndarray,
+    K: np.ndarray,
+    theta: np.ndarray,
+    Sigma: np.ndarray,
+    elb: float,
+    rho: np.ndarray,
+    grid: np.ndarray,
+    n_per_year: int = 48,
+) -> np.ndarray:
+    """Average expected **floored** short rate under P — the expectations leg of
+    the *shadow-rate* term premium.
+
+    The observed short rate is ``r = max(s, ELB)`` with shadow rate ``s = rho'x``.
+    Since ``s_{t+u}`` is Gaussian under P with mean ``mu_u`` and sd ``sigma^P_u``,
+
+        E^P_t[max(s_{t+u}, ELB)] = ELB + (mu_u-ELB)Φ(d) + sigma^P_u φ(d),
+        d = (mu_u-ELB)/sigma^P_u
+
+    (a Gaussian call struck at ELB — the P-measure analog of the Krippner Q-forward
+    in ``model.shadow_rate``). This function integrates it over ``[0,tau]``:
+    ``ỹ_lb(tau) = (1/tau) ∫_0^tau E^P[max(s,ELB)] du`` on the observed ``grid``.
+
+    As ``ELB → -∞`` (or rates ≫ ELB) it collapses to ``expected_rate_yields`` — so
+    the shadow term premium coincides with the plain-AFNS term premium away from
+    the bound (continuity across a splice with a plain/regime model).
+
+    Parameters mirror ``expected_rate_yields`` plus ``Sigma`` (n,n factor vol, the
+    same Σ used in the P-dynamics innovation) and ``elb``.
+    """
+    from model import shadow_rate as sr  # shared fine u-grid + quadrature weights
+
+    states = np.asarray(states, dtype=float)
+    K = np.asarray(K, dtype=float)
+    theta = np.asarray(theta, dtype=float).ravel()
+    Sigma = np.asarray(Sigma, dtype=float)
+    rho = np.asarray(rho, dtype=float).ravel()
+    grid = np.asarray(grid, dtype=float).ravel()
+
+    # Reuse the shadow-rate quadrature scaffolding: u-grid on [0, max(grid)] and
+    # per-maturity trapezoid weights W with y(tau_i) = Σ_k W[i,k] f(u_k).
+    pre = sr.precompute(0.5, Sigma, elb, grid, n_per_year=n_per_year)
+    u, W = pre.u, pre.weights                                   # (Kk,), (m,Kk)
+
+    sigP = _pmeasure_vol_on_grid(K, Sigma, rho, u)              # (Kk,)
+    mrow = np.array([rho @ expm(-K * t) for t in u])           # (Kk, n): rho'e^{-Ku}
+    dev = states - theta                                        # (T, n)
+    const = float(rho @ theta)
+    mu = const + dev @ mrow.T                                   # (T, Kk): E^P[s_{t+u}]
+
+    floored = np.empty_like(mu)
+    pos = sigP > 0
+    if np.any(~pos):                                            # u=0: sigma=0 -> max
+        floored[:, ~pos] = np.maximum(mu[:, ~pos], elb)
+    if np.any(pos):
+        s = sigP[pos][None, :]
+        d = (mu[:, pos] - elb) / s
+        floored[:, pos] = elb + (mu[:, pos] - elb) * norm.cdf(d) + s * norm.pdf(d)
+    return floored @ W.T                                        # (T, m)
 
 
 def fitted_yields(states: np.ndarray, B: np.ndarray, a: np.ndarray) -> np.ndarray:
