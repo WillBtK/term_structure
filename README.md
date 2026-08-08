@@ -98,6 +98,50 @@ for the shadow-rate, historical, bias-corrected, and regime extensions because i
 exposes `K^P`, handles ragged data, and can estimate the ELB. One model family,
 one codebase, across all four countries.
 
+## Regime-switching extension & the 2008 splice
+
+The full 1961-present US term premium is produced by **two separately-estimated
+models joined at a fixed splice date**, *not* one unified model:
+
+- **Pre-2008-12-31 — regime-switching AFNS** (`model/regime_switching.py`): a
+  2-regime Markov-switching AFNS on the P-dynamics, estimated by the Kim (1994)
+  filter (Hamilton regime filter + Kalman + collapsing). Common arbitrage-free
+  Q-loadings (each regime is AFNS-arbitrage-free; regime-switching risk is left
+  unpriced — the tractable choice, full Dai-Singleton-Yang being the ideal). This
+  leg is **frozen history** — never re-estimated. Output = regime-mixed factors
+  and term premium (weighted by the smoothed regime probabilities).
+- **2008-12-31 onward — shadow-rate AFNS** (`us/run_shadow.py`): the **live**
+  model (re-estimate slow, filter forward daily), which respects the ELB. Its term
+  premium uses the expected-average *floored* short rate under P
+  (`term_premium.expected_floored_short_rate_yields`).
+
+**Why two models, not one.** Combining the Kim collapsing approximation with the
+shadow-rate `max()` nonlinearity in a single estimation compounds two
+approximate/nonlinear techniques (much harder to converge reliably) and breaks the
+weekly/monthly re-estimate + daily-filter-forward cadence above. The splice date
+**2008-12-31** is the ZLB onset — the first date the shadow model does something
+the regime model can't; both legs agree on the positive-rate run-up, so the seam
+is clean, and it cleanly separates frozen history from the live model.
+
+**Common λ.** The regime leg fixes the NS decay λ to the shadow leg's estimate so
+the level/slope/curvature factors are on the same basis at the seam;
+`us/splice.py::continuity_check` reports the two legs' L/S/C agreement over the
+1987-2008 overlap and the factor/term-premium values on both sides of the seam.
+Away from the bound the shadow term premium collapses to the plain-AFNS term
+premium, so the legs coincide over the overlap by construction.
+
+**Volcker window (Oct 1979 - Oct 1982).** The non-borrowed-reserves operating
+procedure produced short-rate volatility from a different policy instrument. The
+2-regime model captures this window *within* its high-volatility regime
+(P(high-vol) ≈ 0.98 there) — a **third dedicated regime is not needed**.
+
+**Validation.** The Kim filter was validated before wiring it in — against an
+exact path-enumeration filter (collapsing correct to ~1e-4 loglik / ~1e-5 regime
+prob) and against the Ang-Bekaert (2002) / Levant-Ma (2017) empirical pattern
+(clean low-vol post-1985; high-vol confined to the 1973-75 oil shock and 1979-82
+Volcker). See `validation/FINDINGS_kim_validation.md` and
+`validation/FINDINGS_phase4.md`.
+
 ## Data sources, per country
 
 | Country | Source | Method | What to pull |
