@@ -12,8 +12,13 @@ short-term rates (Japan since the mid-1990s; Germany/euro area since 2014).
 **Arbitrage-free Nelson-Siegel (AFNS)**, extended with the **Christensen-Rudebusch
 shadow-rate specification** for the zero/negative lower bound.
 
-- Base repo to fork: https://github.com/snejens/arbfree_dynamic_nelson_siegel
-  (AFNS via Kalman filter / MLE, following Christensen, Diebold, and Rudebusch 2011)
+- Engine: [`TermStructureModels.jl`](https://github.com/econPreference/TermStructureModels.jl)
+  (MIT) — a Gaussian affine model (JSZ constrained by the AFNS restriction of
+  Christensen, Diebold, and Rudebusch 2011) with native term-premium
+  decomposition. We initially built on the Python repo
+  `snejens/arbfree_dynamic_nelson_siegel`, but replaced it: it tracked the SF Fed
+  benchmark far worse (2y term-premium correlation 0.43 vs 0.85) and carried no
+  license. See `model/README.md` and `validation/FINDINGS_phase1e.md`.
 - Shadow-rate extension follows: Christensen, Jens H. E., and Glenn D. Rudebusch.
   2015. "Estimating Shadow-Rate Term Structure Models with Near-Zero Yields."
   *Journal of Financial Econometrics* 13 (2): 226-59.
