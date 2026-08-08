@@ -57,6 +57,47 @@ Run each country's shadow rate at 2-3 bound values within its band and confirm
 the profile is stable in shape (even if the level shifts) before treating any
 single run as final.
 
+**Deriving the ELB from data (optional).** The bound can also be *estimated* by
+ML as a free parameter (Christensen-Rudebusch), via `ekf.estimate(...,
+estimate_elb=True)`. It is only identified when yields actually approach the
+bound: for the US — which barely touched it — the ML ELB is weakly identified and
+the calibration + sensitivity band remains the reporting basis; for Germany and
+Japan, which went clearly negative, ML estimation is well identified and is the
+primary method. The revealed bound abroad (SNB/ECB/BoJ reached roughly
+-0.75/-0.50/-0.10% without triggering large-scale cash conversion) is the better
+anchor than a retail currency-storage-cost calculation: the relevant floor is the
+cost of warehousing *institutional-scale* cash, which "digital cash" makes more,
+not less, binding. See `validation/FINDINGS_phase3.md`.
+
+## Sample robustness, historical scope, and regimes (Phase 3)
+
+Like ACM (and unlike survey-anchored models such as D'Amico-Kim-Wei), a
+yields-only affine model's expected-rate/premium split hinges on the estimated
+persistence of the short rate under P, which is weakly identified and biased
+toward *too little* persistence in finite samples — so the premium is understated,
+most severely in the highly persistent 1970s. We address this **without** giving
+up portability (surveys are US-rich but patchy across the four markets, so they
+stay out of the core; they remain an optional US-only overlay):
+
+- **Bias-correction** (Bauer-Rudebusch-Wu 2012; `model/bias_correction.py`): a
+  Kilian bootstrap correction of the VAR(1) persistence, yields-only and portable.
+  On the US it lifts the short-to-medium term-premium correlation with SF Fed
+  substantially (e.g. 2y 0.28→0.79) — see `validation/FINDINGS_phase3.md`.
+- **Historical scope to 1961** (`us/reconstruct.py`): the pre-1980 four-parameter
+  Nelson-Siegel regime is reconstructed and the early long end is kept ragged
+  (10y from 1971); the state-space filter (`model/ekf.py`) masks missing
+  maturities per date.
+- **Regime-switching** (`model/regime_switching.py`): a Markov-switching AFNS
+  (Kim 1994 filter) lets the P-dynamics switch, giving the high-inflation regime
+  its own persistence, volatility, and term-premium level — the stagflation
+  question.
+
+Engine note: the production plain-AFNS term premium is validated against SF Fed
+via `TermStructureModels.jl`; the **Python EKF** (`model/ekf.py`) is the workhorse
+for the shadow-rate, historical, bias-corrected, and regime extensions because it
+exposes `K^P`, handles ragged data, and can estimate the ELB. One model family,
+one codebase, across all four countries.
+
 ## Data sources, per country
 
 | Country | Source | Method | What to pull |
