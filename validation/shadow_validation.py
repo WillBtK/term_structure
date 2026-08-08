@@ -24,6 +24,13 @@ WUXIA_XLSX = (
     "https://www.atlantafed.org/-/media/Project/Atlanta/FRBA/Documents/datafiles/"
     "cqer/research/wu-xia-shadow-federal-funds-rate/WuXiaShadowRate.xlsx"
 )
+# Krippner SSR estimates. The filename carries the update date; override via
+# KRIPPNER_XLSX if it moves (discoverable from https://www.ljkmfa.com/visitors/).
+import os as _os
+KRIPPNER_XLSX = _os.environ.get(
+    "KRIPPNER_XLSX",
+    "https://www.ljkmfa.com/wp-content/uploads/2021/08/SSR_Estimates_20260727.xlsx",
+)
 
 # ZLB windows for the US (effective-lower-bound episodes).
 ZLB_WINDOWS = [("2008-12-01", "2015-12-01"), ("2020-03-01", "2021-12-01")]
@@ -80,6 +87,58 @@ def compare_to_wu_xia(shadow_df: pd.DataFrame, wuxia: pd.Series) -> dict:
     }
 
 
+def load_krippner_ssr() -> pd.Series:
+    """Krippner US shadow short rate (decimal, month-end) from ljkmfa.com.
+
+    Full series (positive when rates are, negative at the ZLB), still maintained.
+    Requires `www.ljkmfa.com` on the egress allowlist.
+    """
+    import requests
+
+    # ljkmfa.com's WAF returns 406 without browser-like headers.
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+    }
+    content = requests.get(KRIPPNER_XLSX, timeout=120, headers=headers).content
+    raw = pd.read_excel(io.BytesIO(content), sheet_name="D. Month-end SSR series",
+                        header=None, engine="openpyxl")
+    hdr = raw.index[raw.iloc[:, 2].astype(str).str.strip() == "US SSR"]
+    if len(hdr) == 0:
+        raise ValueError("Could not find the 'US SSR' header in the Krippner sheet.")
+    h = hdr[0]
+    data = raw.iloc[h + 1:, [1, 2]].copy()
+    data.columns = ["date", "us_ssr"]
+    data["date"] = pd.to_datetime(data["date"], errors="coerce")
+    data["us_ssr"] = pd.to_numeric(data["us_ssr"], errors="coerce") / 100.0
+    return data.dropna().set_index("date")["us_ssr"]
+
+
+def compare_to_krippner(shadow_df: pd.DataFrame, krippner: pd.Series) -> dict:
+    """Directional cross-check vs Krippner's US SSR (full sample).
+
+    Krippner's is a different (K-ANSM) model; per the README this is a
+    plausibility check on level and turning points, not a target to match.
+    """
+    s = shadow_df.set_index("date")["shadow_short_rate"].copy()
+    s.index = s.index.to_period("M")
+    k = krippner.copy(); k.index = k.index.to_period("M")
+    idx = s.index.intersection(k.index)
+    if len(idx) < 3:
+        return {"n": len(idx), "note": "insufficient overlap"}
+    a, b = s.loc[idx].to_numpy(), k.loc[idx].to_numpy()
+    return {
+        "n": int(len(idx)),
+        "overlap": [str(idx.min()), str(idx.max())],
+        "corr": float(np.corrcoef(a, b)[0, 1]),
+        "mean_gap_bp": float(np.mean(a - b) * 1e4),
+        "ours_min": float(a.min()), "krippner_min": float(b.min()),
+    }
+
+
 def _in_windows(idx: pd.DatetimeIndex, windows) -> np.ndarray:
     mask = np.zeros(len(idx), dtype=bool)
     for lo, hi in windows:
@@ -112,10 +171,14 @@ def compare_to_fed_funds(shadow_df: pd.DataFrame, ff: pd.Series) -> dict:
     Away from the bound the shadow rate should track the policy rate; during the
     ZLB it should fall below it (and go negative).
     """
-    s = shadow_df.set_index("date")["shadow_short_rate"]
-    idx = s.index.intersection(ff.index)
-    s, f = s.loc[idx], ff.loc[idx]
-    zlb = _in_windows(pd.DatetimeIndex(idx), ZLB_WINDOWS)
+    s = shadow_df.set_index("date")["shadow_short_rate"].copy()
+    f = ff.copy()
+    # Align on calendar month (our dates are month-end, FRED's are month-start).
+    s.index = s.index.to_period("M")
+    f.index = f.index.to_period("M")
+    idx = s.index.intersection(f.index)
+    s, f = s.loc[idx], f.loc[idx]
+    zlb = _in_windows(idx.to_timestamp(), ZLB_WINDOWS)
     normal = ~zlb
     out = {
         "corr_normal": float(np.corrcoef(s[normal], f[normal])[0, 1]) if normal.sum() > 2 else np.nan,
