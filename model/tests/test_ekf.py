@@ -45,6 +45,25 @@ def test_transition_diagonal_case():
     assert np.allclose(np.diag(Q), q, atol=1e-9)
 
 
+def test_diag_pack_roundtrip_and_estimate_keeps_K_diagonal():
+    # The reduced 11-vector (independent-factor spec) round-trips, and estimate()
+    # with diagonal_K=True (the production default) yields a diagonal K^P.
+    p = _true_params()
+    v = ekf._diag_pack(p)
+    assert v.size == 11
+    q = ekf._diag_unpack(v)
+    assert np.allclose(np.diag(q.K), np.diag(p.K))
+    assert np.allclose(q.K, np.diag(np.diag(q.K)))          # off-diagonal exactly 0
+    assert np.allclose(q.theta, p.theta) and np.allclose(q.sigma, p.sigma)
+    assert np.isclose(q.lambda_, p.lambda_) and np.isclose(q.h, p.h)
+    # A short estimate() run stays in the diagonal family.
+    _, X, Y = _simulate(T=120)
+    est, res, ll = ekf.estimate(Y, GRID, ELB, DT, warm_start=p, maxiter=50,
+                                n_per_year=12, restarts=1, diagonal_K=True)
+    assert np.allclose(est.K, np.diag(np.diag(est.K)))       # remains diagonal
+    assert np.isfinite(ll)
+
+
 def test_full_K_transition_and_uncond_cov():
     # Non-diagonal but stable K^P: transition + Lyapunov P0 are well-formed.
     K = np.array([[0.10, 0.05, 0.00], [0.00, 0.30, -0.10], [0.00, 0.00, 0.50]])

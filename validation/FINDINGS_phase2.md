@@ -53,7 +53,37 @@ diagonal) K^P, the ELB value, or the weak identification of the shadow level
 below the bound (our synthetic test already showed ~90 bp state RMSE deep below
 the bound).
 
+## Full K^P check — shallowness is ELB-driven, not a K^P restriction
+
+To rule out the diagonal (independent-factor) K^P as the cause of the shallow
+shadow rate, the model was re-estimated with an **unrestricted 3×3 K^P**
+(`ekf.estimate(..., diagonal_K=False)`, 17 params vs 11), warm-started from the
+diagonal fit:
+
+| quantity | diagonal K^P (production) | full K^P |
+|---|---|---|
+| loglik | 20286.0 | 20316.2 (+30) |
+| yield-fit MAD | 3.732 bp | 3.731 bp |
+| shadow-rate min | −0.08% | −0.084% |
+| eig(K^P) | [0.033, 0.125, 0.436] | [0.043, 0.533, 0.533] |
+| internal wedge (ZLB / normal) | 21.5 / 1.8 bp | 20.5 / 1.7 bp |
+| corr vs Wu-Xia / Krippner | 0.973 / 0.942 | 0.973 / 0.942 |
+
+The full K^P adds a **statistically detectable but economically negligible**
+gain: identical yield fit, identical shadow path (min moves 0.4 bp), identical
+external correlations. So the shallow shadow rate is **not** a consequence of the
+diagonal restriction — it is driven by the ELB together with GSW short-end inputs
+that stayed slightly positive through the ZLB (see interpretation above).
+
+**Decision — production spec: independent-factor AFNS(3) (diagonal K^P & Σ).**
+`ekf.estimate` defaults to `diagonal_K=True` (the 11-param independent-factor
+model); pass `diagonal_K=False` for the full K^P. Rationale: it is the
+SF-Fed-consistent specification, robustly identified, portable unchanged across
+all four countries, and — as shown above — loses nothing economic to the full
+K^P here. The full K^P remains available for country-specific diagnostics.
+
 ## Not yet done
 - **ELB sensitivity** (README: run 2-3 bound values, confirm the profile is
-  stable in shape) — deferred; each value is a full EKF re-estimation.
+  stable in shape) — the principled lever for shadow-rate depth; deferred, each
+  value is a full EKF re-estimation.
 - Daily-frequency estimation (monthly used for tractability of the nonlinear EKF).

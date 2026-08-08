@@ -160,22 +160,52 @@ def default_init(yields, grid) -> ShadowParams:
         sigma=[0.01, 0.01, 0.01], lambda_=0.5, h=0.001)
 
 
+def _diag_pack(p: ShadowParams) -> np.ndarray:
+    """Reduced 11-vector for the independent-factor model (diagonal K^P):
+    [log diag(K), theta, log sigma, log lambda, log h]."""
+    return np.concatenate([
+        np.log(np.maximum(np.diag(p.K), _LOG_FLOOR)), p.theta,
+        np.log(np.maximum(p.sigma, _LOG_FLOOR)),
+        [np.log(max(p.lambda_, _LOG_FLOOR)), np.log(max(p.h, _LOG_FLOOR))],
+    ])
+
+
+def _diag_unpack(v: np.ndarray) -> ShadowParams:
+    v = np.asarray(v, dtype=float)
+    return ShadowParams.from_diagonal(np.exp(v[0:3]), v[3:6], np.exp(v[6:9]),
+                                      float(np.exp(v[9])), float(np.exp(v[10])))
+
+
 def estimate(yields, grid, elb, dt, warm_start: ShadowParams | None = None,
-             maxiter: int = 4000, n_per_year: int = 24, restarts: int = 2):
-    """QML/EKF estimation via Nelder-Mead with restarts. Full K^P (17 params).
-    Warm-start from a prior (e.g. diagonal) fit to speed convergence."""
+             maxiter: int = 4000, n_per_year: int = 24, restarts: int = 2,
+             diagonal_K: bool = True):
+    """QML/EKF estimation via Nelder-Mead with restarts.
+
+    ``diagonal_K=True`` (default) estimates the **independent-factor** AFNS(3)
+    (diagonal K^P & Σ, 11 params) — the recommended production spec: robustly
+    identified, SF-Fed-consistent, portable across countries. ``diagonal_K=False``
+    estimates a full K^P (17 params); in US tests this only adds a marginal,
+    economically negligible likelihood gain (identical yield fit / shadow path).
+    Warm-start from a prior fit to speed convergence.
+    """
     from scipy.optimize import minimize
 
     init = warm_start if warm_start is not None else default_init(yields, grid)
-    x0 = init.pack()
+    if diagonal_K:
+        obj = lambda v: negloglik(_diag_unpack(v).pack(), yields, grid, elb, dt, n_per_year)
+        x0 = _diag_pack(init)
+        finalize = _diag_unpack
+    else:
+        obj = lambda v: negloglik(v, yields, grid, elb, dt, n_per_year)
+        x0 = init.pack()
+        finalize = ShadowParams.unpack
+
     res = None
     for _ in range(max(restarts, 1)):
-        res = minimize(
-            negloglik, x0, args=(yields, grid, elb, dt, n_per_year),
-            method="Nelder-Mead",
-            options={"maxiter": maxiter, "xatol": 1e-7, "fatol": 1e-5, "adaptive": True},
-        )
+        res = minimize(obj, x0, method="Nelder-Mead",
+                       options={"maxiter": maxiter, "xatol": 1e-7, "fatol": 1e-5,
+                                "adaptive": True})
         if res.success:
             break
         x0 = res.x
-    return ShadowParams.unpack(res.x), res, -float(res.fun)
+    return finalize(res.x), res, -float(res.fun)
