@@ -109,7 +109,8 @@ def test_cross_check_against_self_consistent_published():
         index=idx,
     )
     for m in (1, 5, 10):
-        params[f"SVENY{m:02d}"] = reconstruct_grid(params, np.array([float(m)])).iloc[:, 0] * 100.0
+        params[f"SVENY{m:02d}"] = reconstruct_grid(
+            params, np.array([float(m)]), mask_by_availability=False).iloc[:, 0] * 100.0
     check = cross_check_against_published(params)
     assert set(check["maturity"]) == {1.0, 5.0, 10.0}
     assert bool(check["within_tol"].all())

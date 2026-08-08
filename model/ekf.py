@@ -36,6 +36,8 @@ class ShadowParams:
     sigma: np.ndarray      # (3,) factor vols, >0 (diagonal Σ)
     lambda_: float         # NS decay, >0
     h: float               # measurement-error SD, >0
+    elb: float | None = None  # effective lower bound (set when ML-estimated; else
+                              # the fixed value passed to negloglik/estimate)
 
     def pack(self) -> np.ndarray:
         return np.concatenate([
@@ -84,8 +86,40 @@ def _uncond_cov(A: np.ndarray, Q: np.ndarray) -> np.ndarray:
         return np.eye(A.shape[0]) * 1.0  # diffuse fallback
 
 
+def _measure_update(x, P, y_row, pre, h2: float):
+    """One EKF measurement update with per-period missing-data masking.
+
+    Only the finite entries of ``y_row`` are used, so a ragged panel (e.g. the
+    10y NaN before it is published in the early GSW sample) is handled by shrinking
+    the measurement block for that date. Returns ``(x_upd, P_upd, ll_inc)``, or
+    ``(None, None, None)`` on a Cholesky failure (caller treats as -inf loglik).
+    A fully-missing row leaves the state at its prediction (``ll_inc=0``).
+    """
+    y_hat, J = sr.elb_yields_and_jac(x, pre)
+    mask = np.isfinite(y_row)
+    mt = int(mask.sum())
+    if mt == 0:
+        return x, P, 0.0
+    if mt < y_row.size:
+        y_hat, J, y_row = y_hat[mask], J[mask], y_row[mask]
+    v = y_row - y_hat
+    S = J @ P @ J.T + h2 * np.eye(mt)
+    try:
+        L = np.linalg.cholesky(S)
+    except np.linalg.LinAlgError:
+        return None, None, None
+    alpha = np.linalg.solve(L, v)
+    ll_inc = -0.5 * (mt * np.log(2.0 * np.pi)
+                     + 2.0 * np.sum(np.log(np.diag(L))) + alpha @ alpha)
+    Kg = P @ J.T @ np.linalg.inv(S)
+    return x + Kg @ v, P - Kg @ J @ P, ll_inc
+
+
 def negloglik(packed, yields, grid, elb, dt, n_per_year: int = 48) -> float:
-    """EKF negative log-likelihood for the (full-K^P) shadow-rate AFNS."""
+    """EKF negative log-likelihood for the (full-K^P) shadow-rate AFNS.
+
+    ``yields`` may contain NaNs (ragged maturities); they are masked per date.
+    """
     p = ShadowParams.unpack(packed)
     if np.any(p.sigma <= 0) or p.lambda_ <= 0:
         return 1e12
@@ -101,51 +135,41 @@ def negloglik(packed, yields, grid, elb, dt, n_per_year: int = 48) -> float:
         return 1e12
 
     theta = p.theta
-    m = yields.shape[1]
-    H = (p.h**2) * np.eye(m)
+    h2 = p.h**2
     x = theta.copy()
     P = _uncond_cov(A, Q)
     ll = 0.0
-    const = m * np.log(2.0 * np.pi)
     for t in range(yields.shape[0]):
         x = theta + A @ (x - theta)
         P = A @ P @ A.T + Q
-        y_hat, J = sr.elb_yields_and_jac(x, pre)
-        v = yields[t] - y_hat
-        S = J @ P @ J.T + H
-        try:
-            L = np.linalg.cholesky(S)
-        except np.linalg.LinAlgError:
+        x, P, ll_inc = _measure_update(x, P, yields[t], pre, h2)
+        if ll_inc is None:
             return 1e12
-        alpha = np.linalg.solve(L, v)
-        ll += -0.5 * (const + 2.0 * np.sum(np.log(np.diag(L))) + alpha @ alpha)
-        Sinv = np.linalg.inv(S)
-        Kg = P @ J.T @ Sinv
-        x = x + Kg @ v
-        P = P - Kg @ J @ P
+        ll += ll_inc
     return -ll if np.isfinite(ll) else 1e12
 
 
 def filter_states(p: ShadowParams, yields, grid, elb, dt, n_per_year: int = 48):
-    """Run the EKF at fixed params; return filtered states (T,3) and fits (T,m)."""
+    """Run the EKF at fixed params; return filtered states (T,3) and fits (T,m).
+
+    Handles ragged ``yields`` (NaNs masked per date); ``fits`` are always the
+    full-grid model-implied yields (present even where the datum was missing).
+    """
     A, Q = _transition(p.K, p.sigma, dt)
     pre = sr.precompute(p.lambda_, np.diag(p.sigma), elb, grid, n_per_year=n_per_year)
     theta = p.theta
-    m = yields.shape[1]
-    H = (p.h**2) * np.eye(m)
+    h2 = p.h**2
     x = theta.copy()
     P = _uncond_cov(A, Q)
+    m = yields.shape[1]
     xs = np.empty((yields.shape[0], 3))
     fits = np.empty((yields.shape[0], m))
     for t in range(yields.shape[0]):
         x = theta + A @ (x - theta)
         P = A @ P @ A.T + Q
-        y_hat, J = sr.elb_yields_and_jac(x, pre)
-        v = yields[t] - y_hat
-        S = J @ P @ J.T + H
-        Kg = P @ J.T @ np.linalg.inv(S)
-        x = x + Kg @ v
-        P = P - Kg @ J @ P
+        x_upd, P_upd, ll_inc = _measure_update(x, P, yields[t], pre, h2)
+        if ll_inc is not None:
+            x, P = x_upd, P_upd
         xs[t] = x
         fits[t], _ = sr.elb_yields_and_jac(x, pre)
     return xs, fits
@@ -178,7 +202,7 @@ def _diag_unpack(v: np.ndarray) -> ShadowParams:
 
 def estimate(yields, grid, elb, dt, warm_start: ShadowParams | None = None,
              maxiter: int = 4000, n_per_year: int = 24, restarts: int = 2,
-             diagonal_K: bool = True):
+             diagonal_K: bool = True, estimate_elb: bool = False):
     """QML/EKF estimation via Nelder-Mead with restarts.
 
     ``diagonal_K=True`` (default) estimates the **independent-factor** AFNS(3)
@@ -186,19 +210,41 @@ def estimate(yields, grid, elb, dt, warm_start: ShadowParams | None = None,
     identified, SF-Fed-consistent, portable across countries. ``diagonal_K=False``
     estimates a full K^P (17 params); in US tests this only adds a marginal,
     economically negligible likelihood gain (identical yield fit / shadow path).
-    Warm-start from a prior fit to speed convergence.
+
+    ``estimate_elb=True`` adds the effective lower bound as a free (unconstrained,
+    since it may be negative) parameter — the Christensen-Rudebusch approach to
+    *deriving* the ELB from the data rather than calibrating it. The likelihood is
+    smooth in ELB via the Krippner option formula. Note the ELB is only
+    identified when yields approach the bound (weakly identified for the US, which
+    barely hit it; well identified for markets that went clearly negative). The
+    fixed ``elb`` argument is used as the ELB when ``estimate_elb=False`` and as
+    the ELB starting value when ``estimate_elb=True``. Warm-start to speed
+    convergence.
+
+    Returns ``(params, opt_result, loglik)``; ``params.elb`` carries the ELB used
+    (fixed or estimated).
     """
     from scipy.optimize import minimize
 
     init = warm_start if warm_start is not None else default_init(yields, grid)
-    if diagonal_K:
-        obj = lambda v: negloglik(_diag_unpack(v).pack(), yields, grid, elb, dt, n_per_year)
-        x0 = _diag_pack(init)
-        finalize = _diag_unpack
+    base_pack = _diag_pack if diagonal_K else (lambda p: p.pack())
+    base_unpack = _diag_unpack if diagonal_K else ShadowParams.unpack
+
+    if estimate_elb:
+        def obj(v):
+            return negloglik(base_unpack(v[:-1]).pack(), yields, grid,
+                             float(v[-1]), dt, n_per_year)
+        x0 = np.append(base_pack(init), elb)
+
+        def finalize(v):
+            p = base_unpack(v[:-1]); p.elb = float(v[-1]); return p
     else:
-        obj = lambda v: negloglik(v, yields, grid, elb, dt, n_per_year)
-        x0 = init.pack()
-        finalize = ShadowParams.unpack
+        def obj(v):
+            return negloglik(base_unpack(v).pack(), yields, grid, elb, dt, n_per_year)
+        x0 = base_pack(init)
+
+        def finalize(v):
+            p = base_unpack(v); p.elb = elb; return p
 
     res = None
     for _ in range(max(restarts, 1)):

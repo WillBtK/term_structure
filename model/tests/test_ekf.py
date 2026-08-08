@@ -86,6 +86,47 @@ def test_negloglik_minimized_near_truth():
     assert nll_true < min(perturbed)
 
 
+def test_ragged_maturities_masked_per_period():
+    # Punch the 10y (last column) to NaN for the first third of the sample — the
+    # early-GSW ragged case — and confirm the filter still runs, likelihood stays
+    # finite, and the shadow rate is still recovered.
+    p, X, Y = _simulate()
+    Yr = Y.copy()
+    cut = Y.shape[0] // 3
+    Yr[:cut, -1] = np.nan
+    nll = ekf.negloglik(p.pack(), Yr, GRID, ELB, DT)
+    assert np.isfinite(nll)
+    xs, fits = ekf.filter_states(p, Yr, GRID, ELB, DT)
+    assert np.all(np.isfinite(xs)) and np.all(np.isfinite(fits))  # fits dense even where data missing
+    s_true = X[:, 0] + X[:, 1]
+    s_filt = xs[:, 0] + xs[:, 1]
+    assert np.corrcoef(s_filt, s_true)[0, 1] > 0.9
+    # Dropping observations cannot raise the log-likelihood of the observed set.
+    assert nll >= ekf.negloglik(p.pack(), Y, GRID, ELB, DT) - 1e-6
+
+
+def test_elb_profile_identified_near_bound():
+    # With a genuine ZLB episode (shadow driven well below the bound), the
+    # likelihood profiled over ELB is minimised near the true bound.
+    p, X, Y = _simulate()
+    elbs = np.linspace(-0.02, 0.01, 13)
+    nlls = [ekf.negloglik(p.pack(), Y, GRID, e, DT) for e in elbs]
+    best = elbs[int(np.argmin(nlls))]
+    assert abs(best - ELB) < 0.005  # within 50 bp of the true bound
+
+
+def test_estimate_elb_flag_runs_and_sets_elb():
+    p, X, Y = _simulate()
+    est, res, ll = ekf.estimate(Y, GRID, ELB, DT, warm_start=p, maxiter=60,
+                                n_per_year=12, restarts=1, estimate_elb=True)
+    assert est.elb is not None
+    assert np.isfinite(ll)
+    # Without estimation the ELB is just carried through.
+    est2, _, _ = ekf.estimate(Y, GRID, ELB, DT, warm_start=p, maxiter=20,
+                              n_per_year=12, restarts=1, estimate_elb=False)
+    assert est2.elb == ELB
+
+
 def test_filter_recovers_shadow_rate_dynamics():
     p, X, Y = _simulate()
     xs, fits = ekf.filter_states(p, Y, GRID, ELB, DT)

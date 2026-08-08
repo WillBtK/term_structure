@@ -38,29 +38,39 @@ def _panel(freq, start, end):
         panel = panel.groupby([panel.index.year, panel.index.month]).tail(1)
     elif freq != "daily":
         raise ValueError(f"unknown freq {freq!r}")
-    return panel.dropna()
+    # Keep ragged rows (the EKF masks missing maturities per date); drop only
+    # fully-empty dates.
+    return panel.dropna(how="all")
 
 
 def run_shadow(freq: str = "monthly", start="1987-01-01", end=None,
                elb: float | None = None, maxiter: int = 4000,
-               warm_start: "ekf.ShadowParams | None" = None):
-    """Estimate the US shadow-rate AFNS (full K^P) and return a results dict.
+               warm_start: "ekf.ShadowParams | None" = None,
+               diagonal_K: bool = True, estimate_elb: bool = False):
+    """Estimate the US shadow-rate AFNS and return a results dict.
 
-    `warm_start` (e.g. a prior diagonal-K^P fit) initializes the optimizer.
+    `warm_start` (e.g. a prior fit) initializes the optimizer. `diagonal_K=True`
+    is the independent-factor production spec. `estimate_elb=True` estimates the
+    ELB by ML (Christensen-Rudebusch) instead of fixing it; `elb` is then the
+    starting value.
     """
     elb = ELB if elb is None else elb
     panel = _panel(freq, start, end)
     grid = np.asarray(panel.columns, dtype=float)
     Y = panel.to_numpy(dtype=float)
     dt = 7.0 / 365.2425 if freq == "daily" else 1.0 / 12
-    logger.info("estimating shadow AFNS (full K^P) on %d obs (%s..%s) ELB=%.4f",
-                len(panel), panel.index.min().date(), panel.index.max().date(), elb)
+    logger.info("estimating shadow AFNS on %d obs (%s..%s) ELB=%.4f%s",
+                len(panel), panel.index.min().date(), panel.index.max().date(), elb,
+                " (ELB estimated)" if estimate_elb else "")
 
     npy = 24
     params, res, ll = ekf.estimate(Y, grid, elb, dt, warm_start=warm_start,
-                                   maxiter=maxiter, n_per_year=npy)
-    logger.info("estimation done: loglik=%.1f success=%s lambda=%.4f eig(K^P)=%s",
-                ll, res.success, params.lambda_,
+                                   maxiter=maxiter, n_per_year=npy,
+                                   diagonal_K=diagonal_K, estimate_elb=estimate_elb)
+    if estimate_elb:
+        elb = float(params.elb)
+    logger.info("estimation done: loglik=%.1f success=%s lambda=%.4f ELB=%.4f eig(K^P)=%s",
+                ll, res.success, params.lambda_, elb,
                 np.round(np.sort(np.linalg.eigvals(params.K).real), 4))
 
     xs, fits = ekf.filter_states(params, Y, grid, elb, dt, n_per_year=npy)
