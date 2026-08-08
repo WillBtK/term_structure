@@ -83,7 +83,7 @@ def decompose(params: "ekf.ShadowParams", panel: pd.DataFrame, dt: float,
     return {
         "ours": ours, "states": xs, "fitted": fits, "expected": expected,
         "term_premium": premium, "grid": grid, "dates": idx,
-        "yield_fit_mad_bp": float(np.mean(np.abs(fits - Y)) * 1e4),
+        "yield_fit_mad_bp": float(np.nanmean(np.abs(fits - Y)) * 1e4),  # ragged-safe
     }
 
 
