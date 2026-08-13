@@ -98,49 +98,51 @@ for the shadow-rate, historical, bias-corrected, and regime extensions because i
 exposes `K^P`, handles ragged data, and can estimate the ELB. One model family,
 one codebase, across all four countries.
 
-## Regime-switching extension & the 2008 splice
+## Two deliverables: the modern production TP and the historical exhibit
 
-The full 1961-present US term premium is produced by **two separately-estimated
-models joined at a fixed splice date**, *not* one unified model:
+There is **no single 1961-present term-premium series** — deliberately. A single
+model spanning 1961-today would estimate one physical mean θ and persistence K^P
+over the whole span, pulling them toward the 1970s-80s high-inflation world and so
+**contaminating *today's* term premium** (today's expected-rate path mean-reverts
+toward a long-run level that no longer applies). That is the long-sample side of
+the sample-sensitivity tradeoff; the short-sample side is finite-sample persistence
+bias. We split the output by what each is good for:
 
-- **Pre-2008-12-31 — regime-switching AFNS** (`model/regime_switching.py`): a
-  2-regime Markov-switching AFNS on the P-dynamics, estimated by the Kim (1994)
-  filter (Hamilton regime filter + Kalman + collapsing). Common arbitrage-free
-  Q-loadings (each regime is AFNS-arbitrage-free; regime-switching risk is left
-  unpriced — the tractable choice, full Dai-Singleton-Yang being the ideal). This
-  leg is **frozen history** — never re-estimated. Output = regime-mixed factors
-  and term premium (weighted by the smoothed regime probabilities).
-- **2008-12-31 onward — shadow-rate AFNS** (`us/run_shadow.py`): the **live**
-  model (re-estimate slow, filter forward daily), which respects the ELB. Its term
-  premium uses the expected-average *floored* short rate under P
-  (`term_premium.expected_floored_short_rate_yields`).
+### Modern / production term premium — `us/production_tp.py`
+The **headline, cross-country-comparable** series: the **shadow-rate AFNS estimated
+on 1987+** (ELB-respecting; reduces to plain AFNS when rates are high) **with
+Bauer-Rudebusch-Wu bias-correction** of the P-persistence. The modern sample keeps
+1970s-80s dynamics *out* of θ/K^P (no contamination); BRW then fixes the
+finite-sample persistence bias a short sample would otherwise carry (in-sample it
+lifts the short-end SF-Fed term-premium correlation from ~0.14 to ~0.83). Its term
+premium uses the expected-average *floored* short rate under P
+(`term_premium.expected_floored_short_rate_yields`). This is the "term premium
+today" and the series used for cross-country comparison. Estimated on the
+slow-cadence / daily-filter-forward schedule above.
 
-**Why two models, not one.** Combining the Kim collapsing approximation with the
-shadow-rate `max()` nonlinearity in a single estimation compounds two
-approximate/nonlinear techniques (much harder to converge reliably) and breaks the
-weekly/monthly re-estimate + daily-filter-forward cadence above. The splice date
-**2008-12-31** is the ZLB onset — the first date the shadow model does something
-the regime model can't; both legs agree on the positive-rate run-up, so the seam
-is clean, and it cleanly separates frozen history from the live model.
+### Historical / stagflation exhibit — separate, clearly labeled
+The 1961+ regime-switching and single-regime work is kept as a **separate historical
+exhibit**, *not* joined to the modern series:
+- **Regime dating** — `model/regime_switching.py` (2-regime Markov-switching AFNS,
+  Kim 1994 filter): *when* the high-inflation / high-volatility regime prevailed
+  (1973-75 oil shock, 1979-82 Volcker; clean low-vol Great Moderation after).
+- **Historical level** — a single-regime 1961+ bias-corrected fit puts the 1970s
+  stagflation 10y term premium at a **moderate ~1.3%** (the premium peaked later,
+  early-1980s to early-1990s). See `validation/FINDINGS_phase3.md`.
 
-**Common λ.** The regime leg fixes the NS decay λ to the shadow leg's estimate so
-the level/slope/curvature factors are on the same basis at the seam;
-`us/splice.py::continuity_check` reports the two legs' L/S/C agreement over the
-1987-2008 overlap and the factor/term-premium values on both sides of the seam.
-Away from the bound the shadow term premium collapses to the plain-AFNS term
-premium, so the legs coincide over the overlap by construction.
+**Why not a 2008 splice.** An earlier design spliced a pre-2008 regime model to the
+post-2008 shadow model at 2008-12-31. It produced a large term-premium discontinuity
+at the seam (243 bp) *and* — via the pre-2008 leg — still risked contaminating the
+modern estimate. The splice code is retained in `us/splice.py` as an internal option
+(with the Kim-filter and continuity machinery), but it is **not the product**.
+Keeping today's estimate on a modern sample is both cleaner and more correct.
 
-**Volcker window (Oct 1979 - Oct 1982).** The non-borrowed-reserves operating
-procedure produced short-rate volatility from a different policy instrument. The
-2-regime model captures this window *within* its high-volatility regime
-(P(high-vol) ≈ 0.98 there) — a **third dedicated regime is not needed**.
-
-**Validation.** The Kim filter was validated before wiring it in — against an
-exact path-enumeration filter (collapsing correct to ~1e-4 loglik / ~1e-5 regime
-prob) and against the Ang-Bekaert (2002) / Levant-Ma (2017) empirical pattern
-(clean low-vol post-1985; high-vol confined to the 1973-75 oil shock and 1979-82
-Volcker). See `validation/FINDINGS_kim_validation.md` and
-`validation/FINDINGS_phase4.md`.
+**Kim-filter validation (for the exhibit).** Before any use, the Kim filter was
+validated against an exact path-enumeration filter (collapsing correct to ~1e-4
+loglik / ~1e-5 regime prob) and against the Ang-Bekaert (2002) / Levant-Ma (2017)
+empirical pattern (Volcker P(high-vol) ≈ 0.98 — captured within the 2-regime model,
+so no third regime needed). See `validation/FINDINGS_kim_validation.md`,
+`FINDINGS_phase4.md`, and `FINDINGS_phase5.md`.
 
 ## Data sources, per country
 
