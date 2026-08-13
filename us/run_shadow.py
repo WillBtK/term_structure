@@ -29,8 +29,11 @@ from us.fetch_gsw import build_yield_panel
 logger = logging.getLogger(__name__)
 
 
-def _panel(freq, start, end):
-    panel = build_yield_panel(grid=COMMON_GRID)
+def _panel(freq, start, end, panel=None):
+    # `panel` (a prebuilt date x maturity frame) lets any country reuse this
+    # driver; when None we build the US GSW panel (backward-compatible default).
+    if panel is None:
+        panel = build_yield_panel(grid=COMMON_GRID)
     if start is not None:
         panel = panel[panel.index >= pd.Timestamp(start)]
     if end is not None:
@@ -47,16 +50,18 @@ def _panel(freq, start, end):
 def run_shadow(freq: str = "monthly", start="1987-01-01", end=None,
                elb: float | None = None, maxiter: int = 4000,
                warm_start: "ekf.ShadowParams | None" = None,
-               diagonal_K: bool = True, estimate_elb: bool = False):
-    """Estimate the US shadow-rate AFNS and return a results dict.
+               diagonal_K: bool = True, estimate_elb: bool = False,
+               panel=None):
+    """Estimate the shadow-rate AFNS and return a results dict.
 
     `warm_start` (e.g. a prior fit) initializes the optimizer. `diagonal_K=True`
     is the independent-factor production spec. `estimate_elb=True` estimates the
     ELB by ML (Christensen-Rudebusch) instead of fixing it; `elb` is then the
-    starting value.
+    starting value. `panel` (a prebuilt zero-yield frame) makes this driver
+    country-agnostic — pass another country's panel + its `elb`; default is US.
     """
     elb = ELB if elb is None else elb
-    panel = _panel(freq, start, end)
+    panel = _panel(freq, start, end, panel=panel)
     grid = np.asarray(panel.columns, dtype=float)
     Y = panel.to_numpy(dtype=float)
     dt = 7.0 / 365.2425 if freq == "daily" else 1.0 / 12

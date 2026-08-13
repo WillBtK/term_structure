@@ -42,8 +42,9 @@ logger = logging.getLogger(__name__)
 PLAIN_ELB = -1.0
 
 
-def _panel(freq, start, end):
-    panel = build_yield_panel(grid=COMMON_GRID)
+def _panel(freq, start, end, panel=None):
+    if panel is None:
+        panel = build_yield_panel(grid=COMMON_GRID)
     if start is not None:
         panel = panel[panel.index >= pd.Timestamp(start)]
     if end is not None:
@@ -89,12 +90,13 @@ def decompose(params: "ekf.ShadowParams", panel: pd.DataFrame, dt: float,
 
 def run_afns(freq: str = "monthly", start="1987-01-01", end=None,
              maxiter: int = 4000, warm_start: "ekf.ShadowParams | None" = None,
-             diagonal_K: bool = True) -> dict:
+             diagonal_K: bool = True, panel=None) -> dict:
     """Estimate the plain-AFNS (EKF, bound pushed away) and decompose the premium.
 
     Independent-factor by default (`diagonal_K=True`), matching the SF Fed spec.
+    `panel` makes this country-agnostic (default = US GSW panel).
     """
-    panel = _panel(freq, start, end)
+    panel = _panel(freq, start, end, panel=panel)
     grid = np.asarray(panel.columns, dtype=float)
     Y = panel.to_numpy(dtype=float)
     dt = 7.0 / 365.2425 if freq == "daily" else 1.0 / 12

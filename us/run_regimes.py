@@ -27,8 +27,9 @@ from us.fetch_gsw import build_yield_panel
 logger = logging.getLogger(__name__)
 
 
-def _panel(start, end):
-    panel = build_yield_panel(grid=COMMON_GRID)
+def _panel(start, end, panel=None):
+    if panel is None:
+        panel = build_yield_panel(grid=COMMON_GRID)
     if start is not None:
         panel = panel[panel.index >= pd.Timestamp(start)]
     if end is not None:
@@ -52,8 +53,8 @@ def _warm_start(Y, grid, dt, S, maxiter=3000):
 
 
 def run_regimes(start="1961-06-01", end=None, S: int = 2, maxiter: int = 6000,
-                warm_maxiter: int = 3000, restarts: int = 1):
-    panel = _panel(start, end)
+                warm_maxiter: int = 3000, restarts: int = 1, panel=None):
+    panel = _panel(start, end, panel=panel)
     grid = np.asarray(panel.columns, dtype=float)
     Y = panel.to_numpy(dtype=float)
     dt = 1.0 / 12

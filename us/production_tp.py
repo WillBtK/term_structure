@@ -65,14 +65,21 @@ def _assemble_tp(states, fitted, K, theta, Sigma, elb, grid, dates,
 
 def run_production_tp(start: str = "1987-01-01", end=None, maxiter: int = 5000,
                       n_boot: int = 2000, seed: int = 0,
-                      warm_start=None, n_per_year: int = 24) -> dict:
-    """Estimate the production US term premium (1987+ shadow AFNS + BRW).
+                      warm_start=None, n_per_year: int = 24,
+                      panel=None, elb: float | None = None,
+                      estimate_elb: bool = False) -> dict:
+    """Estimate the production term premium (modern-sample shadow AFNS + BRW).
+
+    Country-agnostic: pass another country's `panel` + `elb` (and
+    `estimate_elb=True` where the bound is well identified, e.g. Germany/Japan);
+    the default is the US 1987+ GSW panel with the fixed US ELB.
 
     Returns both the bias-corrected (headline) and uncorrected canonical frames,
     the shadow short rate, factors, and the BRW diagnostics.
     """
     r = run_shadow(freq="monthly", start=start, end=end, maxiter=maxiter,
-                   warm_start=warm_start)
+                   warm_start=warm_start, panel=panel, elb=elb,
+                   estimate_elb=estimate_elb)
     states, fitted = r["states"], r["fitted"].to_numpy(dtype=float)
     K, theta = r["params"].K, r["params"].theta
     Sigma = np.diag(r["params"].sigma)
