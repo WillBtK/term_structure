@@ -58,3 +58,34 @@ PUBLISHED_YIELD_PREFIX = "SVENY"
 DATA_DIR = Path(__file__).resolve().parent / "data"
 RAW_CSV_PATH = DATA_DIR / "feds200628_raw.csv"
 PARAMS_PARQUET_PATH = DATA_DIR / "gsw_params.parquet"
+
+# ---------------------------------------------------------------------------
+# TIPS real-yield curve (GSW "feds200805", Gurkaynak-Sack-Wright 2010). Same
+# Svensson parametric form as the nominal file (BETA0-3, TAU1-2), plus published
+# fitted real zeros ``TIPSYNN`` and breakeven inflation ``BKEVENNN`` (percent).
+# Used for the REAL term premium and the breakeven / inflation-risk-premium
+# decomposition (see us/tips.py, us/inflation.py).
+# ---------------------------------------------------------------------------
+TIPS_URL = os.environ.get(
+    "TIPS_URL",
+    "https://www.federalreserve.gov/data/yield-curve-tables/feds200805.csv",
+)
+# TIPS trade from 2y out (no short end), so the real grid starts at 2y. The IRP
+# overlaps the nominal grid at 2/3/5/7/10y; 20y adds real long-end identification.
+REAL_GRID = np.array([2.0, 3.0, 5.0, 7.0, 10.0, 20.0], dtype=float)
+TIPS_PUBLISHED_YIELD_PREFIX = "TIPSY"      # fitted real zeros TIPSY02..TIPSY20
+TIPS_BREAKEVEN_PREFIX = "BKEVEN"           # inflation compensation BKEVEN02..BKEVEN20
+
+# The TIPS market is thin/illiquid 1999-2003 (unstable early fits — GSW caution
+# against the early sample); the reliable real curve starts ~2004.
+REAL_SAMPLE_START = "2004-01-01"
+
+# NO effective lower bound on REAL rates: there is no "real cash" instrument, so
+# real short rates go deeply negative (US real yields reached ~ -1.5% in 2012/2021).
+# The real term premium is therefore a PLAIN-AFNS decomposition (shadow-rate off).
+# We reuse the shadow pipeline with the bound pushed so far below the data it can
+# never bind (Krippner option -> plain AFNS), i.e. estimate_elb=False, elb=ELB_REAL.
+ELB_REAL = -1.0        # -100%: unreachable, guarantees the floor never binds
+
+TIPS_RAW_CSV_PATH = DATA_DIR / "feds200805_raw.csv"
+TIPS_PARQUET_PATH = DATA_DIR / "tips_params.parquet"
