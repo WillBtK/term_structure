@@ -131,6 +131,19 @@ def test_var_mult_downweight_approximates_dropping():
     assert np.isfinite(nll_drop) and np.isfinite(nll_dw)
 
 
+def test_default_init_handles_ragged_panel():
+    # A ragged panel whose long end (last column) is NaN early — the Japan 30y
+    # case — must still give a feasible starting point (plain np.mean would return
+    # NaN and make negloglik the 1e12 penalty everywhere, so the optimizer never
+    # moves). Confirm the init is finite and the likelihood is real.
+    p, X, Y = _simulate()
+    Yr = Y.copy()
+    Yr[:Y.shape[0] // 2, -1] = np.nan       # 10y NaN for the first half
+    init = ekf.default_init(Yr, GRID)
+    assert np.all(np.isfinite(init.theta))
+    assert np.isfinite(ekf.negloglik(init.pack(), Yr, GRID, ELB, DT))
+
+
 def test_var_mult_default_none_is_identity():
     p, X, Y = _simulate()
     nll0 = ekf.negloglik(p.pack(), Y, GRID, ELB, DT)

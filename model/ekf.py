@@ -187,9 +187,20 @@ def filter_states(p: ShadowParams, yields, grid, elb, dt, n_per_year: int = 48,
 
 
 def default_init(yields, grid) -> ShadowParams:
-    """Data-driven starting parameters (diagonal K^P start)."""
-    level0 = float(np.mean(yields[:, -1]))
-    slope0 = float(np.mean(yields[:, 0] - yields[:, -1]))
+    """Data-driven starting parameters (diagonal K^P start).
+
+    Uses ``nanmean`` so a ragged panel (e.g. Japan's 30y, NaN before 1999) does
+    not poison the level/slope starting values — a plain mean over a
+    partially-missing column is NaN, which makes the whole starting point
+    infeasible and the optimizer never gets traction. The long-end level is taken
+    from the longest maturity that actually has data, and the slope from the first
+    vs last observed maturities.
+    """
+    col_ok = np.array([np.isfinite(yields[:, j]).any() for j in range(yields.shape[1])])
+    last = int(np.max(np.flatnonzero(col_ok)))     # longest observed maturity
+    first = int(np.min(np.flatnonzero(col_ok)))    # shortest observed maturity
+    level0 = float(np.nanmean(yields[:, last]))
+    slope0 = float(np.nanmean(yields[:, first] - yields[:, last]))
     return ShadowParams.from_diagonal(
         kappa=[0.1, 0.3, 0.5], theta=[level0, slope0, 0.0],
         sigma=[0.01, 0.01, 0.01], lambda_=0.5, h=0.001)
