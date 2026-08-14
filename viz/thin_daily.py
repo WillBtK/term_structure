@@ -57,7 +57,8 @@ def _block(sub: pd.DataFrame, meta: dict, cutoff: pd.Timestamp) -> dict:
            "x": _xdec(keep),
            "dates": [str(d.date()) for d in keep],
            "obs": {}, "exp": {}, "tp": {}, "breaks": [],
-           "label": meta["label"], "sample": meta["sample"], "elb": meta["elb"]}
+           "label": meta["label"], "sample": meta["sample"], "elb": meta["elb"],
+           "est_start": meta.get("est_start")}
     for meas, key in (("observed", "obs"), ("expected", "exp"), ("term_premium", "tp")):
         wide = (sub.pivot_table(index="date", columns="tenor", values=meas)
                 .reindex(keep))

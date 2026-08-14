@@ -37,35 +37,40 @@ DT_DAILY = 1.0 / 252
 
 
 def _panel_daily(kind: str) -> pd.DataFrame:
-    """Daily engine-ready panel for a market/instrument (no monthly downsample)."""
+    """Daily engine-ready panel for a market/instrument at its FULL daily reach.
+
+    Panels run back to each daily source's earliest data (US 1961, UK 1979, JP
+    1974, DE 1997, CH 1988), not the modern estimation sample. The production
+    parameters are still the modern-sample ones — filter_forward applies them over
+    the whole span (today unaffected), and the pre-estimation-sample stretch is
+    flagged downstream via each spec's ``est_start``.
+    """
     if kind == "us_nominal":
         from us.fetch_gsw import build_yield_panel
         from us.config import COMMON_GRID
-        p = build_yield_panel(grid=COMMON_GRID)
-        return p[p.index >= pd.Timestamp("1987-01-01")].dropna(how="all")
+        return build_yield_panel(grid=COMMON_GRID).dropna(how="all")   # 1961+ (10y from 1971)
     if kind == "us_real":
         from us.tips import build_real_panel
-        return build_real_panel(freq="D").dropna(how="all")
+        return build_real_panel(freq="D").dropna(how="all")            # 2004+ (= est sample)
     if kind == "de_nominal":
         from germany.fetch_bundesbank import build_yield_panel
         from germany import config as g
-        p = build_yield_panel(grid=g.COMMON_GRID, freq="D")
-        return p[p.index >= pd.Timestamp("1999-01-01")].dropna(how="all")
+        return build_yield_panel(grid=g.COMMON_GRID, freq="D").dropna(how="all")   # 1997-08+
     if kind == "jp_nominal":
         from japan.fetch_mof import build_yield_panel
         from japan import config as j
         return build_yield_panel(grid=j.COMMON_GRID, freq="D",
-                                 start=j.SAMPLE_START).dropna(how="all")
+                                 start="1974-01-01").dropna(how="all")  # 1974+ (10y from 1986)
     if kind == "uk_nominal":
         from uk.fetch_boe import build_yield_panel
         from uk import config as u
         return build_yield_panel("nominal", grid=u.COMMON_GRID, freq="D",
-                                 start=u.PROD_START).dropna(how="all")
+                                 start=None).dropna(how="all")          # 1979+
     if kind == "uk_real":
         from uk.fetch_boe import build_yield_panel
         from uk import config as u
         return build_yield_panel("real", grid=u.REAL_GRID, freq="D",
-                                 start="1992-10-01").dropna(how="all")
+                                 start=None).dropna(how="all")          # 1985+
     if kind == "ch_nominal":
         from switzerland.fetch_snb import load_yields
         from switzerland import config as sw
@@ -102,21 +107,24 @@ def _interp_to_grid(curve: pd.DataFrame, grid: np.ndarray) -> pd.DataFrame:
 
 
 # (country, instrument, params file, panel kind, var_mult_fn tag, meta)
+# ``est_start`` = start of the sample the production parameters were estimated on;
+# data before it is decomposed with extrapolated (modern) parameters and is flagged
+# in the viz. ``sample`` now states the full data reach.
 SPECS = [
     ("US", "nominal", "us_prod.json", "us_nominal", None,
-     {"label": "US Treasuries (nominal)", "sample": "1987+", "elb": -0.35}),
+     {"label": "US Treasuries (nominal)", "sample": "1961+", "est_start": "1987-01-01", "elb": -0.35}),
     ("US", "real", "us_real.json", "us_real", None,
-     {"label": "US TIPS (real)", "sample": "2004+", "elb": None}),
+     {"label": "US TIPS (real)", "sample": "2004+", "est_start": "2004-01-01", "elb": None}),
     ("UK", "nominal", "uk_nom.json", "uk_nominal", None,
-     {"label": "UK gilts (nominal)", "sample": "1992+", "elb": -0.35}),
+     {"label": "UK gilts (nominal)", "sample": "1979+", "est_start": "1992-10-01", "elb": -0.35}),
     ("UK", "real", "uk_real.json", "uk_real", None,
-     {"label": "UK index-linked (real)", "sample": "1992+", "elb": None}),
+     {"label": "UK index-linked (real)", "sample": "1985+", "est_start": "1992-10-01", "elb": None}),
     ("DE", "nominal", "de_prod.json", "de_nominal", None,
-     {"label": "German Bunds (nominal)", "sample": "1999+", "elb": -0.80}),
+     {"label": "German Bunds (nominal)", "sample": "1997+", "est_start": "1999-01-01", "elb": -0.80}),
     ("JP", "nominal", "japan_prod.json", "jp_nominal", "ycc",
-     {"label": "Japanese JGBs (nominal)", "sample": "1986+", "elb": -0.17}),
+     {"label": "Japanese JGBs (nominal)", "sample": "1974+", "est_start": "1986-07-05", "elb": -0.17}),
     ("CH", "nominal", "ch_prod.json", "ch_nominal", None,
-     {"label": "Swiss Confederation (nominal)", "sample": "1988+", "elb": -0.75}),
+     {"label": "Swiss Confederation (nominal)", "sample": "1988+", "est_start": "1988-01-01", "elb": -0.75}),
 ]
 NAMES = {"US": "United States", "UK": "United Kingdom", "DE": "Germany",
          "JP": "Japan", "CH": "Switzerland"}

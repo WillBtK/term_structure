@@ -351,7 +351,7 @@ function h(tag, attrs, kids){
   if(kids) (Array.isArray(kids)?kids:[kids]).forEach(c=> c!=null && e.appendChild(typeof c==='string'?document.createTextNode(c):c));
   return e;
 }
-const COL = ()=>({blue:cssVar('--blue'),orange:cssVar('--orange'),teal:cssVar('--teal'),purple:cssVar('--purple'),crimson:cssVar('--crimson'),ink:cssVar('--ink'),muted:cssVar('--muted'),faint:cssVar('--faint'),line:cssVar('--line'),line2:cssVar('--line-2'),surface:cssVar('--surface')});
+const COL = ()=>({blue:cssVar('--blue'),orange:cssVar('--orange'),teal:cssVar('--teal'),purple:cssVar('--purple'),crimson:cssVar('--crimson'),orangeSoft:cssVar('--orange-soft'),ink:cssVar('--ink'),muted:cssVar('--muted'),faint:cssVar('--faint'),line:cssVar('--line'),line2:cssVar('--line-2'),surface:cssVar('--surface')});
 
 /* ============================================== LINE CHART (crosshair) */
 // opts: {series:[{label,color,dash,pts:[[x,y]]}], yZero, yFmt, xFmt, xTipFmt, height, hideXaxis,
@@ -377,12 +377,24 @@ function drawLine(mount, o){
   const sx=scaleLinear([xmin,xmax],[m.l,m.l+plotW]);
   const sy=scaleLinear([ymin,ymax],[m.t+plotH,m.t]);
   const svg=el('svg',{width:'100%',height:H,viewBox:`0 0 ${W} ${H}`,preserveAspectRatio:'none'});
+  // greedy label-collision guard: a label is drawn only if its x-span is clear
+  const labelSpans=[];
+  function placeLabel(cx, text, anchor, y, color){
+    const w=text.length*5.2, x0=anchor==='start'?cx:cx-w/2, x1=x0+w;
+    for(const [a,b] of labelSpans){ if(x1>a-4 && x0<b+4) return; }
+    labelSpans.push([x0,x1]);
+    const tx=el('text',{x:cx,y:y||(m.t+9),'text-anchor':anchor}); tx.setAttribute('fill',color||C.faint);
+    tx.style.fontSize='9px'; tx.textContent=text; svg.appendChild(tx);
+  }
   // additive: shaded episode bands (behind everything), with an optional top label
   (o.bands||[]).forEach(bd=>{
     const a=Math.max(bd.x0,xmin), b=Math.min(bd.x1,xmax); if(b<=a) return;
     const x0=sx(a), x1=sx(b);
-    svg.appendChild(el('rect',{x:x0,y:m.t,width:Math.max(1,x1-x0),height:plotH,fill:C.line2,opacity:0.55}));
-    if(bd.label){ const tx=el('text',{x:(x0+x1)/2,y:m.t+9,'text-anchor':'middle'}); tx.setAttribute('fill',C.faint); tx.style.fontSize='9px'; tx.textContent=bd.label; svg.appendChild(tx); }
+    svg.appendChild(el('rect',{x:x0,y:m.t,width:Math.max(1,x1-x0),height:plotH,
+      fill:bd.fill||C.line2,opacity:bd.opacity!=null?bd.opacity:0.55}));
+    if(bd.edge){ svg.appendChild(el('line',{x1:x1,x2:x1,y1:m.t,y2:m.t+plotH,stroke:bd.edgeColor||C.faint,'stroke-width':1,'stroke-dasharray':'2 2',opacity:0.85})); }
+    if(bd.label){ const left=bd.labelAt==='left';
+      placeLabel(left?x0+4:(x0+x1)/2, bd.label, left?'start':'middle', m.t+9, bd.labelColor||C.faint); }
   });
   const yt=niceTicks(ymin,ymax,4);
   const stepA = yt.length>1 ? Math.abs(yt[1]-yt[0]) : 1;
@@ -400,7 +412,7 @@ function drawLine(mount, o){
     if(b.x<xmin||b.x>xmax) return;
     const x=sx(b.x);
     svg.appendChild(el('line',{x1:x,x2:x,y1:m.t,y2:m.t+plotH,stroke:C.faint,'stroke-width':1,'stroke-dasharray':'3 3',opacity:0.75}));
-    if(b.label){ const tx=el('text',{x:x+3,y:m.t+9,'text-anchor':'start'}); tx.setAttribute('fill',C.faint); tx.style.fontSize='9px'; tx.textContent=b.label; svg.appendChild(tx); }
+    if(b.label) placeLabel(x+3, b.label, 'start', m.t+9, C.faint);
   });
   if(!o.hideXaxis){
     niceTicks(xmin,xmax,Math.min(6,Math.round(plotW/90))).forEach(t=>{
@@ -495,13 +507,19 @@ const SERIES={obs:'Actual yield',exp:'Expected rate',tp:'Term premium'};
 const ym=(y,m)=>y+(m-1)/12;
 // Curated policy episodes (shaded) + structural breakpoints (dashed). Applies per
 // market; instrument-specific keys ("UK:real") add to the country's set.
+// Curated policy/stagflation episodes (shaded). Deep-past high-inflation windows
+// are grounded in the Kim-filter regime dating (US Volcker P≈0.98; UK 1974 &
+// 1980-82; JP 1976 & 1978 high-vol episodes).
 const EPISODES={
-  US:[{a:[1979,10],b:[1982,10],l:'Volcker'},{a:[2008,9],b:[2015,12],l:'ZIRP / QE'},{a:[2020,2],b:[2020,5],l:'COVID'}],
+  US:[{a:[1973,10],b:[1975,3],l:'Oil shock'},{a:[1979,10],b:[1982,10],l:'Volcker'},{a:[2008,9],b:[2015,12],l:'ZIRP / QE'},{a:[2020,2],b:[2020,5],l:'COVID'}],
   DE:[{a:[2015,3],b:[2018,12],l:'PSPP QE'},{a:[2020,3],b:[2022,3],l:'PEPP'},{a:[2022,7],b:[2023,9],l:'ECB hikes'}],
-  JP:[{a:[2013,4],b:[2016,9],l:'QQE'},{a:[2016,9],b:[2024,3],l:'YCC'}],
-  UK:[{a:[2009,3],b:[2021,12],l:'APF QE'},{a:[2022,9],b:[2022,11],l:'LDI'}],
+  JP:[{a:[1974,1],b:[1976,12],l:'Oil-shock inflation'},{a:[2013,4],b:[2016,9],l:'QQE'},{a:[2016,9],b:[2024,3],l:'YCC'}],
+  UK:[{a:[1973,10],b:[1975,12],l:'Oil / secondary-banking'},{a:[1979,6],b:[1982,10],l:'Thatcher disinflation'},{a:[2009,3],b:[2021,12],l:'APF QE'},{a:[2022,9],b:[2022,11],l:'LDI'}],
   CH:[{a:[2015,1],b:[2022,9],l:'SNB −0.75%'}],
 };
+// Extreme-rate windows where the single-regime extrapolation is least reliable
+// (short rate far outside the modern estimation sample -> expected-path blows up).
+const EXTREME={ US:[{a:[1979,8],b:[1985,6]}], UK:[{a:[1979,1],b:[1985,12]}] };
 const BREAKS={
   US:[{d:[2008,9],l:'Lehman'},{d:[2020,3],l:'COVID'}],
   DE:[{d:[2015,3],l:'PSPP'},{d:[2022,7],l:'ECB liftoff'}],
@@ -510,6 +528,17 @@ const BREAKS={
   'UK:real':[{d:[2014,1],l:'LDI reg.'},{d:[2022,9],l:'LDI crisis'}],
 };
 function bandsFor(cc){ return (EPISODES[cc]||[]).map(e=>({x0:ym(...e.a),x1:ym(...e.b),label:e.l})); }
+function isoToX(s){ if(!s) return null; const [y,m,d]=s.split('-').map(Number);
+  const dt=new Date(Date.UTC(y,0,1)); const doy=Math.round((Date.UTC(y,m-1,d)-Date.UTC(y,0,1))/864e5); return y+doy/365.25; }
+// Pre-estimation-sample band (parameters extrapolated) + extreme-rate bands, for a block.
+function contextBands(cc, inst, block){
+  const out=[];
+  const es=isoToX(block.est_start), x0=block.x[0];
+  if(es!=null && es>x0+0.05) out.push({x0:x0,x1:es,fill:COL().orangeSoft,opacity:0.55,edge:true,
+    edgeColor:COL().orange,labelAt:'left',labelColor:COL().orange,label:'pre-sample: params extrapolated'});
+  (EXTREME[cc]||[]).forEach(e=>out.push({x0:ym(...e.a),x1:ym(...e.b),fill:COL().orange,opacity:0.14}));
+  return out;
+}
 function breaksFor(cc,inst){
   const curated=(BREAKS[cc]||[]).concat(BREAKS[cc+':'+inst]||[]).map(b=>({x:ym(...b.d),label:b.l}));
   const regime=((DATA.countries[cc].instruments[inst]||{}).breaks||[]).map(b=>({x:b.x,label:''}));
@@ -559,7 +588,7 @@ function lastVal(block, measure, tenor){
 /* ------------------------------------------------ 2. EXPLORER (linked time-series + curve) */
 (function(){
   panel('explorer','Explore','Curve explorer — a tenor through time, the whole curve on hover',
-    ['Pick a market, instrument and tenor. The top chart is that tenor’s history; the bottom chart is the <b>entire term structure on whatever date you hover</b>. Switch either chart between the actual yield, the expected-rate path, the term premium, or the two stacked (expected rate + premium = yield). Dashed verticals mark regime breakpoints where identified.']);
+    ['Pick a market, instrument and tenor. The top chart is that tenor’s history; the bottom chart is the <b>entire term structure on whatever date you hover</b>. Switch either chart between the actual yield, the expected-rate path, the term premium, or the two stacked (expected rate + premium = yield). Daily throughout — drag the range handles to zoom into any window. The <b>orange region</b> marks dates before the model’s estimation sample, where the term-premium decomposition uses extrapolated parameters (see Method); the deeper-shaded 1979–84 window is where it is least reliable.']);
   const s=M.lastChild;
   const EX={cc:'US', inst:'nominal', tenor:'10', tsM:'tp', xM:'obs', lo:0, hi:0, hoverX:null, annot:true};
   function block(){ return DATA.countries[EX.cc].instruments[EX.inst]; }
@@ -641,7 +670,7 @@ function lastVal(block, measure, tenor){
   function renderTs(){
     const b=block();
     tsTitle.textContent=`${DATA.countries[EX.cc].name} ${EX.inst==='real'?'(real)':''} · ${EX.tenor}y · ${EX.tsM==='stack'?'expected rate + term premium':SERIES[EX.tsM]}`;
-    tsNote.textContent=EX.tsM==='stack'?'Two lines: the gap between the expected-rate path and the actual yield is the term premium (negative where the expected-rate path sits above the yield — e.g. an inverted curve).':'Daily (recent) / weekly (history), percent. Shaded = policy episodes; dashed = structural breaks. Drag the handles below to zoom.';
+    tsNote.textContent=EX.tsM==='stack'?'Two lines: the gap between the expected-rate path and the actual yield is the term premium (negative where the expected-rate path sits above the yield — e.g. an inverted curve).':'Daily, percent. Orange = pre-estimation-sample (extrapolated params); grey = policy episodes; dashed = structural breaks. Drag the handles below to zoom.';
     const full=seriesForMeasure(EX.tsM, EX.tenor);
     // window filter
     const xArr=b.x, xlo=xArr[EX.lo], xhi=xArr[EX.hi];
@@ -649,7 +678,7 @@ function lastVal(block, measure, tenor){
     tsLegend.innerHTML=''; if(series.length>1) tsLegend.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
     tsBox.innerHTML='';
     drawLine(tsBox,{height:230, yZero:EX.tsM==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtDay,
-      bands:EX.annot?bandsFor(EX.cc).filter(bd=>bd.x1>=xlo&&bd.x0<=xhi):[],
+      bands:EX.annot?contextBands(EX.cc,EX.inst,b).concat(bandsFor(EX.cc)).filter(bd=>bd.x1>=xlo&&bd.x0<=xhi):[],
       breaks:EX.annot?breaksFor(EX.cc,EX.inst).filter(bk=>bk.x>=xlo&&bk.x<=xhi):[],
       series,
       onHover:xv=>{ let bi=0,bd=1e9; xArr.forEach((x,i)=>{const d=Math.abs(x-xv); if(d<bd&&x>=xlo-1e-6&&x<=xhi+1e-6){bd=d;bi=i;}}); EX.hoverX=bi; renderX(); },
@@ -756,6 +785,10 @@ function lastVal(block, measure, tenor){
   const cav=h('div',{class:'callout orange'});
   cav.innerHTML='<b>Anchoring the expected-rate path.</b> A yields-only model tends to a near-unit-root, so the expected-average short rate would track <b>today’s</b> policy rate and the term premium would degenerate into the term spread (collapsing to deeply negative in the 2022–23 hiking cycle). We instead impose a calibrated <b>~3.5-year mean-reversion</b> so the expected path reverts to its long-run mean — calibrated on the US against the <b>SF Fed Christensen–Rudebusch</b> series (10y correlation 0.80, identical latest value 1.19%) and applied uniformly to every market. One residual caveat: a yields-only model still cannot see central-bank bond purchases, so it does not separately identify QE’s compression of the premium.';
   s.appendChild(cav);
+  // historical-extension caveat
+  const cav2=h('div',{class:'callout orange'});
+  cav2.innerHTML='<b>The extended history (pre-estimation-sample).</b> Observed yields run to each daily source’s start (US 1961, UK 1979, Japan 1974), but the model <b>parameters</b> are fit on each market’s modern sample (US 1987+, UK 1992+, …). Before that boundary — shaded orange in the Explorer — the decomposition applies <b>extrapolated</b> parameters, so term-premium <b>levels</b> there are indicative, not production-grade. They are most stretched in the <b>1979–84 disinflation</b> (deeper-shaded), where short rates of 15–19% sit far outside the modern sample and the expected-rate path over-swings. Event-study <b>changes</b> over a short window remain meaningful even where the level is biased (the expected path barely moves within a window). A regime-specific overlay for that window is in progress.';
+  s.appendChild(cav2);
   // download
   const c2=h('div',{class:'card'});
   c2.appendChild(h('div',{class:'card-title'},'Download the full series'));
