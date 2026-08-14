@@ -70,6 +70,35 @@ def test_diagonal_correction_keeps_K_real_and_diagonal():
     assert bc.fit_var1(z, diagonal=True)["Phi"][0, 1] == 0.0
 
 
+def test_auto_mode_falls_back_to_diagonal_on_complex_dynamics():
+    # Collinear near-unit-root factors -> unrestricted correction goes complex ->
+    # auto mode must fall back to diagonal (real, diagonal K).
+    rng = np.random.default_rng(0)
+    T = 360
+    z = np.zeros((T, 2))
+    for t in range(1, T):
+        s = rng.standard_normal()
+        z[t, 0] = 0.995 * z[t - 1, 0] + 0.01 * s
+        z[t, 1] = 0.99 * z[t - 1, 1] + 0.01 * (0.9 * s + 0.1 * rng.standard_normal())
+    full = bc.bias_correct(z, dt=1.0 / 12, n_boot=300, seed=1, diagonal=False)
+    auto = bc.bias_correct(z, dt=1.0 / 12, n_boot=300, seed=1, diagonal="auto")
+    if bc._kp_has_complex_dynamics(full.K_bc):        # the case this guard is for
+        assert auto.mode == "diagonal"
+        assert np.allclose(auto.K_bc, np.diag(np.diag(auto.K_bc)))
+        assert np.all(np.isreal(np.linalg.eigvals(auto.K_bc)))
+
+
+def test_auto_mode_keeps_full_when_well_behaved():
+    # Well-separated stationary factors -> unrestricted K is real -> auto keeps full
+    # (this is what preserves the US cross-factor SF-Fed match).
+    Phi = np.array([[0.95, 0.02], [0.0, 0.80]])
+    c = np.array([0.002, 0.0])
+    X = _simulate_var1(Phi, c, np.diag([1e-4, 1e-4]), T=600, seed=2)
+    auto = bc.bias_correct(X, dt=1.0 / 12, n_boot=300, seed=1, diagonal="auto")
+    assert auto.mode == "full"
+    assert not np.allclose(auto.Phi_bc, np.diag(np.diag(auto.Phi_bc)))  # off-diagonal kept
+
+
 def test_bias_correction_deterministic():
     Phi = np.array([[0.9, 0.0], [0.0, 0.85]])
     c = np.array([0.001, 0.0])

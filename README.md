@@ -37,8 +37,8 @@ sensitive to this choice). Treat it as a sensitivity parameter, not a fact.
 |---|---|---|---|
 | US | -0.35% | fixed | Standard currency-storage-cost floor |
 | UK | -0.35% | fixed | Standard currency-storage-cost floor |
-| Germany | -1.0% | fixed | Reversal-rate estimate (ECB) |
-| Japan | -0.75% | -1.0% to -0.5% | Reversal-rate estimate (BoJ range) |
+| Germany | -0.80% (ML) | -1.0% calibration | ML-estimated; validates Praet/ECB reversal-rate region |
+| Japan | -0.17% (ML) | start -0.20% | ML-estimated; lands at the NIRP policy rate (-0.10%) |
 
 Use **one constant bound per country for the full sample** — do not build a
 time-varying or step-function bound unless sensitivity testing shows the

@@ -14,18 +14,23 @@ maturity (0.5-10y). Bund yields went clearly negative 2014-2022 (2015 5y ≈ −
 ## Modern production TP — euro era (1999+), shadow AFNS + BRW
 
 `germany/production_tp.py::run_germany_production`. 331 monthly obs (1999-2026),
-converged, **yield-fit MAD 3.42 bp**, λ=0.413. BRW bias-correction pushes ρ
-0.988 → 0.9999. ELB fixed at Praet's −1.0% (validated below).
+converged, **yield-fit MAD 3.49 bp**. BRW bias-correction (auto mode → unrestricted;
+the euro-era factors are well-behaved) pushes ρ 0.995 → 0.9999. ELB **ML-estimated
+at −0.80%** (validates Praet's −1.0% region; see below).
+
+> Numbers are on the corrected decomposition path (sample-mean θ for the
+> expectations leg + observed-based realised premium + auto BRW) adopted pipeline-
+> wide from the Japan leg; see `FINDINGS_japan.md` / `FINDINGS_phase5.md`.
 
 **Headline term-premium levels (bias-corrected):**
 
 | | 10y TP | 2y TP |
 |---|---|---|
-| latest (2026-07) | **+0.26%** | +0.04% |
-| mean 2016-2019 | +0.19% | — |
+| latest (2026-07) | **+0.13%** | −0.15% |
 
-The German 10y term premium today (~0.26%) is **below the US (~0.75%)** —
-consistent with Bund safe-haven / collateral demand compressing the premium.
+The German 10y term premium today (~0.13%) is the **lowest of the three built
+markets** (US ~0.67%, Japan ~0.90%) — consistent with Bund safe-haven / collateral
+demand compressing the premium.
 
 ### ELB — the data validates Praet's −1.0%
 

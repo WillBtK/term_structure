@@ -11,36 +11,45 @@ estimate on a modern sample is cleaner and more correct.
 ## Production series — `us/production_tp.py::run_production_tp`
 
 Shadow-rate AFNS on **1987-2026** (monthly, ELB −0.35%, loglik 20286, converged,
-yield-fit MAD 3.73 bp, λ=0.512), with **Bauer-Rudebusch-Wu bias-correction** of the
-P-persistence (ρ 0.986 → 0.9998, δ=0.89; smallest eig(K^P) 0.033 → 0.0018 — pushed
-to near-unit-root, capped at the stationarity boundary). Term premium uses the
-expected-average *floored* short rate under P
-(`term_premium.expected_floored_short_rate_yields`), so it respects the ELB in the
-2008-15 / 2020-21 ZLB and reduces to plain AFNS elsewhere.
+yield-fit MAD 3.73 bp), with **Bauer-Rudebusch-Wu bias-correction** of the
+P-persistence (ρ 0.992 → 0.9998). Term premium uses the expected-average *floored*
+short rate under P (`term_premium.expected_floored_short_rate_yields`), so it
+respects the ELB in the 2008-15 / 2020-21 ZLB and reduces to plain AFNS elsewhere.
 
-### vs SF Fed — bias-correction is decisive
+> **Decomposition refinement (from the Japan leg).** Two corrections now apply
+> pipeline-wide: (a) the expectations-leg long-run mean θ is the **sample mean** of
+> the filtered factors (per BRW), not the unidentified ML transition θ; (b) BRW runs
+> in **"auto"** mode — unrestricted VAR where well-behaved (the US keeps this: its
+> cross-factor P-dynamics are what match SF Fed), falling back to the diagonal
+> correction only when the unrestricted K^P turns complex (Japan). (c) The premium
+> is now measured against the **observed** yield (realised premium), which for the
+> US equals the fitted-based premium to ~4 bp. The numbers below are on the
+> corrected path; the US is essentially unchanged (short-end corr ~0.80, and the
+> level bias is *reduced* by the sample-mean θ).
+
+### vs SF Fed — bias-correction is decisive (auto mode → unrestricted for the US)
 
 | maturity | uncorrected corr / bias | **bias-corrected corr / bias** |
 |---|---|---|
-| 1y  | 0.17 / −5.0 bp | **0.84 / −5.2 bp** |
-| 2y  | 0.32 / +1.2 bp | **0.82 / −2.0 bp** |
-| 3y  | 0.43 / +10.4 bp | **0.80 / +3.5 bp** |
-| 5y  | 0.59 / +28.5 bp | **0.75 / +14.5 bp** |
-| 7y  | 0.67 / +42.5 bp | **0.73 / +22.0 bp** |
-| 10y | 0.74 / +55.9 bp | **0.72 / +27.1 bp** |
+| 1y  | 0.17 / −5 bp | **0.80 / −7.6 bp** |
+| 2y  | 0.32 / +1 bp | **0.81 / −6.4 bp** |
+| 3y  | 0.43 / +10 bp | **0.78 / −3.9 bp** |
+| 5y  | 0.59 / +29 bp | **0.74 / +1.7 bp** |
+| 7y  | 0.67 / +43 bp | **0.73 / +7.6 bp** |
+| 10y | 0.74 / +56 bp | **0.72 / +15.5 bp** |
 
 Bias-correction lifts short-to-medium correlation with SF Fed sharply (1y
-0.17→0.84, 2y 0.32→0.82, 3y 0.43→0.80) and **roughly halves the level bias at every
-maturity** (10y +55.9→+27.1 bp). The 10y correlation is essentially flat
-(0.74→0.72); its residual +27 bp level gap is the known weak-identification of the
-premium *level* — the corrected series is the production choice (corr 0.72-0.84,
-bias 2-27 bp across the grid).
+0.17→0.80, 2y 0.32→0.81, 3y 0.43→0.78) and **cuts the level bias sharply at every
+maturity** (10y +56→+15.5 bp; 5y +29→+2 bp). The 10y correlation is essentially flat
+(0.74→0.72); its residual level gap is the known weak-identification of the premium
+*level*. The corrected series (corr 0.72-0.81, |bias| ≤ 15.5 bp across the grid) is
+the production choice.
 
 ### Headline levels (bias-corrected)
 
 | | 10y TP | 2y TP |
 |---|---|---|
-| latest (2026-07) | **+0.75%** | +0.10% |
+| latest (2026-07) | **+0.67%** | +0.04% |
 | mean 2015-2019 (post-QE) | ~0.00% | — |
 
 Plausible modern levels: a moderate, positive 10y term premium today, compressed to

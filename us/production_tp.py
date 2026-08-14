@@ -184,12 +184,13 @@ def run_production_tp(start: str = "1987-01-01", end=None, maxiter: int = 5000,
     # not drive the expected-rate path.
     theta = states.mean(axis=0)
 
-    # Diagonal bias-correction to match the independent-factor production spec: an
-    # unrestricted VAR correction on near-unit-root collinear factors yields a full
-    # K^P with complex eigenvalues and a distorted expected-rate path (Japan).
-    bc = bcm.bias_correct(states, dt, n_boot=n_boot, seed=seed, diagonal=True)
-    logger.info("BRW (diagonal): spectral radius %.4f -> %.4f (delta=%.2f)",
-                bc.rho_hat, bc.rho_bc, bc.delta)
+    # Bias-correction in "auto" mode: unrestricted VAR where it is well-behaved
+    # (captures genuine cross-factor dynamics — the US short-end SF-Fed match relies
+    # on this), falling back to the diagonal/independent-factor correction when the
+    # unrestricted K^P turns complex (near-unit-root collinear factors, e.g. Japan).
+    bc = bcm.bias_correct(states, dt, n_boot=n_boot, seed=seed)
+    logger.info("BRW (%s): spectral radius %.4f -> %.4f (delta=%.2f)",
+                bc.mode, bc.rho_hat, bc.rho_bc, bc.delta)
 
     ours = _assemble_tp(states, fitted, bc.K_bc, theta, Sigma, elb, grid, dates,
                         n_per_year=n_per_year, observed=observed)   # headline (realised)

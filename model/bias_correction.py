@@ -112,29 +112,24 @@ class BiasCorrectResult:
     rho_hat: float             # spectral radius before correction
     rho_bc: float              # spectral radius after correction
     n_boot: int
+    mode: str = "full"         # "full" (unrestricted) or "diagonal" actually used
 
 
-def bias_correct(states: np.ndarray, dt: float, n_boot: int = 1000,
-                 seed: int = 0, diagonal: bool = False) -> BiasCorrectResult:
-    """Kilian bias-corrected VAR(1) persistence for the filtered factors.
+def _kp_has_complex_dynamics(K: np.ndarray, tol: float = 1e-6) -> bool:
+    """True if K^P has non-negligibly complex eigenvalues (oscillatory expected-rate
+    path) — the pathology an unrestricted correction produces on near-unit-root,
+    collinear factors. Scaled by the largest real part so the test is unit-free."""
+    ev = np.linalg.eigvals(K)
+    scale = 1.0 + float(np.max(np.abs(ev.real)))
+    return float(np.max(np.abs(ev.imag))) > tol * scale
 
-    Bootstrap bias ``Δ = mean(Φ*) - Φ̂``; corrected ``Φ̃ = Φ̂ - δΔ`` with ``δ``
-    reduced from 1 (Kilian's stationarity adjustment) until the spectral radius is
-    below 1. Only persistence is corrected; ``θ`` is held at the OLS/ML value.
 
-    ``diagonal=True`` constrains Φ to the independent-factor family (per-factor
-    AR(1)), matching the production diagonal-K^P spec. Use it whenever the fit used
-    ``diagonal_K=True``: an unrestricted correction on near-unit-root collinear
-    factors produces a full K^P with complex eigenvalues and a distorted
-    expected-rate path (observed on Japan's ZLB sample). The resulting ``K_bc`` is
-    then diagonal with real, positive mean-reversion.
-    """
-    X = np.asarray(states, dtype=float)
+def _correct_once(X, dt, n_boot, seed, diagonal):
+    """One Kilian bias-correction in the requested (diagonal or full) family."""
     T = len(X)
     base = fit_var1(X, diagonal=diagonal)
     Phi_hat, c, resid, theta = base["Phi"], base["c"], base["resid"], base["theta"]
     rng = np.random.default_rng(seed)
-
     mean_phi = _bootstrap_mean_phi(Phi_hat, c, resid, T, n_boot, rng, diagonal=diagonal)
     bias = mean_phi - Phi_hat
 
@@ -142,7 +137,6 @@ def bias_correct(states: np.ndarray, dt: float, n_boot: int = 1000,
     delta = 1.0
     Phi_bc = Phi_hat - delta * bias
     if _spectral_radius(Phi_bc) >= 1.0:
-        delta = 1.0
         while delta > 0.0 and _spectral_radius(Phi_hat - delta * bias) >= 1.0:
             delta -= 0.01
         delta = max(delta, 0.0)
@@ -153,5 +147,34 @@ def bias_correct(states: np.ndarray, dt: float, n_boot: int = 1000,
         K_hat=phi_to_kp(Phi_hat, dt), K_bc=phi_to_kp(Phi_bc, dt),
         theta=theta, delta=float(delta),
         rho_hat=_spectral_radius(Phi_hat), rho_bc=_spectral_radius(Phi_bc),
-        n_boot=int(n_boot),
+        n_boot=int(n_boot), mode="diagonal" if diagonal else "full",
     )
+
+
+def bias_correct(states: np.ndarray, dt: float, n_boot: int = 1000,
+                 seed: int = 0, diagonal="auto") -> BiasCorrectResult:
+    """Kilian bias-corrected VAR(1) persistence for the filtered factors.
+
+    Bootstrap bias ``Δ = mean(Φ*) - Φ̂``; corrected ``Φ̃ = Φ̂ - δΔ`` with ``δ``
+    reduced from 1 (Kilian's stationarity adjustment) until the spectral radius is
+    below 1. Only persistence is corrected; the expectations-leg ``θ`` is supplied
+    separately by the caller (the sample mean — see `us.production_tp`).
+
+    ``diagonal`` controls the persistence family:
+
+    - ``"auto"`` (default): fit the **unrestricted** VAR (which captures genuine
+      cross-factor P-dynamics — this is what gives the US its SF-Fed-consistent
+      short-end term premium), but if the resulting ``K_bc`` has **complex
+      eigenvalues** — the pathology on near-unit-root, collinear factors such as
+      Japan's ZLB era, giving an oscillatory/distorted expected-rate path — fall
+      back to the **diagonal** (independent-factor) correction, which yields real,
+      positive mean-reversion. ``result.mode`` records which was used.
+    - ``True`` / ``False``: force diagonal / unrestricted.
+    """
+    X = np.asarray(states, dtype=float)
+    if diagonal == "auto":
+        res = _correct_once(X, dt, n_boot, seed, diagonal=False)
+        if _kp_has_complex_dynamics(res.K_bc):
+            res = _correct_once(X, dt, n_boot, seed, diagonal=True)
+        return res
+    return _correct_once(X, dt, n_boot, seed, diagonal=bool(diagonal))
