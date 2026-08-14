@@ -297,7 +297,17 @@ footer.rail-foot{ margin-top:26px; padding-top:16px; border-top:1px solid var(--
 
 <script id="data-blob" type="application/json">__DATA_BLOB__</script>
 <script>
-const DATA = JSON.parse(document.getElementById('data-blob').textContent);
+function loadData(){
+  // ── DATA ADAPTER ──────────────────────────────────────────────────────────
+  // Today the (thinned) dataset is embedded in the #data-blob tag, because a
+  // published Claude Artifact is sandboxed and cannot fetch an external host.
+  // To move to a hosted backend (e.g. Supabase) later, replace the body of this
+  // one function with a fetch returning the SAME schema — the canonical
+  // Supabase-shaped table is viz/data_daily.parquet — and the charts below are
+  // unchanged (make it async + await loadData() at the two call sites).
+  return JSON.parse(document.getElementById('data-blob').textContent);
+}
+const DATA = loadData();
 /* ============================================== THEME */
 (function(){
   const btns = document.querySelectorAll('#themeToggle button');
@@ -454,7 +464,7 @@ function panel(id, eyebrow, title, paras){
   NAV.appendChild(h('a',{href:'#'+id},title.length>32?title.slice(0,30)+'…':title));
   return s;
 }
-document.getElementById('footCredit').textContent = 'Model: AFNS + Christensen–Rudebusch shadow rate, BRW bias-corrected. As of '+DATA.meta.asof+'.';
+document.getElementById('footCredit').textContent = 'Model: AFNS + Christensen–Rudebusch shadow rate, ~3.5y mean-reversion floor. As of '+DATA.meta.asof+'.';
 
 // CSV download via the viewer's `downloads` capability (graceful when absent /
 // when the .csv extension isn't enabled in this view -> fall back to .txt).
@@ -479,6 +489,7 @@ async function downloadCsv(filename, text, note){
 const MON3=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const xYear=v=>String(Math.round(v));
 function xFmtMonth(v){ const y=Math.floor(v+1e-6); const mo=Math.round((v-y)*12); return MON3[(mo%12+12)%12]+'-'+String(y).slice(-2); }
+function xFmtDay(v){ const y=Math.floor(v+1e-9); const doy=Math.round((v-y)*365.25); const dt=new Date(Date.UTC(y,0,1)); dt.setUTCDate(dt.getUTCDate()+doy); return MON3[dt.getUTCMonth()]+' '+dt.getUTCDate()+', '+y; }
 const CCOL={US:'blue',UK:'orange',JP:'teal',DE:'purple',CH:'crimson'};
 const SERIES={obs:'Actual yield',exp:'Expected rate',tp:'Term premium'};
 const ym=(y,m)=>y+(m-1)/12;
@@ -536,10 +547,10 @@ function lastVal(block, measure, tenor){
   // history chart: 10y nominal TP, 4 countries
   const c=h('div',{class:'card'});
   c.appendChild(h('div',{class:'card-title'},'10-year nominal term premium, 1970–today'));
-  c.appendChild(h('div',{class:'card-note'},'Realised premium (observed yield minus the model’s expected average short rate). Hover for monthly values.'));
+  c.appendChild(h('div',{class:'card-note'},'Realised premium (observed yield minus the model’s expected average short rate). Daily over the recent window, weekly before. Hover for values.'));
   c.appendChild(legend(DATA.order.map(cc=>({label:DATA.countries[cc].name,color:COL()[CCOL[cc]]}))));
   const box=h('div'); c.appendChild(box); s.appendChild(c);
-  lineChart(box,{height:260, yZero:true, yFmt:pct1, xFmt:xYear, xTipFmt:xFmtMonth,
+  lineChart(box,{height:260, yZero:true, yFmt:pct1, xFmt:xYear, xTipFmt:xFmtDay,
     series:DATA.order.map(cc=>({label:DATA.countries[cc].name, color:COL()[CCOL[cc]], pts:ptsFor(DATA.countries[cc].instruments.nominal,'tp','10')}))});
   const call=h('div',{class:'callout'}); call.innerHTML='<b>Switzerland sits lowest</b> (its premium is around zero — deep safe-haven / collateral demand), with the US, Germany, UK and Japan higher. Japan’s premium was <b>negative through QQE/YCC</b> and is now normalising as the BoJ exits. The expected-rate path is anchored to a calibrated mean-reversion (see Method), so the premium reflects duration risk rather than simply the term spread.';
   s.appendChild(call);
@@ -630,14 +641,14 @@ function lastVal(block, measure, tenor){
   function renderTs(){
     const b=block();
     tsTitle.textContent=`${DATA.countries[EX.cc].name} ${EX.inst==='real'?'(real)':''} · ${EX.tenor}y · ${EX.tsM==='stack'?'expected rate + term premium':SERIES[EX.tsM]}`;
-    tsNote.textContent=EX.tsM==='stack'?'Two lines: the gap between the expected-rate path and the actual yield is the term premium (negative where the expected-rate path sits above the yield — e.g. an inverted curve).':'Monthly, percent. Shaded = policy episodes; dashed = structural breaks. Drag the handles below to zoom.';
+    tsNote.textContent=EX.tsM==='stack'?'Two lines: the gap between the expected-rate path and the actual yield is the term premium (negative where the expected-rate path sits above the yield — e.g. an inverted curve).':'Daily (recent) / weekly (history), percent. Shaded = policy episodes; dashed = structural breaks. Drag the handles below to zoom.';
     const full=seriesForMeasure(EX.tsM, EX.tenor);
     // window filter
     const xArr=b.x, xlo=xArr[EX.lo], xhi=xArr[EX.hi];
     const series=full.map(sr=>({...sr,pts:sr.pts.filter(p=>p[0]>=xlo-1e-6&&p[0]<=xhi+1e-6)}));
     tsLegend.innerHTML=''; if(series.length>1) tsLegend.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
     tsBox.innerHTML='';
-    drawLine(tsBox,{height:230, yZero:EX.tsM==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtMonth,
+    drawLine(tsBox,{height:230, yZero:EX.tsM==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtDay,
       bands:EX.annot?bandsFor(EX.cc).filter(bd=>bd.x1>=xlo&&bd.x0<=xhi):[],
       breaks:EX.annot?breaksFor(EX.cc,EX.inst).filter(bk=>bk.x>=xlo&&bk.x<=xhi):[],
       series,
@@ -709,11 +720,11 @@ function lastVal(block, measure, tenor){
   const lg=h('div'); c.appendChild(lg); const box=h('div'); c.appendChild(box); s.appendChild(c);
   function render(){
     ct.textContent=`${CM.tenor}-year ${SERIES[CM.measure].toLowerCase()} — cross-country`;
-    cn.textContent='Nominal government curves, monthly, percent.';
+    cn.textContent='Nominal government curves, daily (recent) / weekly (history), percent.';
     const active=DATA.order.filter(cc=>CM.ccs[cc]);
     const series=active.map(cc=>({label:DATA.countries[cc].name,color:COL()[CCOL[cc]],pts:ptsFor(DATA.countries[cc].instruments.nominal,CM.measure,CM.tenor)}));
     lg.innerHTML=''; lg.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
-    box.innerHTML=''; drawLine(box,{height:280, yZero:CM.measure==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtMonth, series});
+    box.innerHTML=''; drawLine(box,{height:280, yZero:CM.measure==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtDay, series});
   }
   render(); CHARTS.push(render);
 })();
@@ -721,7 +732,7 @@ function lastVal(block, measure, tenor){
 /* ------------------------------------------------ 4. DATA / METHOD */
 (function(){
   panel('data','The data','Method & download',
-    ['Each curve is fitted with a single arbitrage-free Nelson–Siegel model extended with the Christensen–Rudebusch shadow rate (so it respects each market’s effective lower bound), estimated by extended-Kalman QML on a modern regime-clean sample, with Bauer–Rudebusch–Wu bias-correction of the physical persistence. The term premium shown is the <b>realised</b> premium: the observed yield minus the model’s expected average future short rate. Real curves (US TIPS, UK index-linked) drop the lower bound entirely.']);
+    ['Each curve is fitted with a single arbitrage-free Nelson–Siegel model extended with the Christensen–Rudebusch shadow rate (so it respects each market’s effective lower bound), estimated by extended-Kalman QML on a modern regime-clean sample. The expected-rate path is anchored by a calibrated <b>~3.5-year mean-reversion floor</b> on the physical persistence (see the note below). The term premium shown is the <b>realised</b> premium: the observed yield minus the model’s expected average future short rate. Real curves (US TIPS, UK index-linked) drop the lower bound entirely.']);
   const s=M.lastChild;
   // summary table
   const c=h('div',{class:'card'});
