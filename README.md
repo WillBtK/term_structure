@@ -183,6 +183,24 @@ convergence risk is real for shadow-rate models. Instead:
 - Log the likelihood at convergence; **fall back to the last valid parameter
   set** if an optimization run fails, rather than publishing a broken estimate.
 
+**This is what makes daily publishing cheap.** Only the *estimation* (the
+Nelder-Mead optimization) is slow — minutes cold, faster warm-started — and it is
+amortized on the weekly/monthly cadence in the background. The **daily** operation
+is a single Kalman/EKF pass with *fixed, cached* parameters, which is fast:
+
+| operation | cost (per country) |
+|---|---|
+| daily filter-forward, last-12-month window | **~20 ms** |
+| full-history monthly re-filter + decompose (~40y) | ~0.5 s |
+| full-history *daily* re-filter + decompose (~28y) | ~8 s |
+
+So publishing the term premium daily across all four markets is well under a
+minute even re-filtering the whole history each day, and milliseconds with a
+rolling window. Implementation: `us.production_tp.ProductionParams` (the cached,
+JSON-serializable parameter set produced by a re-estimation) + `filter_forward`
+(the fast daily decomposition). Estimation `restarts` default is **1** (warm-started
+re-estimation converges in one pass; multi-start is opt-in for cold fits).
+
 ## Build sequence
 
 1. **US** — DONE. Modern production TP (1987+ shadow AFNS + BRW) validated vs

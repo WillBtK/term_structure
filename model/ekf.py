@@ -201,7 +201,7 @@ def _diag_unpack(v: np.ndarray) -> ShadowParams:
 
 
 def estimate(yields, grid, elb, dt, warm_start: ShadowParams | None = None,
-             maxiter: int = 4000, n_per_year: int = 24, restarts: int = 2,
+             maxiter: int = 4000, n_per_year: int = 24, restarts: int = 1,
              diagonal_K: bool = True, estimate_elb: bool = False):
     """QML/EKF estimation via Nelder-Mead with restarts.
 

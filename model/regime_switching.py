@@ -287,7 +287,7 @@ def default_init(yields, grid, S: int = 2) -> RSParams:
 
 
 def estimate(yields, grid, dt, S: int = 2, warm_start: "RSParams | None" = None,
-             maxiter: int = 8000, n_per_year: int = 24, restarts: int = 2, seed: int = 0,
+             maxiter: int = 8000, n_per_year: int = 24, restarts: int = 1, seed: int = 0,
              fix_lambda: "float | None" = None):
     """QML/Kim-filter estimation via Nelder-Mead with restarts.
 

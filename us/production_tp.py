@@ -24,17 +24,53 @@ Pipeline:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
 from model import bias_correction as bcm
+from model import ekf
 from model import shadow_rate as sr
 from model import term_premium as tp
 from us.run_shadow import run_shadow
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ProductionParams:
+    """A frozen, serializable parameter set for the fast daily filter-forward.
+
+    Produced (slowly) by `run_production_tp` on the re-estimation cadence and
+    reused (cheaply) by `filter_forward` every day. `K_bc` is the BRW
+    bias-corrected P mean-reversion used for the expectations leg; `params` is the
+    estimated shadow-AFNS state-space fit.
+    """
+    params: "ekf.ShadowParams"
+    K_bc: np.ndarray          # (3,3) bias-corrected K^P
+    elb: float
+    n_per_year: int = 24
+
+    def to_json(self, path) -> None:
+        p = self.params
+        d = {"K": np.asarray(p.K).tolist(), "theta": np.asarray(p.theta).tolist(),
+             "sigma": np.asarray(p.sigma).tolist(), "lambda_": float(p.lambda_),
+             "h": float(p.h), "elb": float(self.elb),
+             "K_bc": np.asarray(self.K_bc).tolist(), "n_per_year": int(self.n_per_year)}
+        from pathlib import Path
+        Path(path).write_text(json.dumps(d, indent=2))
+
+    @classmethod
+    def from_json(cls, path) -> "ProductionParams":
+        d = json.loads(open(path).read())
+        params = ekf.ShadowParams(K=np.array(d["K"]), theta=np.array(d["theta"]),
+                                  sigma=np.array(d["sigma"]), lambda_=d["lambda_"],
+                                  h=d["h"], elb=d["elb"])
+        return cls(params=params, K_bc=np.array(d["K_bc"]), elb=d["elb"],
+                   n_per_year=d["n_per_year"])
 
 
 def _assemble_tp(states, fitted, K, theta, Sigma, elb, grid, dates,
@@ -61,6 +97,26 @@ def _assemble_tp(states, fitted, K, theta, Sigma, elb, grid, dates,
             "fitted_yield": fitted[:, j],
         }))
     return pd.concat(rows, ignore_index=True)
+
+
+def filter_forward(prod: ProductionParams, panel: pd.DataFrame,
+                   dt: float = 1.0 / 12) -> pd.DataFrame:
+    """**Fast daily path**: decompose a yield panel with *cached* params — no
+    estimation. This is the operation run every day to publish the term premium.
+
+    Runs one Kalman/EKF pass (the shadow-AFNS filter) forward over `panel` with
+    the fixed `prod` parameters and decomposes into the canonical TP frame. Cost is
+    milliseconds (last-12-months window) to a couple of seconds (full history);
+    `dt` should match the panel frequency (1/12 monthly, ~1/252 daily) — `K^P` is
+    continuous-time so any frequency is correct.
+    """
+    grid = np.asarray(panel.columns, dtype=float)
+    Y = panel.to_numpy(dtype=float)
+    xs, fits = ekf.filter_states(prod.params, Y, grid, prod.elb, dt,
+                                 n_per_year=prod.n_per_year)
+    return _assemble_tp(xs, fits, prod.K_bc, prod.params.theta,
+                        np.diag(prod.params.sigma), prod.elb, grid, panel.index,
+                        n_per_year=prod.n_per_year)
 
 
 def run_production_tp(start: str = "1987-01-01", end=None, maxiter: int = 5000,
@@ -94,8 +150,10 @@ def run_production_tp(start: str = "1987-01-01", end=None, maxiter: int = 5000,
                         n_per_year=n_per_year)                 # headline
     ours_uncorr = _assemble_tp(states, fitted, K, theta, Sigma, elb, grid, dates,
                                n_per_year=n_per_year)          # comparison
+    prod = ProductionParams(params=r["params"], K_bc=bc.K_bc, elb=elb,
+                            n_per_year=n_per_year)
     return {
-        "ours": ours, "ours_uncorrected": ours_uncorr, "bc": bc,
+        "ours": ours, "ours_uncorrected": ours_uncorr, "bc": bc, "prod": prod,
         "shadow": r["shadow"], "factors": r["factors"], "params": r["params"],
         "elb": elb, "grid": grid, "dates": dates, "loglik": r["loglik"],
         "success": r["success"], "yield_fit_mad_bp": r["yield_fit_mad_bp"],

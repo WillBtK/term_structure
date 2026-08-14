@@ -24,13 +24,63 @@ WUXIA_XLSX = (
     "https://www.atlantafed.org/-/media/Project/Atlanta/FRBA/Documents/datafiles/"
     "cqer/research/wu-xia-shadow-federal-funds-rate/WuXiaShadowRate.xlsx"
 )
-# Krippner SSR estimates. The filename carries the update date; override via
-# KRIPPNER_XLSX if it moves (discoverable from https://www.ljkmfa.com/visitors/).
+# Krippner SSR estimates. The published filename carries the update date and so
+# changes every refresh; rather than hardcode it we *discover* the current URL
+# from the visitors page (self-healing). Override with KRIPPNER_XLSX to pin a file.
 import os as _os
-KRIPPNER_XLSX = _os.environ.get(
-    "KRIPPNER_XLSX",
-    "https://www.ljkmfa.com/wp-content/uploads/2021/08/SSR_Estimates_20260727.xlsx",
-)
+import re as _re
+from pathlib import Path as _Path
+
+KRIPPNER_VISITORS = "https://www.ljkmfa.com/visitors/"
+KRIPPNER_XLSX = _os.environ.get("KRIPPNER_XLSX")  # optional explicit pin
+_KRIPPNER_CACHE = _Path(__file__).resolve().parent / "data" / "krippner_ssr.xlsx"
+
+# ljkmfa.com's WAF returns 406 without browser-like headers.
+_BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+}
+
+# Friendly economy aliases -> the Krippner column label. Germany uses the
+# euro-area SSR (there is no Bund-specific Krippner series).
+_KRIPPNER_ECONOMY = {
+    "US": "US SSR", "EA": "Euro-area SSR", "DE": "Euro-area SSR",
+    "EURO": "Euro-area SSR", "JP": "Japan SSR", "UK": "UK SSR",
+}
+
+
+def discover_krippner_url(pattern: str = r"SSR_Estimates\S*?\.xlsx") -> str:
+    """Return the current Krippner file URL by scraping the visitors page.
+
+    Self-heals when Krippner republishes under a new dated filename. Honors a
+    KRIPPNER_XLSX pin if set.
+    """
+    if KRIPPNER_XLSX:
+        return KRIPPNER_XLSX
+    import requests
+    page = requests.get(KRIPPNER_VISITORS, headers=_BROWSER_HEADERS, timeout=60).text
+    urls = sorted(set(_re.findall(r"https?://\S+?" + pattern, page)))
+    if not urls:
+        raise ValueError("No SSR file link found on the Krippner visitors page.")
+    return urls[-1]
+
+
+def fetch_krippner(refresh: bool = False) -> bytes:
+    """Download (and cache) the current Krippner SSR workbook."""
+    if not refresh and _KRIPPNER_CACHE.exists():
+        return _KRIPPNER_CACHE.read_bytes()
+    import requests
+    url = discover_krippner_url()
+    content = requests.get(url, headers=_BROWSER_HEADERS, timeout=120).content
+    try:
+        _KRIPPNER_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        _KRIPPNER_CACHE.write_bytes(content)
+    except OSError:
+        pass
+    return content
 
 # ZLB windows for the US (effective-lower-bound episodes).
 ZLB_WINDOWS = [("2008-12-01", "2015-12-01"), ("2020-03-01", "2021-12-01")]
@@ -87,34 +137,32 @@ def compare_to_wu_xia(shadow_df: pd.DataFrame, wuxia: pd.Series) -> dict:
     }
 
 
-def load_krippner_ssr() -> pd.Series:
-    """Krippner US shadow short rate (decimal, month-end) from ljkmfa.com.
+def load_krippner_ssr(economy: str = "US", refresh: bool = False) -> pd.Series:
+    """Krippner shadow short rate (decimal, month-end) for an economy.
 
-    Full series (positive when rates are, negative at the ZLB), still maintained.
+    ``economy`` is a friendly alias (US, EA/DE/EURO, JP, UK — the file also carries
+    CH/CA/AU/NZ/SG/G4). Germany maps to the euro-area SSR. The workbook URL is
+    discovered from the visitors page and cached (self-healing across refreshes).
     Requires `www.ljkmfa.com` on the egress allowlist.
     """
-    import requests
-
-    # ljkmfa.com's WAF returns 406 without browser-like headers.
-    headers = {
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-    }
-    content = requests.get(KRIPPNER_XLSX, timeout=120, headers=headers).content
-    raw = pd.read_excel(io.BytesIO(content), sheet_name="D. Month-end SSR series",
-                        header=None, engine="openpyxl")
-    hdr = raw.index[raw.iloc[:, 2].astype(str).str.strip() == "US SSR"]
-    if len(hdr) == 0:
-        raise ValueError("Could not find the 'US SSR' header in the Krippner sheet.")
-    h = hdr[0]
-    data = raw.iloc[h + 1:, [1, 2]].copy()
-    data.columns = ["date", "us_ssr"]
+    label = _KRIPPNER_ECONOMY.get(economy.upper(), economy)
+    raw = pd.read_excel(io.BytesIO(fetch_krippner(refresh=refresh)),
+                        sheet_name="D. Month-end SSR series", header=None, engine="openpyxl")
+    # Locate the header row and the target economy's column within it.
+    hrow, hcol = None, None
+    for i in range(min(30, len(raw))):
+        row = raw.iloc[i].astype(str).str.strip()
+        hits = row.index[row == label]
+        if len(hits):
+            hrow, hcol = i, int(hits[0]); break
+    if hrow is None:
+        raise ValueError(f"Krippner column {label!r} not found (economy {economy!r}).")
+    # Date is the first non-empty column to the left of the SSR block (column B).
+    data = raw.iloc[hrow + 1:, [1, hcol]].copy()
+    data.columns = ["date", "ssr"]
     data["date"] = pd.to_datetime(data["date"], errors="coerce")
-    data["us_ssr"] = pd.to_numeric(data["us_ssr"], errors="coerce") / 100.0
-    return data.dropna().set_index("date")["us_ssr"]
+    data["ssr"] = pd.to_numeric(data["ssr"], errors="coerce") / 100.0
+    return data.dropna().set_index("date")["ssr"]
 
 
 def compare_to_krippner(shadow_df: pd.DataFrame, krippner: pd.Series) -> dict:

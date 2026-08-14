@@ -55,9 +55,20 @@ model collapses to plain AFNS. The ELB mechanism behaves as intended.
 ## Historical / stagflation exhibit — full 1972+ history
 
 `germany/run_history.py` (separate, clearly labeled, *not* joined to the modern
-series): a single-regime bias-corrected level and regime-switching regime dating
-over the Deutsche-Mark + euro eras. Results appended when the (expensive Kim-filter)
-regime estimation completes.
+series). Single-regime plain-AFNS on the full 1972+ history + BRW bias-correction
+(647 obs, converged):
+
+| 10y term premium (bias-corrected) | Germany | US (for contrast) |
+|---|---|---|
+| 1973-1985 (stagflation era) | **0.63%** | ~1.3% |
+| 1990s | 0.51% | — |
+| peak | 2.63% (1976-04) | ~2.9% (mid-1980s) |
+
+The German 1970s term premium was **markedly lower than the US** — consistent with
+the Bundesbank's inflation-fighting credibility keeping the inflation-risk premium
+compressed even through the oil-shock era. Regime dating (Kim filter over the full
+history) is a further lens, appended separately when that (expensive) estimation
+completes.
 
 ## Validation summary
 No German SF-Fed-equivalent term-premium benchmark exists, so validation rests on:
