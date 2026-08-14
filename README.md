@@ -185,10 +185,12 @@ convergence risk is real for shadow-rate models. Instead:
 
 ## Build sequence
 
-1. **US** — best data, cleanest external benchmark (SF Fed). Validate plain
-   AFNS here first, then add the shadow-rate extension.
-2. **Germany** — next-cleanest data; negative-rate period present but shorter
-   and less extreme than Japan's.
+1. **US** — DONE. Modern production TP (1987+ shadow AFNS + BRW) validated vs
+   SF Fed; separate 1961+ historical/regime exhibit. See `validation/FINDINGS_phase5.md`.
+2. **Germany** — DONE. Bundesbank Svensson data (`/germany`), reconstruction
+   < 0.6 bp vs published spots; euro-era (1999+) production TP; the ELB is well
+   identified and validates the −1.0% (Praet) calibration. See
+   `validation/FINDINGS_germany.md`.
 3. **Japan** — longest and most demanding ZLB/negative-rate history. Highest
    payoff, highest estimation risk. Confirm data source/method before starting.
 4. **UK** — mildest ZLB period of the four; useful final check that the
