@@ -321,8 +321,8 @@ def estimate(yields, grid, dt, S: int = 2, warm_start: "RSParams | None" = None,
     res = None
     for r in range(max(restarts, 1)):
         res = minimize(obj, x0, method="Nelder-Mead",
-                       options={"maxiter": maxiter, "xatol": 1e-6, "fatol": 1e-4,
-                                "adaptive": True})
+                       options={"maxiter": maxiter, "maxfev": maxiter,
+                                "xatol": 1e-6, "fatol": 1e-4, "adaptive": True})
         if res.success:
             break
         x0 = res.x + 0.05 * rng.standard_normal(res.x.size)
