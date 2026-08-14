@@ -91,7 +91,60 @@ than the ZLB-dominated history implies).
 ## What this did NOT change
 - The shadow-rate AFNS estimation, the ELB, and the shadow short rate — all intact.
 - The regime **detection** (Kim-filter dating) — persistence-agnostic, unaffected.
-- The regime-**conditional** term premium *does* now use the same floor
-  (`run_regimes(mr_halflife=3.5)`), so the stagflation-regime premium is anchored
-  rather than the spurious negative a near-unit-root per-regime K^P produced;
-  numbers appended when the (dating-unchanged) re-run completes.
+- The regime-**conditional** term premium now uses the same floor
+  (`run_regimes(mr_halflife=3.5)`). Results below.
+
+## Regime-switching re-run (with the floor) — datings reliable, levels are not
+
+The 2-regime Kim-filter model was re-run with the mean-reversion floor on each
+market's long sample. The headline conclusion: **the regime *dating* is reliable,
+but the per-regime term-premium *levels* are not** — which is exactly why the
+production/atlas series stays on the single-regime modern model rather than a
+regime decomposition.
+
+**Reliable — high-inflation / high-volatility regime dating** (matches the
+Ang-Bekaert 2002 / Levant-Ma 2017 pattern and the Volcker P≈0.98 from
+`FINDINGS_kim_validation.md`):
+
+| Market | Sample | High-regime episodes (pre-1990) |
+|---|---|---|
+| UK (nominal) | 1970+ | 1970-72, 1974-75, **1980-82** (Thatcher disinflation) |
+| Japan | 1974+ | **1976, 1978** (oil-shock inflation) |
+| US | 1961+ | *(re-run in progress — expect 1973-75, 1979-82 Volcker)* |
+| Germany | 1972+ | *(re-run in progress after a cache-bug fix; see below)* |
+
+**Not reliable — regime-conditional TP levels.** θ (the long-run mean that drives
+the premium) is weakly identified *per regime*: each regime owns only short,
+scattered windows of a near-unit-root process, so within a 12-month episode the
+rate barely reverts and the likelihood is nearly flat in θ_s. The optimiser then
+lands on implausible values, and the floor cannot rescue a θ that is essentially
+unpinned. Symptoms from the re-run (10y, floored):
+
+| Market | high-regime | low-regime | mixed, pre-1990 | mixed, post-1990 | θ_L per regime |
+|---|---|---|---|---|---|
+| UK (nominal) | +2.4% | +3.6% | **+5.7%** | +2.1% | 9.3% / 6.6% |
+| Japan | −2.8% | +3.6% | +0.1% | +1.3% | −3.6% / +7.7% |
+| Germany¹ | −6.4% | −3.7% | — | −6.2% | **17.0% / 11.6%** |
+
+¹ Degenerate: the German regime run had been reading a **clobbered monthly cache**
+(daily 1997+ overwrote the 1972+ monthly file — a single-parquet-path bug now
+fixed, `germany/fetch_bundesbank.py`), so it saw no pre-1997 history and θ_L ran to
+17%. Being re-run on the corrected 1972+ sample. (German 1970s inflation was mild
+under a hawkish Bundesbank, so this remains a minor exhibit regardless.)
+
+**What *is* meaningful** is the *direction*: the probability-weighted premium is
+higher in the stagflation era than in calm (UK mixed 1970s **+5.7%** vs post-1990
++2.1%) — consistent with a larger term premium when inflation risk is high, even
+though the precise level is uncertain. That directional signal, plus the reliable
+*dating*, is what the atlas surfaces (as shaded stagflation episodes); the
+weakly-identified *levels* are not used for the production series.
+
+**Use in the long-history atlas.** Observed yields and the single-regime
+decomposition are extended to full daily reach (US 1961, UK 1979, JP 1974), with
+the pre-estimation-sample stretch flagged. The single-regime extension is trusted
+back to ~1976 and for the whole modern era, but **over-swings in the 1979-84
+disinflation** (US 10y TP prints −2.2% in 1979 and +3.2% in 1984, range −5% to
++4%) because modern θ (~4-5%) cannot absorb 15-19% short rates. There the regime
+model's high-inflation θ (~9%) is *more* realistic despite being weakly identified,
+so the US regime TP is shown as a **comparison trace over the Volcker window** —
+the two decompositions bracket the truth rather than either being taken as exact.
