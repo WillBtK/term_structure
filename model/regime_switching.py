@@ -248,16 +248,23 @@ def negloglik(packed, yields, grid, dt, S, n_per_year: int = 24) -> float:
 
 
 def regime_term_premium(p: RSParams, states_by_regime: np.ndarray, grid: np.ndarray,
-                        n_per_year: int = 24):
+                        n_per_year: int = 24, mr_halflife: "float | None" = None):
     """Regime-conditional fitted / expected / term-premium yields.
 
     ``states_by_regime`` is (T, S, 3) (e.g. ``kim_filter(...)['states']``).
     Returns dict of (T, S, m) arrays: ``fitted``, ``expected``, ``term_premium``
     — the decomposition *as if* the economy were in each regime at that date.
+
+    ``mr_halflife`` (years), if given, applies the same mean-reversion floor as the
+    production series (`term_premium.mean_reversion_floor`) to each regime's K^P, so
+    the regime-conditional expected-rate path is anchored rather than tracking the
+    current short rate — essential for a meaningful stagflation-regime premium (an
+    un-floored, near-unit-root K^P gives a spuriously *negative* high-vol-regime TP).
     """
     grid = np.asarray(grid, dtype=float)
     T, S = states_by_regime.shape[0], p.n_regimes
     m = grid.size
+    kmin = None if mr_halflife is None else float(np.log(2) / mr_halflife)
     fitted = np.empty((T, S, m)); expected = np.empty((T, S, m))
     for s in range(S):
         pre = sr.precompute(p.lambda_, np.diag(p.sigma[s]), PLAIN_ELB, grid,
@@ -265,8 +272,11 @@ def regime_term_premium(p: RSParams, states_by_regime: np.ndarray, grid: np.ndar
         B = pre.weights @ pre.b_u; a = pre.weights @ pre.a_u
         xs = states_by_regime[:, s, :]                          # (T,3)
         fitted[:, s, :] = xs @ B.T + a
+        Ks = np.diag(p.kappa[s])
+        if kmin is not None:
+            Ks = tp.mean_reversion_floor(Ks, kmin)
         expected[:, s, :] = tp.expected_rate_yields(
-            xs, np.diag(p.kappa[s]), p.theta[s], sr.RHO, grid)
+            xs, Ks, p.theta[s], sr.RHO, grid)
     return {"fitted": fitted, "expected": expected,
             "term_premium": fitted - expected}
 

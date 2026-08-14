@@ -53,7 +53,8 @@ def _warm_start(Y, grid, dt, S, maxiter=3000):
 
 
 def run_regimes(start="1961-06-01", end=None, S: int = 2, maxiter: int = 6000,
-                warm_maxiter: int = 3000, restarts: int = 1, panel=None):
+                warm_maxiter: int = 3000, restarts: int = 1, panel=None,
+                mr_halflife: float = 3.5):
     panel = _panel(start, end, panel=panel)
     grid = np.asarray(panel.columns, dtype=float)
     Y = panel.to_numpy(dtype=float)
@@ -68,7 +69,10 @@ def run_regimes(start="1961-06-01", end=None, S: int = 2, maxiter: int = 6000,
     logger.info("done: loglik=%.1f success=%s", ll, res.success)
 
     filt = rs.kim_filter(params, Y, grid, dt, smooth=True)
-    dec = rs.regime_term_premium(params, filt["states"], grid)
+    # Regime detection is persistence-agnostic; the regime-conditional TP uses the
+    # same mean-reversion floor as the production series so the stagflation-regime
+    # premium is anchored (not the spurious negative a near-unit-root K^P gives).
+    dec = rs.regime_term_premium(params, filt["states"], grid, mr_halflife=mr_halflife)
 
     idx = panel.index
     # Ex-ante (data-weighted) term premium: mix regime-conditional TP by smoothed prob.
