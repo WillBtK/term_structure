@@ -365,6 +365,13 @@ function drawLine(mount, o){
   const sx=scaleLinear([xmin,xmax],[m.l,m.l+plotW]);
   const sy=scaleLinear([ymin,ymax],[m.t+plotH,m.t]);
   const svg=el('svg',{width:'100%',height:H,viewBox:`0 0 ${W} ${H}`,preserveAspectRatio:'none'});
+  // additive: shaded episode bands (behind everything), with an optional top label
+  (o.bands||[]).forEach(bd=>{
+    const a=Math.max(bd.x0,xmin), b=Math.min(bd.x1,xmax); if(b<=a) return;
+    const x0=sx(a), x1=sx(b);
+    svg.appendChild(el('rect',{x:x0,y:m.t,width:Math.max(1,x1-x0),height:plotH,fill:C.line2,opacity:0.55}));
+    if(bd.label){ const tx=el('text',{x:(x0+x1)/2,y:m.t+9,'text-anchor':'middle'}); tx.setAttribute('fill',C.faint); tx.style.fontSize='9px'; tx.textContent=bd.label; svg.appendChild(tx); }
+  });
   const yt=niceTicks(ymin,ymax,4);
   const stepA = yt.length>1 ? Math.abs(yt[1]-yt[0]) : 1;
   const dec = stepA<0.1?2 : stepA<1?1 : 0;
@@ -472,6 +479,28 @@ const xYear=v=>String(Math.round(v));
 function xFmtMonth(v){ const y=Math.floor(v+1e-6); const mo=Math.round((v-y)*12); return MON3[(mo%12+12)%12]+'-'+String(y).slice(-2); }
 const CCOL={US:'blue',UK:'orange',JP:'teal',DE:'purple'};
 const SERIES={obs:'Actual yield',exp:'Expected rate',tp:'Term premium'};
+const ym=(y,m)=>y+(m-1)/12;
+// Curated policy episodes (shaded) + structural breakpoints (dashed). Applies per
+// market; instrument-specific keys ("UK:real") add to the country's set.
+const EPISODES={
+  US:[{a:[1979,10],b:[1982,10],l:'Volcker'},{a:[2008,9],b:[2015,12],l:'ZIRP / QE'},{a:[2020,2],b:[2020,5],l:'COVID'}],
+  DE:[{a:[2015,3],b:[2018,12],l:'PSPP QE'},{a:[2020,3],b:[2022,3],l:'PEPP'},{a:[2022,7],b:[2023,9],l:'ECB hikes'}],
+  JP:[{a:[2013,4],b:[2016,9],l:'QQE'},{a:[2016,9],b:[2024,3],l:'YCC'}],
+  UK:[{a:[2009,3],b:[2021,12],l:'APF QE'},{a:[2022,9],b:[2022,11],l:'LDI'}],
+};
+const BREAKS={
+  US:[{d:[2008,9],l:'Lehman'},{d:[2020,3],l:'COVID'}],
+  DE:[{d:[2015,3],l:'PSPP'},{d:[2022,7],l:'ECB liftoff'}],
+  JP:[{d:[2013,4],l:'QQE'},{d:[2016,9],l:'YCC'},{d:[2024,3],l:'YCC end'}],
+  UK:[{d:[2022,9],l:'mini-budget'}],
+  'UK:real':[{d:[2014,1],l:'LDI reg.'},{d:[2022,9],l:'LDI crisis'}],
+};
+function bandsFor(cc){ return (EPISODES[cc]||[]).map(e=>({x0:ym(...e.a),x1:ym(...e.b),label:e.l})); }
+function breaksFor(cc,inst){
+  const curated=(BREAKS[cc]||[]).concat(BREAKS[cc+':'+inst]||[]).map(b=>({x:ym(...b.d),label:b.l}));
+  const regime=((DATA.countries[cc].instruments[inst]||{}).breaks||[]).map(b=>({x:b.x,label:''}));
+  return curated.concat(regime);
+}
 const pct1=v=>fmtSigned(v,2), pct2=v=>fmt(v,2)+'%';
 
 // helper: [x,y] pairs for a country/instrument/tenor/measure, dropping nulls
@@ -518,7 +547,7 @@ function lastVal(block, measure, tenor){
   panel('explorer','Explore','Curve explorer — a tenor through time, the whole curve on hover',
     ['Pick a market, instrument and tenor. The top chart is that tenor’s history; the bottom chart is the <b>entire term structure on whatever date you hover</b>. Switch either chart between the actual yield, the expected-rate path, the term premium, or the two stacked (expected rate + premium = yield). Dashed verticals mark regime breakpoints where identified.']);
   const s=M.lastChild;
-  const EX={cc:'US', inst:'nominal', tenor:'10', tsM:'tp', xM:'obs', lo:0, hi:0, hoverX:null};
+  const EX={cc:'US', inst:'nominal', tenor:'10', tsM:'tp', xM:'obs', lo:0, hi:0, hoverX:null, annot:true};
   function block(){ return DATA.countries[EX.cc].instruments[EX.inst]; }
   function tenors(){ return block().tenors; }
 
@@ -562,7 +591,12 @@ function lastVal(block, measure, tenor){
     const btn=h('button',null,lab); if(k===EX.tsM)btn.classList.add('active');
     btn.onclick=()=>{ EX.tsM=k; [...segTs.children].forEach(c=>c.classList.toggle('active',c===btn)); renderTs(); };
     segTs.appendChild(btn); });
-  cTs.appendChild(segTs);
+  const segAnnot=h('div',{class:'seg'}); segAnnot.style.marginLeft='14px';
+  const annotBtn=h('button',null,'Annotations'); annotBtn.classList.add('active');
+  annotBtn.onclick=()=>{ EX.annot=!EX.annot; annotBtn.classList.toggle('active',EX.annot); renderTs(); };
+  segAnnot.appendChild(annotBtn);
+  const segRow=h('div'); segRow.style.cssText='display:flex;align-items:center;flex-wrap:wrap;margin-bottom:12px;'; segRow.appendChild(segTs); segRow.appendChild(segAnnot);
+  cTs.appendChild(segRow);
   const tsLegend=h('div'); cTs.appendChild(tsLegend);
   const tsBox=h('div'); cTs.appendChild(tsBox);
   const sliderMount=h('div'); cTs.appendChild(sliderMount);
@@ -590,12 +624,10 @@ function lastVal(block, measure, tenor){
       {label:'Actual yield',color:COL().blue,pts:ptsFor(b,'obs',tenor)}];
     return [{label:SERIES[meas],color:COL()[measColor[meas]],pts:ptsFor(b,meas,tenor)}];
   }
-  function windowBreaks(){ return (block().breaks||[]).map(b=>({x:b.x,label:''})); }
-
   function renderTs(){
     const b=block();
     tsTitle.textContent=`${DATA.countries[EX.cc].name} ${EX.inst==='real'?'(real)':''} · ${EX.tenor}y · ${EX.tsM==='stack'?'expected rate + term premium':SERIES[EX.tsM]}`;
-    tsNote.textContent=EX.tsM==='stack'?'Two lines: the gap between the expected-rate path and the actual yield is the term premium.':'Monthly, percent. Drag the handles below to zoom the window.';
+    tsNote.textContent=EX.tsM==='stack'?'Two lines: the gap between the expected-rate path and the actual yield is the term premium (negative where the expected-rate path sits above the yield — e.g. an inverted curve).':'Monthly, percent. Shaded = policy episodes; dashed = structural breaks. Drag the handles below to zoom.';
     const full=seriesForMeasure(EX.tsM, EX.tenor);
     // window filter
     const xArr=b.x, xlo=xArr[EX.lo], xhi=xArr[EX.hi];
@@ -603,7 +635,8 @@ function lastVal(block, measure, tenor){
     tsLegend.innerHTML=''; if(series.length>1) tsLegend.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
     tsBox.innerHTML='';
     drawLine(tsBox,{height:230, yZero:EX.tsM==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtMonth,
-      breaks:windowBreaks().filter(bk=>bk.x>=xlo&&bk.x<=xhi),
+      bands:EX.annot?bandsFor(EX.cc).filter(bd=>bd.x1>=xlo&&bd.x0<=xhi):[],
+      breaks:EX.annot?breaksFor(EX.cc,EX.inst).filter(bk=>bk.x>=xlo&&bk.x<=xhi):[],
       series,
       onHover:xv=>{ let bi=0,bd=1e9; xArr.forEach((x,i)=>{const d=Math.abs(x-xv); if(d<bd&&x>=xlo-1e-6&&x<=xhi+1e-6){bd=d;bi=i;}}); EX.hoverX=bi; renderX(); },
       onLeave:()=>{}});
@@ -705,6 +738,10 @@ function lastVal(block, measure, tenor){
     body.appendChild(tr);
   }); });
   tb.appendChild(body); tw.appendChild(tb); c.appendChild(tw); s.appendChild(c);
+  // interpretation caveat
+  const cav=h('div',{class:'callout orange'});
+  cav.innerHTML='<b>Reading the premium in a hiking cycle.</b> This is a yields-only model: the term premium is the yield minus the model’s expected average future short rate. When a curve <b>inverts</b> (2022–23), the model projects the high policy rate forward, so the expected-rate path can sit above the long yield and the premium turns <b>negative</b> — seen across all four markets (US −1.2%, Germany −0.8% at end-2023), consistent with the NY Fed ACM and Kim–Wright models. For the same reason the premium does not visibly compress during QE: without seeing central-bank bond purchases, the model reads QE-era yield declines as lower <b>expected rates</b>, not premium compression. Separating these needs surveys or a supply factor (a documented extension).';
+  s.appendChild(cav);
   // download
   const c2=h('div',{class:'card'});
   c2.appendChild(h('div',{class:'card-title'},'Download the full series'));
