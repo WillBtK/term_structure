@@ -48,6 +48,28 @@ def test_bias_correction_increases_persistence_and_stays_stationary():
     assert np.allclose(res.theta, bc.fit_var1(X)["theta"])
 
 
+def test_diagonal_correction_keeps_K_real_and_diagonal():
+    # On near-unit-root, collinear factors an unrestricted correction can yield a
+    # full K^P with COMPLEX eigenvalues (distorting the expected-rate path). The
+    # diagonal mode keeps Phi (and K) diagonal with real, positive mean-reversion.
+    rng = np.random.default_rng(0)
+    # two highly persistent, strongly correlated factors (collinear, ZLB-like)
+    T = 360
+    z = np.zeros((T, 2))
+    for t in range(1, T):
+        shock = rng.standard_normal()
+        z[t, 0] = 0.995 * z[t - 1, 0] + 0.01 * shock
+        z[t, 1] = 0.99 * z[t - 1, 1] + 0.01 * (0.9 * shock + 0.1 * rng.standard_normal())
+    full = bc.bias_correct(z, dt=1.0 / 12, n_boot=300, seed=1, diagonal=False)
+    diag = bc.bias_correct(z, dt=1.0 / 12, n_boot=300, seed=1, diagonal=True)
+    # diagonal K is exactly diagonal and real
+    assert np.allclose(diag.K_bc, np.diag(np.diag(diag.K_bc)))
+    assert np.all(np.isreal(np.linalg.eigvals(diag.K_bc)))
+    assert np.all(np.diag(diag.K_bc) > 0)                 # positive mean-reversion
+    # diagonal fit_var1 constrains off-diagonals to exactly zero
+    assert bc.fit_var1(z, diagonal=True)["Phi"][0, 1] == 0.0
+
+
 def test_bias_correction_deterministic():
     Phi = np.array([[0.9, 0.0], [0.0, 0.85]])
     c = np.array([0.001, 0.0])

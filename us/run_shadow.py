@@ -106,6 +106,7 @@ def run_shadow(freq: str = "monthly", start="1987-01-01", end=None,
     shadow_df = pd.DataFrame({"date": idx, "shadow_short_rate": shadow})
     factors_df = pd.DataFrame(xs, index=idx, columns=["L", "S", "C"])
     fitted_df = pd.DataFrame(fits, index=idx, columns=grid)
+    observed_df = pd.DataFrame(Y, index=idx, columns=grid)
     wedge_df = pd.DataFrame(wedge, index=idx, columns=grid)
     expected_df = pd.DataFrame(expected, index=idx, columns=grid)
     premium_df = pd.DataFrame(premium, index=idx, columns=grid)
@@ -113,6 +114,7 @@ def run_shadow(freq: str = "monthly", start="1987-01-01", end=None,
         "params": params, "loglik": ll, "success": bool(res.success),
         "elb": elb, "grid": grid, "dates": idx,
         "shadow": shadow_df, "factors": factors_df, "fitted": fitted_df,
+        "observed": observed_df,
         "wedge": wedge_df, "expected_rate": expected_df, "term_premium": premium_df,
         "states": xs,
         "yield_fit_mad_bp": float(np.nanmean(np.abs(fits - Y)) * 1e4),

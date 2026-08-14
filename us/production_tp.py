@@ -53,13 +53,22 @@ class ProductionParams:
     K_bc: np.ndarray          # (3,3) bias-corrected K^P
     elb: float
     n_per_year: int = 24
+    theta_expect: "np.ndarray | None" = None   # P long-run mean for the
+    # expectations leg = sample mean of the filtered factors (BRW). Held separate
+    # from params.theta (the ML transition mean, which is unidentified — and can be
+    # nonsensical — in a near-unit-root sample). Falls back to params.theta if None.
+
+    def theta_for_expectations(self) -> np.ndarray:
+        return self.params.theta if self.theta_expect is None else np.asarray(self.theta_expect)
 
     def to_json(self, path) -> None:
         p = self.params
         d = {"K": np.asarray(p.K).tolist(), "theta": np.asarray(p.theta).tolist(),
              "sigma": np.asarray(p.sigma).tolist(), "lambda_": float(p.lambda_),
              "h": float(p.h), "elb": float(self.elb),
-             "K_bc": np.asarray(self.K_bc).tolist(), "n_per_year": int(self.n_per_year)}
+             "K_bc": np.asarray(self.K_bc).tolist(), "n_per_year": int(self.n_per_year),
+             "theta_expect": (None if self.theta_expect is None
+                              else np.asarray(self.theta_expect).tolist())}
         from pathlib import Path
         Path(path).write_text(json.dumps(d, indent=2))
 
@@ -69,33 +78,52 @@ class ProductionParams:
         params = ekf.ShadowParams(K=np.array(d["K"]), theta=np.array(d["theta"]),
                                   sigma=np.array(d["sigma"]), lambda_=d["lambda_"],
                                   h=d["h"], elb=d["elb"])
+        te = d.get("theta_expect")
         return cls(params=params, K_bc=np.array(d["K_bc"]), elb=d["elb"],
-                   n_per_year=d["n_per_year"])
+                   n_per_year=d["n_per_year"],
+                   theta_expect=None if te is None else np.array(te))
 
 
 def _assemble_tp(states, fitted, K, theta, Sigma, elb, grid, dates,
-                 n_per_year: int = 24) -> pd.DataFrame:
+                 n_per_year: int = 24, observed=None) -> pd.DataFrame:
     """Canonical tidy term-premium frame from a shadow fit + a P-dynamics K.
 
     ``fitted`` are the shadow (ELB) fitted yields (T,m); the expectations leg is
     the expected-average *floored* short rate under P with mean-reversion ``K``
     (pass the BRW-corrected K^P for the headline, or the raw K^P for the
-    uncorrected comparison). Returns columns
-    ``(date, maturity, term_premium, expected_rate, fitted_yield)`` in decimal.
+    uncorrected comparison).
+
+    The **term premium is defined against the observed yield** — `observed -
+    expected` — which is the conventional (realised) premium. Pass ``observed``
+    (T,m; may contain NaNs) to get it; where a maturity is downweighted or missing
+    the two diverge, and that divergence is the point (e.g. under the Japan YCC
+    peg the observed 10y sat *below* the model-fair fitted 10y, so the realised
+    premium goes negative while the model-fair one does not). When ``observed`` is
+    omitted the premium falls back to `fitted - expected` (default schema, used by
+    the US/Germany fits where observed≈fitted to ~5 bp). When given, two extra
+    columns are added: ``observed_yield`` and ``term_premium_fitted`` (the
+    model-fair premium, `fitted - expected`), and ``term_premium`` is the realised
+    (observed-based) premium — NaN where the datum is missing.
     """
     states = np.asarray(states, dtype=float)
     fitted = np.asarray(fitted, dtype=float)
     grid = np.asarray(grid, dtype=float)
     expected = tp.expected_floored_short_rate_yields(
         states, K, theta, Sigma, elb, sr.RHO, grid, n_per_year=n_per_year)
-    premium = fitted - expected
+    premium_fitted = fitted - expected
+    obs = None if observed is None else np.asarray(observed, dtype=float)
     rows = []
     for j, mat in enumerate(grid):
-        rows.append(pd.DataFrame({
+        cols = {
             "date": dates, "maturity": float(mat),
-            "term_premium": premium[:, j], "expected_rate": expected[:, j],
+            "term_premium": premium_fitted[:, j], "expected_rate": expected[:, j],
             "fitted_yield": fitted[:, j],
-        }))
+        }
+        if obs is not None:
+            cols["term_premium"] = obs[:, j] - expected[:, j]       # realised
+            cols["term_premium_fitted"] = premium_fitted[:, j]      # model-fair
+            cols["observed_yield"] = obs[:, j]
+        rows.append(pd.DataFrame(cols))
     return pd.concat(rows, ignore_index=True)
 
 
@@ -117,9 +145,9 @@ def filter_forward(prod: ProductionParams, panel: pd.DataFrame,
         var_mult_fn(panel.index, grid), dtype=float)
     xs, fits = ekf.filter_states(prod.params, Y, grid, prod.elb, dt,
                                  n_per_year=prod.n_per_year, var_mult=var_mult)
-    return _assemble_tp(xs, fits, prod.K_bc, prod.params.theta,
+    return _assemble_tp(xs, fits, prod.K_bc, prod.theta_for_expectations(),
                         np.diag(prod.params.sigma), prod.elb, grid, panel.index,
-                        n_per_year=prod.n_per_year)
+                        n_per_year=prod.n_per_year, observed=Y)
 
 
 def run_production_tp(start: str = "1987-01-01", end=None, maxiter: int = 5000,
@@ -143,21 +171,32 @@ def run_production_tp(start: str = "1987-01-01", end=None, maxiter: int = 5000,
                    warm_start=warm_start, panel=panel, elb=elb,
                    estimate_elb=estimate_elb, var_mult_fn=var_mult_fn)
     states, fitted = r["states"], r["fitted"].to_numpy(dtype=float)
-    K, theta = r["params"].K, r["params"].theta
+    observed = r["observed"].to_numpy(dtype=float)
+    K = r["params"].K
     Sigma = np.diag(r["params"].sigma)
     elb, grid, dates = r["elb"], r["grid"], r["dates"]
     dt = 1.0 / 12
 
-    bc = bcm.bias_correct(states, dt, n_boot=n_boot, seed=seed)
-    logger.info("BRW: spectral radius %.4f -> %.4f (delta=%.2f)",
+    # Expectations-leg long-run mean = SAMPLE MEAN of the filtered factors (BRW):
+    # robustly identified, unlike the ML transition θ, which is unidentified — and
+    # can be nonsensical (Japan: implied long-run short rate ~17%) — when the
+    # sample is near-unit-root. The ML θ is fine for the transition/filter but must
+    # not drive the expected-rate path.
+    theta = states.mean(axis=0)
+
+    # Diagonal bias-correction to match the independent-factor production spec: an
+    # unrestricted VAR correction on near-unit-root collinear factors yields a full
+    # K^P with complex eigenvalues and a distorted expected-rate path (Japan).
+    bc = bcm.bias_correct(states, dt, n_boot=n_boot, seed=seed, diagonal=True)
+    logger.info("BRW (diagonal): spectral radius %.4f -> %.4f (delta=%.2f)",
                 bc.rho_hat, bc.rho_bc, bc.delta)
 
     ours = _assemble_tp(states, fitted, bc.K_bc, theta, Sigma, elb, grid, dates,
-                        n_per_year=n_per_year)                 # headline
+                        n_per_year=n_per_year, observed=observed)   # headline (realised)
     ours_uncorr = _assemble_tp(states, fitted, K, theta, Sigma, elb, grid, dates,
-                               n_per_year=n_per_year)          # comparison
+                               n_per_year=n_per_year, observed=observed)  # comparison
     prod = ProductionParams(params=r["params"], K_bc=bc.K_bc, elb=elb,
-                            n_per_year=n_per_year)
+                            n_per_year=n_per_year, theta_expect=theta)
     return {
         "ours": ours, "ours_uncorrected": ours_uncorr, "bc": bc, "prod": prod,
         "shadow": r["shadow"], "factors": r["factors"], "params": r["params"],

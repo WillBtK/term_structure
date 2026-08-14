@@ -32,20 +32,33 @@ def _spectral_radius(M: np.ndarray) -> float:
     return float(np.max(np.abs(np.linalg.eigvals(M))))
 
 
-def fit_var1(states: np.ndarray) -> dict:
+def fit_var1(states: np.ndarray, diagonal: bool = False) -> dict:
     """OLS VAR(1) ``x_t = c + Φ x_{t-1} + e_t`` on the filtered factors.
 
     Returns ``{Phi, c, Omega, resid, theta}`` with ``theta=(I-Φ)^{-1} c`` the
-    implied unconditional mean.
+    implied unconditional mean. With ``diagonal=True`` each factor is fitted as an
+    **independent AR(1)** (Φ constrained diagonal) — matching the production
+    independent-factor spec (diagonal K^P). This is essential for near-unit-root,
+    collinear factors (e.g. Japan's ZLB era): an unrestricted VAR invents spurious
+    off-diagonal persistence that, after the bootstrap correction and ``logm``,
+    yields a full K^P with *complex* eigenvalues and a distorted expected-rate path.
     """
     X = np.asarray(states, dtype=float)
     n = X.shape[1]
     Y = X[1:]                                       # (T-1, n)
-    Z = np.column_stack([np.ones(len(Y)), X[:-1]])  # (T-1, n+1)
-    B, *_ = np.linalg.lstsq(Z, Y, rcond=None)       # (n+1, n): rows [c; Φ']
-    c = B[0]
-    Phi = B[1:].T
-    resid = Y - Z @ B
+    if diagonal:
+        Phi = np.zeros((n, n)); c = np.zeros(n)
+        for i in range(n):
+            Zi = np.column_stack([np.ones(len(Y)), X[:-1, i]])   # [1, x_{i,t-1}]
+            bi, *_ = np.linalg.lstsq(Zi, Y[:, i], rcond=None)
+            c[i] = bi[0]; Phi[i, i] = bi[1]
+        resid = Y - (X[:-1] * np.diag(Phi) + c)
+    else:
+        Z = np.column_stack([np.ones(len(Y)), X[:-1]])  # (T-1, n+1)
+        B, *_ = np.linalg.lstsq(Z, Y, rcond=None)       # (n+1, n): rows [c; Φ']
+        c = B[0]
+        Phi = B[1:].T
+        resid = Y - Z @ B
     dof = max(len(Y) - (n + 1), 1)
     Omega = resid.T @ resid / dof
     theta = np.linalg.solve(np.eye(n) - Phi, c)
@@ -66,8 +79,13 @@ def phi_to_kp(Phi: np.ndarray, dt: float) -> np.ndarray:
     return -L / dt
 
 
-def _bootstrap_mean_phi(Phi, c, resid, T, n_boot, rng):
-    """Mean OLS ``Φ*`` over ``n_boot`` residual-resampled VAR(1) paths of length T."""
+def _bootstrap_mean_phi(Phi, c, resid, T, n_boot, rng, diagonal=False):
+    """Mean OLS ``Φ*`` over ``n_boot`` residual-resampled VAR(1) paths of length T.
+
+    Innovations are resampled by row (preserving contemporaneous cross-factor
+    correlation); with ``diagonal=True`` the re-fit is a per-factor AR(1) so the
+    correction stays in the independent-factor family.
+    """
     n = Phi.shape[0]
     E = resid - resid.mean(axis=0)          # centred innovations
     ne = len(E)
@@ -79,7 +97,7 @@ def _bootstrap_mean_phi(Phi, c, resid, T, n_boot, rng):
         idx = rng.integers(0, ne, size=T - 1)
         for t in range(1, T):
             x[t] = c + Phi @ x[t - 1] + E[idx[t - 1]]
-        acc += fit_var1(x)["Phi"]
+        acc += fit_var1(x, diagonal=diagonal)["Phi"]
     return acc / n_boot
 
 
@@ -97,20 +115,27 @@ class BiasCorrectResult:
 
 
 def bias_correct(states: np.ndarray, dt: float, n_boot: int = 1000,
-                 seed: int = 0) -> BiasCorrectResult:
+                 seed: int = 0, diagonal: bool = False) -> BiasCorrectResult:
     """Kilian bias-corrected VAR(1) persistence for the filtered factors.
 
     Bootstrap bias ``Δ = mean(Φ*) - Φ̂``; corrected ``Φ̃ = Φ̂ - δΔ`` with ``δ``
     reduced from 1 (Kilian's stationarity adjustment) until the spectral radius is
     below 1. Only persistence is corrected; ``θ`` is held at the OLS/ML value.
+
+    ``diagonal=True`` constrains Φ to the independent-factor family (per-factor
+    AR(1)), matching the production diagonal-K^P spec. Use it whenever the fit used
+    ``diagonal_K=True``: an unrestricted correction on near-unit-root collinear
+    factors produces a full K^P with complex eigenvalues and a distorted
+    expected-rate path (observed on Japan's ZLB sample). The resulting ``K_bc`` is
+    then diagonal with real, positive mean-reversion.
     """
     X = np.asarray(states, dtype=float)
     T = len(X)
-    base = fit_var1(X)
+    base = fit_var1(X, diagonal=diagonal)
     Phi_hat, c, resid, theta = base["Phi"], base["c"], base["resid"], base["theta"]
     rng = np.random.default_rng(seed)
 
-    mean_phi = _bootstrap_mean_phi(Phi_hat, c, resid, T, n_boot, rng)
+    mean_phi = _bootstrap_mean_phi(Phi_hat, c, resid, T, n_boot, rng, diagonal=diagonal)
     bias = mean_phi - Phi_hat
 
     # Kilian (1998) stationarity-adjusted correction.

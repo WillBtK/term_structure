@@ -209,8 +209,12 @@ re-estimation converges in one pass; multi-start is opt-in for cold fits).
    < 0.6 bp vs published spots; euro-era (1999+) production TP; the ELB is well
    identified and validates the −1.0% (Praet) calibration. See
    `validation/FINDINGS_germany.md`.
-3. **Japan** — longest and most demanding ZLB/negative-rate history. Highest
-   payoff, highest estimation risk. Confirm data source/method before starting.
+3. **Japan** — DONE. MoF JGB spot yields (`/japan`), ragged 1986+ panel; ML ELB
+   −0.17% (validates the NIRP anchor); YCC measurement-downweight on the pegged
+   10y/7y. The **realised 10y term premium is negative through QQE/YCC** (81% of
+   months, min −0.42% in 2016) and normalises post-YCC (+0.89% latest). This leg
+   surfaced two decomposition fixes now applied pipeline-wide (diagonal BRW +
+   sample-mean θ for the expectations leg). See `validation/FINDINGS_japan.md`.
 4. **UK** — mildest ZLB period of the four; useful final check that the
    pipeline generalizes without further adjustment.
 
