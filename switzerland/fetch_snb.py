@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import io
 import logging
+import re
 
 import numpy as np
 import pandas as pd
@@ -22,23 +23,34 @@ _TIMEOUT = 90
 _BROWSER_HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "text/csv,*/*"}
 
 
-def _download() -> str:
+_MATURITY_RE = re.compile(r"^\d+J$")   # keep 1J..30J, drop rating buckets (AAA/AA/A)
+
+
+def _is_daily(freq: str) -> bool:
+    return freq not in ("M", "monthly")
+
+
+def _download(freq: str = "M") -> str:
+    url = cfg.SNB_CUBE_URL_D if _is_daily(freq) else cfg.SNB_CUBE_URL
+    raw_path = cfg.RAW_CSV_PATH_D if _is_daily(freq) else cfg.RAW_CSV_PATH
     try:
         import requests
-        r = requests.get(cfg.SNB_CUBE_URL, headers=_BROWSER_HEADERS, timeout=_TIMEOUT)
+        r = requests.get(url, headers=_BROWSER_HEADERS, timeout=_TIMEOUT)
         r.raise_for_status()
-        cfg.RAW_CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
-        cfg.RAW_CSV_PATH.write_text(r.text, encoding="utf-8")
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path.write_text(r.text, encoding="utf-8")
         return r.text
     except Exception as exc:                                       # noqa: BLE001
-        if cfg.RAW_CSV_PATH.exists():
+        if raw_path.exists():
             logger.warning("SNB download failed (%s); using cached CSV", exc)
-            return cfg.RAW_CSV_PATH.read_text(encoding="utf-8")
+            return raw_path.read_text(encoding="utf-8")
         raise
 
 
-def parse_snb_csv(text: str) -> pd.DataFrame:
-    """Parse the rendoblim long CSV into a date x maturity(years) frame (DECIMAL)."""
+def parse_snb_csv(text: str, freq: str = "M") -> pd.DataFrame:
+    """Parse a rendoblim (monthly) / rendoblid (daily) long CSV into a
+    date x maturity(years) frame (DECIMAL). The daily cube's ``D0`` also carries
+    rating buckets (AAA/AA/A) — we keep only the ``<n>J`` maturity codes."""
     lines = text.splitlines()
     hdr = next(i for i, l in enumerate(lines)
                if l.replace('"', "").strip().startswith("Date;"))
@@ -47,35 +59,40 @@ def parse_snb_csv(text: str) -> pd.DataFrame:
                      dtype=str, keep_default_na=False)
     df.columns = [c.strip().strip('"') for c in df.columns]
     df = df[df["Date"].str.strip() != ""].copy()
-    df["date"] = pd.to_datetime(df["Date"].str.strip(), format="%Y-%m") + pd.offsets.MonthEnd(0)
-    df["mat"] = df["D0"].str.strip().str.rstrip("Jj").astype(float)
+    df["d0"] = df["D0"].str.strip()
+    df = df[df["d0"].str.match(_MATURITY_RE)].copy()              # drop rating rows
+    if _is_daily(freq):
+        df["date"] = pd.to_datetime(df["Date"].str.strip(), format="%Y-%m-%d")
+    else:
+        df["date"] = pd.to_datetime(df["Date"].str.strip(), format="%Y-%m") + pd.offsets.MonthEnd(0)
+    df["mat"] = df["d0"].str.rstrip("Jj").astype(float)
     df["val"] = pd.to_numeric(df["Value"].str.strip().replace("", np.nan), errors="coerce")
     wide = df.pivot_table(index="date", columns="mat", values="val")
     return (wide.sort_index() / 100.0)                            # percent -> decimal
 
 
-def load_yields(refresh: bool = True) -> pd.DataFrame:
-    if not refresh and cfg.YIELDS_PARQUET_PATH.exists():
-        return pd.read_parquet(cfg.YIELDS_PARQUET_PATH)
-    df = parse_snb_csv(_download())
+def load_yields(refresh: bool = True, freq: str = "M") -> pd.DataFrame:
+    pq = cfg.YIELDS_PARQUET_PATH_D if _is_daily(freq) else cfg.YIELDS_PARQUET_PATH
+    if not refresh and pq.exists():
+        return pd.read_parquet(pq)
+    df = parse_snb_csv(_download(freq), freq)
     cfg.DATA_DIR.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(cfg.YIELDS_PARQUET_PATH)
-    logger.info("SNB yields: %d rows %s..%s", len(df),
+    df.to_parquet(pq)
+    logger.info("SNB yields (%s): %d rows %s..%s", freq, len(df),
                 df.index.min().date(), df.index.max().date())
     return df
 
 
 def build_yield_panel(grid: np.ndarray = cfg.COMMON_GRID, freq: str = "M",
                       start: str = cfg.SAMPLE_START, refresh: bool = False) -> pd.DataFrame:
-    """Engine-ready CHF spot panel (DECIMAL) on ``grid``, monthly, from ``start``.
-    Ragged: 30y is NaN before 1997-12 (masked per date downstream)."""
-    df = load_yields(refresh=refresh)
+    """Engine-ready CHF spot panel (DECIMAL) on ``grid`` from ``start``.
+    ``freq='D'`` uses the daily ``rendoblid`` cube (to ~2025-07); monthly uses
+    ``rendoblim``. Ragged: 30y is NaN before 1997-12 (masked per date downstream)."""
+    df = load_yields(refresh=refresh, freq=freq)
     cols = [c for c in np.asarray(grid, dtype=float) if c in df.columns]
     panel = df[cols].copy()
     if start is not None:
         panel = panel[panel.index >= pd.Timestamp(start)]
-    if freq not in ("M", "monthly"):
-        raise ValueError("SNB rendoblim is monthly; freq must be 'M'")
     return panel.dropna(how="all")
 
 

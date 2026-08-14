@@ -17,9 +17,14 @@ from pathlib import Path
 
 import numpy as np
 
-# SNB data-portal cube of Swiss Confederation spot rates (Svensson method).
+# SNB data-portal cubes of Swiss Confederation spot rates (Svensson method).
+# ``rendoblim`` = monthly, ``rendoblid`` = daily (same estimated NSS curve; the
+# daily cube's D0 also carries rating buckets AAA/AA/A which we drop). Daily
+# ("2002 methodology") runs to ~2025-07.
 SNB_CUBE_URL = os.environ.get(
     "SNB_CUBE_URL", "https://data.snb.ch/api/cube/rendoblim/data/csv/en")
+SNB_CUBE_URL_D = os.environ.get(
+    "SNB_CUBE_URL_D", "https://data.snb.ch/api/cube/rendoblid/data/csv/en")
 
 # Estimation grid (years). SNB publishes 1-10, 15, 20, 30y; we take the liquid
 # spread. 30y is ragged (joins 1997-12) — handled by the EKF's per-date masking.
@@ -35,4 +40,6 @@ ELB_BAND = (-0.010, -0.005)
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 RAW_CSV_PATH = DATA_DIR / "snb_rendoblim.csv"
+RAW_CSV_PATH_D = DATA_DIR / "snb_rendoblid.csv"
 YIELDS_PARQUET_PATH = DATA_DIR / "snb_yields.parquet"
+YIELDS_PARQUET_PATH_D = DATA_DIR / "snb_yields_daily.parquet"
