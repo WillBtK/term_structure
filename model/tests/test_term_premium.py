@@ -5,6 +5,29 @@ lazily inside ``decompose``/``short_rate_loading``, so these run in the fast
 offline suite.
 """
 import numpy as np
+from model.term_premium import mean_reversion_floor
+
+
+def test_mean_reversion_floor_diagonal():
+    # Near-unit-root level (kappa 0.001), moderate slope/curv; floor at 3.5y HL.
+    K = np.diag([0.001, 0.15, 0.5])
+    kmin = np.log(2) / 3.5
+    Kf = mean_reversion_floor(K, kmin)
+    assert np.allclose(Kf, np.diag(np.diag(Kf)))           # stays diagonal (off-diag 0)
+    assert Kf[0, 0] == kmin                                 # near-unit-root lifted to floor
+    assert Kf[1, 1] == kmin                                 # 0.15 < kmin -> lifted
+    assert Kf[2, 2] == 0.5                                  # already faster -> unchanged
+    # every factor now reverts at least as fast as the floor
+    assert np.all(np.diag(Kf) >= kmin - 1e-12)
+
+
+def test_mean_reversion_floor_general_real_eigs():
+    K = np.array([[0.02, 0.01, 0.0], [0.0, 0.2, 0.0], [0.0, 0.0, 0.6]])
+    kmin = 0.1
+    Kf = mean_reversion_floor(K, kmin)
+    ev = np.sort(np.linalg.eigvals(Kf).real)
+    assert ev[0] >= kmin - 1e-9                             # slowest mode floored
+    assert np.all(np.abs(np.linalg.eigvals(Kf).imag) < 1e-9)  # stays real
 import pytest
 from scipy.linalg import expm
 

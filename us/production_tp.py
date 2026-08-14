@@ -150,12 +150,17 @@ def filter_forward(prod: ProductionParams, panel: pd.DataFrame,
                         n_per_year=prod.n_per_year, observed=Y)
 
 
+MR_HALFLIFE_YEARS = 3.5   # calibrated (US, vs SF Fed C&R) mean-reversion half-life
+
+
 def run_production_tp(start: str = "1987-01-01", end=None, maxiter: int = 5000,
                       n_boot: int = 2000, seed: int = 0,
                       warm_start=None, n_per_year: int = 24,
                       panel=None, elb: float | None = None,
-                      estimate_elb: bool = False, var_mult_fn=None) -> dict:
-    """Estimate the production term premium (modern-sample shadow AFNS + BRW).
+                      estimate_elb: bool = False, var_mult_fn=None,
+                      persistence: str = "mrfloor",
+                      mr_halflife: float = MR_HALFLIFE_YEARS) -> dict:
+    """Estimate the production term premium (modern-sample shadow AFNS).
 
     Country-agnostic: pass another country's `panel` + `elb` (and
     `estimate_elb=True` where the bound is well identified, e.g. Germany/Japan);
@@ -164,8 +169,19 @@ def run_production_tp(start: str = "1987-01-01", end=None, maxiter: int = 5000,
     downweight; it flows into estimation and filtering so the BoJ-pegged 10y does
     not distort the estimated expected-rate path.
 
-    Returns both the bias-corrected (headline) and uncorrected canonical frames,
-    the shadow short rate, factors, and the BRW diagnostics.
+    ``persistence`` sets how the expectations-leg P mean-reversion is treated:
+    - ``"mrfloor"`` (default): floor the ML K^P at a ~3.5y half-life
+      (`mr_halflife`). Yields-only ML lands near a unit root, which makes the
+      expected-average short rate track today's short rate and degrades the term
+      premium into the term spread (over-tracking the policy cycle); the floor
+      restores anchored, SF-Fed-Christensen-Rudebusch-consistent expectations.
+    - ``"brw"``: the old Bauer-Rudebusch-Wu bias-correction (raises persistence —
+      retained for comparison; it *worsens* the over-tracking).
+    - ``"none"``: raw ML K^P.
+
+    Returns the headline canonical frame (using the chosen persistence), an
+    uncorrected (raw ML) comparison frame, the shadow short rate, factors, and
+    diagnostics.
     """
     r = run_shadow(freq="monthly", start=start, end=end, maxiter=maxiter,
                    warm_start=warm_start, panel=panel, elb=elb,
@@ -184,19 +200,28 @@ def run_production_tp(start: str = "1987-01-01", end=None, maxiter: int = 5000,
     # not drive the expected-rate path.
     theta = states.mean(axis=0)
 
-    # Bias-correction in "auto" mode: unrestricted VAR where it is well-behaved
-    # (captures genuine cross-factor dynamics — the US short-end SF-Fed match relies
-    # on this), falling back to the diagonal/independent-factor correction when the
-    # unrestricted K^P turns complex (near-unit-root collinear factors, e.g. Japan).
-    bc = bcm.bias_correct(states, dt, n_boot=n_boot, seed=seed)
-    logger.info("BRW (%s): spectral radius %.4f -> %.4f (delta=%.2f)",
-                bc.mode, bc.rho_hat, bc.rho_bc, bc.delta)
+    # Expectations-leg P mean-reversion. Default: floor the ML K^P at a ~3.5y
+    # half-life so the expected-rate path reverts to theta (anchored, SF-Fed-C&R
+    # consistent) instead of tracking today's short rate. See mean_reversion_floor.
+    bc = None
+    if persistence == "mrfloor":
+        K_expect = tp.mean_reversion_floor(K, float(np.log(2) / mr_halflife))
+        logger.info("mr-floor: half-life %.1fy (kappa_min=%.3f); K^P eig %s -> %s",
+                    mr_halflife, np.log(2) / mr_halflife,
+                    np.round(np.sort(np.linalg.eigvals(K).real), 3),
+                    np.round(np.sort(np.diag(K_expect)), 3))
+    elif persistence == "brw":
+        bc = bcm.bias_correct(states, dt, n_boot=n_boot, seed=seed)
+        K_expect = bc.K_bc
+        logger.info("BRW (%s): rho %.4f -> %.4f", bc.mode, bc.rho_hat, bc.rho_bc)
+    else:
+        K_expect = K
 
-    ours = _assemble_tp(states, fitted, bc.K_bc, theta, Sigma, elb, grid, dates,
+    ours = _assemble_tp(states, fitted, K_expect, theta, Sigma, elb, grid, dates,
                         n_per_year=n_per_year, observed=observed)   # headline (realised)
     ours_uncorr = _assemble_tp(states, fitted, K, theta, Sigma, elb, grid, dates,
-                               n_per_year=n_per_year, observed=observed)  # comparison
-    prod = ProductionParams(params=r["params"], K_bc=bc.K_bc, elb=elb,
+                               n_per_year=n_per_year, observed=observed)  # raw ML comparison
+    prod = ProductionParams(params=r["params"], K_bc=K_expect, elb=elb,
                             n_per_year=n_per_year, theta_expect=theta)
     return {
         "ours": ours, "ours_uncorrected": ours_uncorr, "bc": bc, "prod": prod,

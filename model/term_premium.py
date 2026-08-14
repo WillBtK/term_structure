@@ -37,7 +37,35 @@ __all__ = [
     "expected_floored_short_rate_yields",
     "fitted_yields",
     "term_premium",
+    "mean_reversion_floor",
 ]
+
+
+def mean_reversion_floor(K: np.ndarray, kappa_min: float) -> np.ndarray:
+    """Floor the P mean-reversion so the expected-rate path reverts at a plausible
+    speed, i.e. every factor's mean-reversion rate is at least ``kappa_min``
+    (equivalently, its half-life is at most ``ln 2 / kappa_min``).
+
+    Yields-only ML lands near a unit root (the level factor's half-life is
+    effectively infinite), so E[avg short over 10y] collapses onto *today's* short
+    rate and the term premium degenerates into the term spread — over-tracking the
+    policy cycle (the symptom that diverges from the SF Fed Christensen-Rudebusch
+    series in a hiking cycle). Imposing a floor restores meaningful reversion to the
+    long-run mean theta, so the expected path is anchored and the premium behaves
+    like the benchmark. ``kappa_min`` is calibrated (US, vs SF Fed) to a ~3.5-year
+    half-life. Only speeds *below* the floor are lifted; already-fast factors are
+    unchanged.
+
+    Production K^P is diagonal (independent-factor spec) so the floor is applied
+    elementwise; a non-diagonal K is handled by flooring the real parts of its
+    eigenvalues and reconstructing.
+    """
+    K = np.asarray(K, dtype=float)
+    if np.allclose(K, np.diag(np.diag(K))):
+        return np.diag(np.maximum(np.diag(K), kappa_min))
+    w, V = np.linalg.eig(K)
+    w = np.where(w.real < kappa_min, kappa_min + 1j * w.imag, w)
+    return np.real(V @ np.diag(w) @ np.linalg.inv(V))
 
 
 def expected_rate_yields(
