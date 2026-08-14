@@ -1,5 +1,13 @@
 # Phase 5 findings — modern production term premium (US)
 
+> **⚠ Superseded numbers.** The term-premium levels in this doc predate the
+> **mean-reversion floor** fix. The Bauer-Rudebusch-Wu persistence treatment
+> described here let the expected short rate track the policy rate almost
+> one-for-one, so the 10y premium collapsed negative through the 2022-23 hiking
+> cycle. The corrected production numbers and the US-vs-SF-Fed calibration are in
+> **`FINDINGS_mean_reversion.md`**, which supersedes the persistence treatment
+> below. The decision, method, and validation narrative here still stand.
+
 **Decision.** The US term premium is delivered as **two separate products**, not
 one 1961-present series: a **modern production series** (this note) and a
 **historical/stagflation exhibit** (`FINDINGS_phase3.md`,

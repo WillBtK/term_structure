@@ -1,5 +1,11 @@
 # Germany (Bund) term premium — findings
 
+> **⚠ Superseded numbers.** Term-premium levels here predate the
+> **mean-reversion floor** fix; the corrected numbers (latest 10y ≈ +1.3%) and
+> the calibration are in **`FINDINGS_mean_reversion.md`**, which supersedes the
+> Bauer-Rudebusch-Wu persistence treatment. The data-layer, ELB, and methodology
+> narrative below still stand.
+
 Second country. Same engine as the US (`/model` unforked); only the data layer
 (`germany/`) differs. Two deliverables, mirroring the US: a **modern production
 series** and a separate **historical exhibit**.

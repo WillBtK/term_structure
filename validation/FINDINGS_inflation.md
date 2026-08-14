@@ -1,5 +1,13 @@
 # Real term premia & the inflation-risk premium (US + UK) — findings
 
+> **⚠ Superseded numbers.** The **real** term-premium levels here predate the
+> **mean-reversion floor** fix (it applies to real curves too, since the
+> plain-AFNS expectations leg had the same near-unit-root persistence). Corrected
+> real levels: US TIPS 10y ≈ +1.26%, UK index-linked 10y ≈ +1.24% — see
+> **`FINDINGS_mean_reversion.md`**. The breakeven / inflation-risk-premium
+> decomposition method and the RPI-CPI / LDI caveats below still stand, but the
+> IRP = nominal-TP − real-TP levels shift with the corrected inputs.
+
 The inflation-linked leg: **real** term premia (US TIPS, UK index-linked gilts)
 and the **breakeven / inflation-risk-premium** decomposition, via the "two
 separate AFNS, subtract" approach (chosen with the user). Real rates have **no

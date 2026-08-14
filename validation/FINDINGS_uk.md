@@ -1,5 +1,11 @@
 # UK (gilt) term premium — findings
 
+> **⚠ Superseded numbers.** Term-premium levels here predate the
+> **mean-reversion floor** fix; the corrected numbers (latest nominal 10y ≈
+> +1.5%, real 10y ≈ +1.24%) are in **`FINDINGS_mean_reversion.md`**, which
+> supersedes the Bauer-Rudebusch-Wu persistence treatment. The BoE-GLC data
+> layer, ELB, and methodology narrative below still stand.
+
 Fourth country. Same engine as US/Germany/Japan (`/model` unforked); only the BoE
 data layer (`uk/`) and a mild fixed ELB differ. The UK leg also carries the real
 (index-linked) curve and the inflation-risk premium — see

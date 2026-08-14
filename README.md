@@ -211,14 +211,20 @@ re-estimation converges in one pass; multi-start is opt-in for cold fits).
    `validation/FINDINGS_germany.md`.
 3. **Japan** — DONE. MoF JGB spot yields (`/japan`), ragged 1986+ panel; ML ELB
    −0.17% (validates the NIRP anchor); YCC measurement-downweight on the pegged
-   10y/7y. The **realised 10y term premium is negative through QQE/YCC** (81% of
-   months, min −0.42% in 2016) and normalises post-YCC (+0.89% latest). This leg
-   surfaced two decomposition fixes now applied pipeline-wide (diagonal BRW +
-   sample-mean θ for the expectations leg). See `validation/FINDINGS_japan.md`.
+   10y/7y. The **realised 10y term premium is negative through QQE/YCC** (min
+   −0.44% in 2020) and normalises post-YCC (now the highest of the five markets
+   under the mean-reversion floor — see the correction note below). This leg
+   surfaced decomposition fixes applied pipeline-wide (diagonal K^P +
+   sample-mean θ for the expectations leg). See `validation/FINDINGS_japan.md`
+   and `validation/FINDINGS_mean_reversion.md`.
 4. **UK** — DONE. BoE Government Liability Curve (`/uk`, direct spot rates,
    1970→2026), mild fixed ELB (weakly identified). Modern production TP on the
-   inflation-targeting era (1992+); 10y TP ~1.5%, the highest of the four. See
-   `validation/FINDINGS_uk.md`.
+   inflation-targeting era (1992+); 10y TP ~1.5% (among the highest, reflecting
+   gilt/fiscal premia). See `validation/FINDINGS_uk.md`.
+5. **Switzerland** — DONE. SNB `rendoblim` CHF spot curve (`/switzerland`,
+   direct spot rates, 1988+, ragged long end from 1997-12), fixed ELB −0.75%
+   (the revealed SNB floor). 10y term premium the **lowest of the five** (deepest
+   safe-haven, currently negative). Added as the 5th market in the atlas.
 
 ### Inflation-linked extension (US + UK real curves)
 Real term premia and the breakeven / inflation-risk-premium decomposition
@@ -231,12 +237,26 @@ basis and LDI-driven negative real term premia — reported with the caveat. See
 `us/inflation.py`.
 
 ### Cross-country nominal 10y term premium (production, latest)
-| Germany | US | Japan | UK |
-|---|---|---|---|
-| +0.13% | +0.67% | +0.90% | +1.49% |
+| Switzerland | US | Germany | UK | Japan |
+|---|---|---|---|---|
+| −0.4% | +1.2% | +1.3% | +1.5% | +1.7% |
 
-Ordering DE < US < JP < UK is economically coherent (Bund safe-haven lowest;
-gilt/fiscal premia highest).
+Ordering CH < US < DE < UK < JP: Switzerland lowest (deepest safe-haven), the
+euro/dollar core next, gilt/fiscal and post-YCC Japanese premia highest. These
+are the **mean-reversion-floor** numbers — see the note below.
+
+> **Correction (mean-reversion floor).** The term-premium numbers scattered
+> through the per-country findings below predate a decomposition fix. The
+> yields-only ML persistence landed near a unit root, so the expected-average
+> short rate tracked the policy rate almost one-for-one and the 10y premium
+> **collapsed negative through the 2022-23 hiking cycle** — an artefact, not a
+> signal (the SF Fed Christensen-Rudebusch series stayed ~+1% and reads 1.19%
+> now). The fix floors the P-persistence at a calibrated ~3.5-year half-life
+> (`term_premium.mean_reversion_floor`, replacing Bauer-Rudebusch-Wu for the
+> expectations leg; `run_production_tp(persistence="mrfloor")`, the default). It
+> is a post-estimation decomposition change — the shadow-rate AFNS fit, the ELB,
+> and the shadow short rate are untouched. The authoritative corrected numbers
+> and the US-vs-SF-Fed calibration are in **`validation/FINDINGS_mean_reversion.md`**.
 
 ## Repo structure
 

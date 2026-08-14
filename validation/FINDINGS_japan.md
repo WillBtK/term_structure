@@ -1,5 +1,12 @@
 # Japan (JGB) term premium — findings
 
+> **⚠ Superseded numbers.** Term-premium levels here predate the
+> **mean-reversion floor** fix. Under the floor Japan's latest 10y premium is
+> **+1.65%** (highest of the five markets, reflecting a low sample-mean θ against
+> risen JGB yields — a θ-anchoring caveat is flagged in the corrected doc). See
+> **`FINDINGS_mean_reversion.md`**, which supersedes the persistence treatment.
+> The QQE/YCC narrative, ELB, and YCC-downweight methodology below still stand.
+
 Third country. Same engine as the US/Germany (`/model` unforked); the data layer
 (`japan/`) and two Japan-specific handling steps (ML-estimated ELB, YCC
 downweight) differ. Two Japan challenges were flagged up front — the long
