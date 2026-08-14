@@ -24,8 +24,13 @@ CANON = HERE / "data_daily.parquet"
 META = HERE / "data_daily_meta.json"
 OUT = HERE / "data.json"
 
-DAILY_YEARS = 6           # recent window kept at daily resolution
-# everything older is kept weekly (last observation per ISO week)
+import os
+
+# Recent window kept at daily resolution; everything older is weekly (last obs per
+# ISO week). Set DAILY_YEARS >= the full span (or VIZ_FULL_DAILY=1) to keep the
+# entire history daily — the payload is still well under the 16 MB artifact cap.
+DAILY_YEARS = float(os.environ.get("VIZ_DAILY_YEARS", "100"))
+FULL_DAILY = os.environ.get("VIZ_FULL_DAILY", "1") == "1"
 
 
 def _xdec(idx: pd.DatetimeIndex) -> list[float]:
@@ -79,8 +84,10 @@ def build() -> dict:
         countries[cc]["instruments"][inst] = block
         print(f"{cc} {inst}: {len(block['x'])} points "
               f"({block['dates'][0]}..{block['dates'][-1]})")
+    full = cutoff <= canon["date"].min()
+    res = "daily, full history" if full else f"daily (last {DAILY_YEARS:g}y) + weekly history"
     return {"meta": {"asof": str(asof.date()), "units": "percent",
-                     "resolution": f"daily (last {DAILY_YEARS}y) + weekly history",
+                     "resolution": res,
                      "note": "Term premium = observed yield - expected avg short rate (realised)."},
             "order": meta["order"], "countries": countries}
 

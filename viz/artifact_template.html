@@ -546,7 +546,7 @@ function lastVal(block, measure, tenor){
   s.appendChild(row);
   // history chart: 10y nominal TP, 4 countries
   const c=h('div',{class:'card'});
-  c.appendChild(h('div',{class:'card-title'},'10-year nominal term premium, 1970–today'));
+  c.appendChild(h('div',{class:'card-title'},'10-year nominal term premium — full daily history'));
   c.appendChild(h('div',{class:'card-note'},'Realised premium (observed yield minus the model’s expected average short rate). Daily over the recent window, weekly before. Hover for values.'));
   c.appendChild(legend(DATA.order.map(cc=>({label:DATA.countries[cc].name,color:COL()[CCOL[cc]]}))));
   const box=h('div'); c.appendChild(box); s.appendChild(c);
