@@ -1,0 +1,139 @@
+{
+  "names": {
+    "US": "United States",
+    "UK": "United Kingdom",
+    "DE": "Germany",
+    "JP": "Japan",
+    "CH": "Switzerland"
+  },
+  "order": [
+    "US",
+    "UK",
+    "DE",
+    "JP",
+    "CH"
+  ],
+  "instruments": {
+    "US:nominal": {
+      "label": "US Treasuries (nominal)",
+      "sample": "1987+",
+      "elb": -0.35,
+      "tenors": [
+        0.25,
+        0.5,
+        1.0,
+        2.0,
+        3.0,
+        5.0,
+        7.0,
+        10.0
+      ],
+      "start": "1987-01-02",
+      "end": "2026-07-31",
+      "n_days": 9881
+    },
+    "US:real": {
+      "label": "US TIPS (real)",
+      "sample": "2004+",
+      "elb": null,
+      "tenors": [
+        2.0,
+        3.0,
+        5.0,
+        7.0,
+        10.0,
+        20.0
+      ],
+      "start": "2004-01-02",
+      "end": "2026-08-07",
+      "n_days": 5653
+    },
+    "UK:nominal": {
+      "label": "UK gilts (nominal)",
+      "sample": "1992+",
+      "elb": -0.35,
+      "tenors": [
+        0.5,
+        1.0,
+        2.0,
+        3.0,
+        5.0,
+        7.0,
+        10.0,
+        20.0
+      ],
+      "start": "1992-10-01",
+      "end": "2026-07-31",
+      "n_days": 8549
+    },
+    "UK:real": {
+      "label": "UK index-linked (real)",
+      "sample": "1992+",
+      "elb": null,
+      "tenors": [
+        3.0,
+        5.0,
+        7.0,
+        10.0,
+        20.0
+      ],
+      "start": "1992-10-01",
+      "end": "2026-07-31",
+      "n_days": 8548
+    },
+    "DE:nominal": {
+      "label": "German Bunds (nominal)",
+      "sample": "1999+",
+      "elb": -0.8,
+      "tenors": [
+        0.25,
+        0.5,
+        1.0,
+        2.0,
+        3.0,
+        5.0,
+        7.0,
+        10.0
+      ],
+      "start": "1999-01-04",
+      "end": "2026-08-14",
+      "n_days": 7015
+    },
+    "JP:nominal": {
+      "label": "Japanese JGBs (nominal)",
+      "sample": "1986+",
+      "elb": -0.17,
+      "tenors": [
+        1.0,
+        2.0,
+        3.0,
+        5.0,
+        7.0,
+        10.0,
+        20.0,
+        30.0
+      ],
+      "start": "1986-07-05",
+      "end": "2026-07-31",
+      "n_days": 9909
+    },
+    "CH:nominal": {
+      "label": "Swiss Confederation (nominal)",
+      "sample": "1988+",
+      "elb": -0.75,
+      "tenors": [
+        1.0,
+        2.0,
+        3.0,
+        5.0,
+        7.0,
+        10.0,
+        20.0,
+        30.0
+      ],
+      "start": "1988-01-04",
+      "end": "2025-07-31",
+      "n_days": 7534
+    }
+  }
+}

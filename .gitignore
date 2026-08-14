@@ -30,3 +30,4 @@ validation/data/*
 scratchpad/
 uk/data/*
 switzerland/data/*
+viz/data_daily.parquet
