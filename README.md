@@ -215,8 +215,28 @@ re-estimation converges in one pass; multi-start is opt-in for cold fits).
    months, min −0.42% in 2016) and normalises post-YCC (+0.89% latest). This leg
    surfaced two decomposition fixes now applied pipeline-wide (diagonal BRW +
    sample-mean θ for the expectations leg). See `validation/FINDINGS_japan.md`.
-4. **UK** — mildest ZLB period of the four; useful final check that the
-   pipeline generalizes without further adjustment.
+4. **UK** — DONE. BoE Government Liability Curve (`/uk`, direct spot rates,
+   1970→2026), mild fixed ELB (weakly identified). Modern production TP on the
+   inflation-targeting era (1992+); 10y TP ~1.5%, the highest of the four. See
+   `validation/FINDINGS_uk.md`.
+
+### Inflation-linked extension (US + UK real curves)
+Real term premia and the breakeven / inflation-risk-premium decomposition
+(nominal TP − real TP), via two separate AFNS. Real rates have **no ELB** (plain
+AFNS). US TIPS (`us/tips.py`, GSW feds200805, 2004+) and UK index-linked gilts
+(`uk` real curve, 1985+). The **US decomposition validates cleanly** (implied
+expected inflation ≈ the 2% target); the **UK IRP is distorted** by the RPI-CPI
+basis and LDI-driven negative real term premia — reported with the caveat. See
+`validation/FINDINGS_inflation.md`. Country-agnostic decomposition in
+`us/inflation.py`.
+
+### Cross-country nominal 10y term premium (production, latest)
+| Germany | US | Japan | UK |
+|---|---|---|---|
+| +0.13% | +0.67% | +0.90% | +1.49% |
+
+Ordering DE < US < JP < UK is economically coherent (Bund safe-haven lowest;
+gilt/fiscal premia highest).
 
 ## Repo structure
 
