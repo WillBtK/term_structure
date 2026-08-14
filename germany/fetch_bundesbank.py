@@ -70,11 +70,19 @@ def parse_series(csv_text: str, freq: str = "M") -> pd.Series:
     return pd.Series(vals, index=idx, dtype=float).sort_index()
 
 
+def _params_parquet(freq: str):
+    """Frequency-specific cache path so a daily fetch never clobbers the monthly
+    cache (monthly reaches 1972; daily only 1997-08)."""
+    pq = cfg.PARAMS_PARQUET_PATH
+    return pq.with_name(pq.stem + "_daily" + pq.suffix) if freq not in ("M", "monthly") else pq
+
+
 def load_params(freq: str = "M", refresh: bool = True) -> pd.DataFrame:
     """Return a date x ``PARAM_COLUMNS`` frame of Svensson parameters (percent /
-    years). Caches to parquet; falls back to the cache on network failure."""
-    if not refresh and cfg.PARAMS_PARQUET_PATH.exists():
-        return pd.read_parquet(cfg.PARAMS_PARQUET_PATH)
+    years). Caches to a per-frequency parquet; falls back to it on network failure."""
+    pq = _params_parquet(freq)
+    if not refresh and pq.exists():
+        return pd.read_parquet(pq)
     cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
     series = {}
     try:
@@ -85,14 +93,14 @@ def load_params(freq: str = "M", refresh: bool = True) -> pd.DataFrame:
             series[name] = parse_series(text, freq)
         params = pd.DataFrame(series)[cfg.PARAM_COLUMNS]
         cfg.DATA_DIR.mkdir(parents=True, exist_ok=True)
-        params.to_parquet(cfg.PARAMS_PARQUET_PATH)
+        params.to_parquet(pq)
         logger.info("Bundesbank params %s: %d rows %s..%s", freq, len(params),
                     params.index.min().date(), params.index.max().date())
         return params
     except Exception as exc:
-        if cfg.PARAMS_PARQUET_PATH.exists():
+        if pq.exists():
             logger.warning("download failed (%s); using cached params", exc)
-            return pd.read_parquet(cfg.PARAMS_PARQUET_PATH)
+            return pd.read_parquet(pq)
         raise
 
 
