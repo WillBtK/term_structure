@@ -262,11 +262,16 @@ def estimate(yields, grid, elb, dt, warm_start: ShadowParams | None = None,
         def finalize(v):
             p = base_unpack(v); p.elb = elb; return p
 
+    # Bound function evaluations, not just iterations: scipy's Nelder-Mead leaves
+    # maxfun=inf when only maxiter is set, so on a flat/degenerate surface the
+    # repeated simplex-shrink steps (each ~N evals) run for hours. Capping maxfev
+    # bounds worst-case runtime while warm starts keep well-posed fits converging
+    # long before the cap.
     res = None
     for _ in range(max(restarts, 1)):
         res = minimize(obj, x0, method="Nelder-Mead",
-                       options={"maxiter": maxiter, "xatol": 1e-7, "fatol": 1e-5,
-                                "adaptive": True})
+                       options={"maxiter": maxiter, "maxfev": maxiter,
+                                "xatol": 1e-7, "fatol": 1e-5, "adaptive": True})
         if res.success:
             break
         x0 = res.x
