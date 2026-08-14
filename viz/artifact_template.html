@@ -19,6 +19,7 @@
   --teal:    #1E8C6E;
   --teal-soft: #DCEDE6;
   --purple:  #7A5FA0;
+  --crimson: #A23440;
   --focus:   #2E6B9E;
   --shadow:  0 1px 2px rgba(35,32,26,0.06), 0 4px 16px rgba(35,32,26,0.05);
 }
@@ -63,6 +64,7 @@
   --teal:    #2FA080;
   --teal-soft: #1D3630;
   --purple:  #8C6BC0;
+  --crimson: #CE6B72;
   --focus:   #5B93CC;
   --shadow:  0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
 }
@@ -274,7 +276,7 @@ footer.rail-foot{ margin-top:26px; padding-top:16px; border-top:1px solid var(--
     <div class="rail-brand">
       <span class="eyebrow">Government bond term premia</span>
       <h1>Term Premium Atlas</h1>
-      <p class="sub">One arbitrage-free shadow-rate model across four markets — decomposing every yield curve into an expected-rate path and a term premium.</p>
+      <p class="sub">One arbitrage-free shadow-rate model across five markets — decomposing every yield curve into an expected-rate path and a term premium.</p>
     </div>
     <div class="rail-group">
       <span class="eyebrow rail-group-label">Jump to</span>
@@ -339,7 +341,7 @@ function h(tag, attrs, kids){
   if(kids) (Array.isArray(kids)?kids:[kids]).forEach(c=> c!=null && e.appendChild(typeof c==='string'?document.createTextNode(c):c));
   return e;
 }
-const COL = ()=>({blue:cssVar('--blue'),orange:cssVar('--orange'),teal:cssVar('--teal'),purple:cssVar('--purple'),ink:cssVar('--ink'),muted:cssVar('--muted'),faint:cssVar('--faint'),line:cssVar('--line'),line2:cssVar('--line-2'),surface:cssVar('--surface')});
+const COL = ()=>({blue:cssVar('--blue'),orange:cssVar('--orange'),teal:cssVar('--teal'),purple:cssVar('--purple'),crimson:cssVar('--crimson'),ink:cssVar('--ink'),muted:cssVar('--muted'),faint:cssVar('--faint'),line:cssVar('--line'),line2:cssVar('--line-2'),surface:cssVar('--surface')});
 
 /* ============================================== LINE CHART (crosshair) */
 // opts: {series:[{label,color,dash,pts:[[x,y]]}], yZero, yFmt, xFmt, xTipFmt, height, hideXaxis,
@@ -477,7 +479,7 @@ async function downloadCsv(filename, text, note){
 const MON3=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const xYear=v=>String(Math.round(v));
 function xFmtMonth(v){ const y=Math.floor(v+1e-6); const mo=Math.round((v-y)*12); return MON3[(mo%12+12)%12]+'-'+String(y).slice(-2); }
-const CCOL={US:'blue',UK:'orange',JP:'teal',DE:'purple'};
+const CCOL={US:'blue',UK:'orange',JP:'teal',DE:'purple',CH:'crimson'};
 const SERIES={obs:'Actual yield',exp:'Expected rate',tp:'Term premium'};
 const ym=(y,m)=>y+(m-1)/12;
 // Curated policy episodes (shaded) + structural breakpoints (dashed). Applies per
@@ -487,6 +489,7 @@ const EPISODES={
   DE:[{a:[2015,3],b:[2018,12],l:'PSPP QE'},{a:[2020,3],b:[2022,3],l:'PEPP'},{a:[2022,7],b:[2023,9],l:'ECB hikes'}],
   JP:[{a:[2013,4],b:[2016,9],l:'QQE'},{a:[2016,9],b:[2024,3],l:'YCC'}],
   UK:[{a:[2009,3],b:[2021,12],l:'APF QE'},{a:[2022,9],b:[2022,11],l:'LDI'}],
+  CH:[{a:[2015,1],b:[2022,9],l:'SNB −0.75%'}],
 };
 const BREAKS={
   US:[{d:[2008,9],l:'Lehman'},{d:[2020,3],l:'COVID'}],
@@ -516,7 +519,7 @@ function lastVal(block, measure, tenor){
 
 /* ------------------------------------------------ 1. OVERVIEW */
 (function(){
-  panel('overview','The big picture','Four markets, one decomposition',
+  panel('overview','The big picture','Five markets, one decomposition',
     ['Every government yield splits into what the market expects short rates to average over the bond’s life (the <b>expected-rate path</b>) and the extra compensation for holding duration (the <b>term premium</b>). Below, the 10-year term premium today and its full history — estimated on each market’s modern, regime-clean sample with a shadow-rate model that respects each country’s effective lower bound.']);
   const s=M.lastChild;
   // stat tiles: 10y nominal TP per country
@@ -538,7 +541,7 @@ function lastVal(block, measure, tenor){
   const box=h('div'); c.appendChild(box); s.appendChild(c);
   lineChart(box,{height:260, yZero:true, yFmt:pct1, xFmt:xYear, xTipFmt:xFmtMonth,
     series:DATA.order.map(cc=>({label:DATA.countries[cc].name, color:COL()[CCOL[cc]], pts:ptsFor(DATA.countries[cc].instruments.nominal,'tp','10')}))});
-  const call=h('div',{class:'callout'}); call.innerHTML='Ordering today — <b>Germany &lt; US &lt; Japan &lt; UK</b> — is economically coherent: the Bund’s safe-haven/collateral demand compresses its premium, while gilt supply and fiscal risk lift the UK’s. Japan’s premium was <b>negative through QQE/YCC</b> and is now normalising.';
+  const call=h('div',{class:'callout'}); call.innerHTML='<b>Germany and Switzerland sit at the low end</b> (safe-haven / collateral demand compressing the premium), the <b>UK at the high end</b> (gilt supply, fiscal risk); the US and Japan sit between. Japan’s premium was <b>negative through QQE/YCC</b> and is now normalising, and every market’s premium turned negative in the 2022–23 inversion.';
   s.appendChild(call);
 })();
 
@@ -740,7 +743,7 @@ function lastVal(block, measure, tenor){
   tb.appendChild(body); tw.appendChild(tb); c.appendChild(tw); s.appendChild(c);
   // interpretation caveat
   const cav=h('div',{class:'callout orange'});
-  cav.innerHTML='<b>Reading the premium in a hiking cycle.</b> This is a yields-only model: the term premium is the yield minus the model’s expected average future short rate. When a curve <b>inverts</b> (2022–23), the model projects the high policy rate forward, so the expected-rate path can sit above the long yield and the premium turns <b>negative</b> — seen across all four markets (US −1.2%, Germany −0.8% at end-2023), consistent with the NY Fed ACM and Kim–Wright models. For the same reason the premium does not visibly compress during QE: without seeing central-bank bond purchases, the model reads QE-era yield declines as lower <b>expected rates</b>, not premium compression. Separating these needs surveys or a supply factor (a documented extension).';
+  cav.innerHTML='<b>Reading the premium in a hiking cycle.</b> This is a yields-only model: the term premium is the yield minus the model’s expected average future short rate. When a curve <b>inverts</b> (2022–23), the model projects the high policy rate forward, so the expected-rate path can sit above the long yield and the premium turns <b>negative</b> — seen across every market (US −1.2%, Germany −0.8% at end-2023), consistent with the NY Fed ACM and Kim–Wright models. For the same reason the premium does not visibly compress during QE: without seeing central-bank bond purchases, the model reads QE-era yield declines as lower <b>expected rates</b>, not premium compression. Separating these needs surveys or a supply factor (a documented extension).';
   s.appendChild(cav);
   // download
   const c2=h('div',{class:'card'});

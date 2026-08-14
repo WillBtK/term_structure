@@ -62,6 +62,10 @@ def _panel(kind: str) -> pd.DataFrame:
         from uk.fetch_boe import build_yield_panel
         from uk import config as u
         return build_yield_panel("real", grid=u.REAL_GRID, start="1992-10-01")
+    if kind == "ch_nominal":
+        from switzerland.fetch_snb import build_yield_panel
+        from switzerland import config as sw
+        return build_yield_panel(grid=sw.COMMON_GRID, freq="M", start=sw.SAMPLE_START)
     raise ValueError(kind)
 
 
@@ -116,8 +120,11 @@ SPECS = [
      {"label": "German Bunds (nominal)", "sample": "1999+", "elb": -0.80}),
     ("JP", "nominal", "japan_prod.json", "jp_nominal", "ycc", "japan",
      {"label": "Japanese JGBs (nominal)", "sample": "1986+", "elb": -0.17}),
+    ("CH", "nominal", "ch_prod.json", "ch_nominal", None, None,
+     {"label": "Swiss Confederation (nominal)", "sample": "1988+", "elb": -0.75}),
 ]
-NAMES = {"US": "United States", "UK": "United Kingdom", "DE": "Germany", "JP": "Japan"}
+NAMES = {"US": "United States", "UK": "United Kingdom", "DE": "Germany",
+         "JP": "Japan", "CH": "Switzerland"}
 
 
 def build() -> dict:
@@ -134,15 +141,18 @@ def build() -> dict:
         block = _frame_to_block(frame, tenors)
         block.update(meta)
         block["breaks"] = _breaks(rtag) if rtag else []
+        # Regime-derived breakpoints are kept OUT of the viz (Kim-filter transitions
+        # are noisy, esp. for Japan); the artifact renders a curated policy-date set
+        # instead. Regime datings live in the findings docs.
+        block["breaks"] = []
         countries.setdefault(cc, {"name": NAMES[cc], "instruments": {}})
         countries[cc]["instruments"][inst] = block
-        print(f"{cc} {inst}: {len(block['x'])} months, tenors {tenors}, "
-              f"{len(block['breaks'])} breaks")
+        print(f"{cc} {inst}: {len(block['x'])} months, tenors {tenors}")
     asof = max(max(b["dates"]) for c in countries.values()
                for b in c["instruments"].values())
     return {"meta": {"asof": asof, "units": "percent",
                      "note": "Term premium = observed yield - expected avg short rate (realised)."},
-            "order": ["US", "UK", "DE", "JP"], "countries": countries}
+            "order": ["US", "UK", "DE", "JP", "CH"], "countries": countries}
 
 
 def main():
