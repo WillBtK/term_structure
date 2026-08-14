@@ -110,8 +110,16 @@ Ang-Bekaert 2002 / Levant-Ma 2017 pattern and the Volcker P≈0.98 from
 |---|---|---|
 | UK (nominal) | 1970+ | 1970-72, 1974-75, **1980-82** (Thatcher disinflation) |
 | Japan | 1974+ | **1976, 1978** (oil-shock inflation) |
-| US | 1961+ | *(re-run in progress — expect 1973-75, 1979-82 Volcker)* |
+| US | 1961+ | 1971-73, **1975-79** (Great Inflation), 1982-84 |
 | Germany | 1972+ | *(re-run in progress after a cache-bug fix; see below)* |
+
+The US fit puts the **1975-79 Great-Inflation run-up** cleanly in the high-inflation
+regime and its probability-weighted 10y premium averages **+5.3%** across the 1970s
+(vs +1.6% post-1990) — the elevated stagflation premium. The precise labelling is
+imperfect (the 1979-82 Volcker window itself lands ambiguously, and a 1986-2001
+span is mis-assigned to the high regime), which is the same weak-identification
+signature seen in the other markets — reliable *era*, unreliable *boundaries and
+levels*.
 
 **Not reliable — regime-conditional TP levels.** θ (the long-run mean that drives
 the premium) is weakly identified *per regime*: each regime owns only short,
