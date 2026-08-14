@@ -152,10 +152,21 @@ weakly-identified *levels* are not used for the production series.
 
 **Use in the long-history atlas.** Observed yields and the single-regime
 decomposition are extended to full daily reach (US 1961, UK 1979, JP 1974), with
-the pre-estimation-sample stretch flagged. The single-regime extension is trusted
-back to ~1976 and for the whole modern era, but **over-swings in the 1979-84
-disinflation** (US 10y TP prints −2.2% in 1979 and +3.2% in 1984, range −5% to
-+4%) because modern θ (~4-5%) cannot absorb 15-19% short rates. There the regime
-model's high-inflation θ (~9%) is *more* realistic despite being weakly identified,
-so the US regime TP is shown as a **comparison trace over the Volcker window** —
-the two decompositions bracket the truth rather than either being taken as exact.
+the pre-estimation-sample stretch flagged. **The extension holds up in the deep
+past** — an important correction: an *earlier, pre-floor* parameter set made the
+US 10y TP swing wildly in 1979-84 (−5% to +4%), but the **floored** production
+parameters (the ones the atlas uses) keep the expected-rate path anchored even at
+15-19% short rates, giving a **high, positive** premium there (+2% to +7.25%).
+
+The 2-regime model (per-era θ) is shown as a **cross-check trace** over 1961-95,
+and it **agrees closely** with the floored single-regime series — corr **0.91**
+before 1987 (0.97 post-1990), pre-1987 means +3.8% (single) vs +3.3% (regime),
+both peaking ~+6-7% in 1981-84 and converging to +1.2% post-1990. So the two
+independent decompositions concur that the Great-Inflation term premium was large
+and positive; they are a rough *band*, not a bracket around a wild series. The one
+deep-negative US reading in the whole 1961-2026 history is **2020-03 COVID
+(−1.6%)** — a genuine flight-to-safety. **Shared caveat:** both anchor the
+expected path to a low modern-era θ, so if the 1970s market expected persistently
+higher rates, both *overstate* the level — read the deep-past premium as "high and
+positive," and event-window *changes* (which difference the level bias out) more
+than the absolute level.

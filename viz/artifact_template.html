@@ -517,9 +517,6 @@ const EPISODES={
   UK:[{a:[1973,10],b:[1975,12],l:'Oil / secondary-banking'},{a:[1979,6],b:[1982,10],l:'Thatcher disinflation'},{a:[2009,3],b:[2021,12],l:'APF QE'},{a:[2022,9],b:[2022,11],l:'LDI'}],
   CH:[{a:[2015,1],b:[2022,9],l:'SNB −0.75%'}],
 };
-// Extreme-rate windows where the single-regime extrapolation is least reliable
-// (short rate far outside the modern estimation sample -> expected-path blows up).
-const EXTREME={ US:[{a:[1979,8],b:[1985,6]}], UK:[{a:[1979,1],b:[1985,12]}] };
 const BREAKS={
   US:[{d:[2008,9],l:'Lehman'},{d:[2020,3],l:'COVID'}],
   DE:[{d:[2015,3],l:'PSPP'},{d:[2022,7],l:'ECB liftoff'}],
@@ -530,13 +527,12 @@ const BREAKS={
 function bandsFor(cc){ return (EPISODES[cc]||[]).map(e=>({x0:ym(...e.a),x1:ym(...e.b),label:e.l})); }
 function isoToX(s){ if(!s) return null; const [y,m,d]=s.split('-').map(Number);
   const dt=new Date(Date.UTC(y,0,1)); const doy=Math.round((Date.UTC(y,m-1,d)-Date.UTC(y,0,1))/864e5); return y+doy/365.25; }
-// Pre-estimation-sample band (parameters extrapolated) + extreme-rate bands, for a block.
+// Pre-estimation-sample band (parameters extrapolated), for a block.
 function contextBands(cc, inst, block){
   const out=[];
   const es=isoToX(block.est_start), x0=block.x[0];
   if(es!=null && es>x0+0.05) out.push({x0:x0,x1:es,fill:COL().orangeSoft,opacity:0.55,edge:true,
     edgeColor:COL().orange,labelAt:'left',labelColor:COL().orange,label:'pre-sample: params extrapolated'});
-  (EXTREME[cc]||[]).forEach(e=>out.push({x0:ym(...e.a),x1:ym(...e.b),fill:COL().orange,opacity:0.14}));
   return out;
 }
 function breaksFor(cc,inst){
@@ -588,7 +584,7 @@ function lastVal(block, measure, tenor){
 /* ------------------------------------------------ 2. EXPLORER (linked time-series + curve) */
 (function(){
   panel('explorer','Explore','Curve explorer — a tenor through time, the whole curve on hover',
-    ['Pick a market, instrument and tenor. The top chart is that tenor’s history; the bottom chart is the <b>entire term structure on whatever date you hover</b>. Switch either chart between the actual yield, the expected-rate path, the term premium, or the two stacked (expected rate + premium = yield). Daily throughout — drag the range handles to zoom into any window. The <b>orange region</b> marks dates before the model’s estimation sample, where the term-premium decomposition uses extrapolated parameters (see Method); the deeper-shaded 1979–84 window is where it is least reliable.']);
+    ['Pick a market, instrument and tenor. The top chart is that tenor’s history; the bottom chart is the <b>entire term structure on whatever date you hover</b>. Switch either chart between the actual yield, the expected-rate path, the term premium, or the two stacked (expected rate + premium = yield). Daily throughout — drag the range handles to zoom into any window. The <b>orange region</b> marks dates before the model’s estimation sample, where the term-premium decomposition uses extrapolated parameters (see Method) — cross-checked against a separate 2-regime model in the “Great Inflation” section, which agrees closely.']);
   const s=M.lastChild;
   const EX={cc:'US', inst:'nominal', tenor:'10', tsM:'tp', xM:'obs', lo:0, hi:0, hoverX:null, annot:true};
   function block(){ return DATA.countries[EX.cc].instruments[EX.inst]; }
@@ -758,6 +754,32 @@ function lastVal(block, measure, tenor){
   render(); CHARTS.push(render);
 })();
 
+/* ------------------------------------------------ 3b. STAGFLATION LENS (US, two decompositions) */
+(function(){
+  const b=DATA.countries.US.instruments.nominal;
+  if(!b.regime10) return;   // only when the regime overlay is present
+  panel('stagflation','Historical lens','The Great Inflation — a cross-check',
+    ['The single-regime model (the atlas default) is fit on the modern sample, so pushing it back to 1961 <b>extrapolates</b> its parameters. To test whether that survives the extreme-rate 1970s–80s, we cross-check it against a separate <b>2-regime</b> model that gives the high-inflation era its own mean-reversion (its own θ). Reassuringly, the two <b>agree closely</b> — correlation <b>0.91</b> before 1987, both averaging ~+3–4% through the high-inflation decades and converging to +1.2% post-1990. Both say the Great-Inflation term premium was <b>high and positive</b>, peaking around <b>+6–7%</b> in the early 1980s. The shared caveat: both anchor the expected-rate path to a <b>low modern-era long-run mean</b>, so if the 1970s market expected persistently higher rates, both overstate the level — read the two lines as a rough band around a premium that was unambiguously large and positive.']);
+  const s=M.lastChild;
+  const c=h('div',{class:'card'});
+  c.appendChild(h('div',{class:'card-title'},'US 10-year term premium, 1961–1995 — single-regime (extrapolated) vs 2-regime (per-era θ)'));
+  c.appendChild(h('div',{class:'card-note'},'Percent. Shaded = 1979–84 Volcker disinflation. The two decompositions track closely (correlation 0.91 before 1987).'));
+  const CC=COL();
+  c.appendChild(legend([{label:'Single-regime (atlas, extrapolated <1987)',color:CC.orange},{label:'2-regime model (per-era θ)',color:CC.teal,dash:true}]));
+  const box=h('div'); c.appendChild(box); s.appendChild(c);
+  const HI=1995;
+  const single=ptsFor(b,'tp','10').filter(p=>p[0]<=HI);
+  const regime=b.regime10.x.map((x,i)=>[x,b.regime10.tp[i]]).filter(p=>p[1]!=null&&p[0]<=HI);
+  lineChart(box,{height:280, yZero:true, yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtDay,
+    bands:[{x0:ym(1979,8),x1:ym(1985,6),fill:CC.orange,opacity:0.13,label:'Volcker'}],
+    series:[
+      {label:'Single-regime (extrapolated)',color:CC.orange,pts:single},
+      {label:'2-regime (per-era θ)',color:CC.teal,dash:'5 4',pts:regime}]});
+  const call=h('div',{class:'callout teal'});
+  call.innerHTML='Both methods put the Great-Inflation 10-year premium at a high, positive average (~+2.6% across the 1970s, peaking <b>~+6–7%</b> in 1981–84), converging to <b>+1.2%</b> by the 1990s — a reassuring cross-check that the extended single-regime series <b>holds up</b> in the deep past rather than being extrapolation noise (the mean-reversion floor keeps the expected-rate path anchored even at 15–19% short rates). The one deep-negative US reading in the entire 1961–2026 history is <b>2020 COVID (−1.6%)</b>, a genuine flight-to-safety. Shared caveat: both anchor to a low modern θ, so if 1970s inflation expectations were higher, both overstate the level.';
+  s.appendChild(call);
+})();
+
 /* ------------------------------------------------ 4. DATA / METHOD */
 (function(){
   panel('data','The data','Method & download',
@@ -787,7 +809,7 @@ function lastVal(block, measure, tenor){
   s.appendChild(cav);
   // historical-extension caveat
   const cav2=h('div',{class:'callout orange'});
-  cav2.innerHTML='<b>The extended history (pre-estimation-sample).</b> Observed yields run to each daily source’s start (US 1961, UK 1979, Japan 1974), but the model <b>parameters</b> are fit on each market’s modern sample (US 1987+, UK 1992+, …). Before that boundary — shaded orange in the Explorer — the decomposition applies <b>extrapolated</b> parameters, so term-premium <b>levels</b> there are indicative, not production-grade. They are most stretched in the <b>1979–84 disinflation</b> (deeper-shaded), where short rates of 15–19% sit far outside the modern sample and the expected-rate path over-swings. Event-study <b>changes</b> over a short window remain meaningful even where the level is biased (the expected path barely moves within a window). A regime-specific overlay for that window is in progress.';
+  cav2.innerHTML='<b>The extended history (pre-estimation-sample).</b> Observed yields run to each daily source’s start (US 1961, UK 1979, Japan 1974), but the model <b>parameters</b> are fit on each market’s modern sample (US 1987+, UK 1992+, …). Before that boundary — shaded orange in the Explorer — the decomposition applies <b>extrapolated</b> parameters. The mean-reversion floor keeps this well-behaved even at 1970s–80s rate levels (no blow-up), and a separate 2-regime model agrees closely there (see the Great-Inflation section — correlation 0.91). The shared caveat is subtler: both anchor the expected-rate path to a <b>low modern-era long-run mean</b>, so if the 1970s market expected persistently higher rates, both <b>overstate</b> the premium — read the deep-past level as “high and positive”, and rely on event-window <b>changes</b> (which difference the bias out) more than the absolute level.';
   s.appendChild(cav2);
   // download
   const c2=h('div',{class:'card'});

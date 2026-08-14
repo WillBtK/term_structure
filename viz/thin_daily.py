@@ -87,10 +87,28 @@ def build() -> dict:
               f"({block['dates'][0]}..{block['dates'][-1]})")
     full = cutoff <= canon["date"].min()
     res = "daily, full history" if full else f"daily (last {DAILY_YEARS:g}y) + weekly history"
+    _attach_us_regime_overlay(countries)
     return {"meta": {"asof": str(asof.date()), "units": "percent",
                      "resolution": res,
                      "note": "Term premium = observed yield - expected avg short rate (realised)."},
             "order": meta["order"], "countries": countries}
+
+
+def _attach_us_regime_overlay(countries: dict) -> None:
+    """Attach the US 2-regime (per-era θ) 10y TP series to US:nominal as a
+    comparison trace for the deep-past / Volcker window, if the run is present."""
+    f = HERE.parent / "scratchpad" / "regime_us_tp.parquet"
+    if not f.exists():
+        return
+    t = pd.read_parquet(f)
+    if 10.0 not in t.columns:
+        return
+    s = (t[10.0] * 100).dropna()
+    idx = pd.DatetimeIndex(s.index)
+    countries["US"]["instruments"]["nominal"]["regime10"] = {
+        "x": _xdec(idx), "dates": [str(d.date()) for d in idx],
+        "tp": [round(float(v), 4) for v in s.values],
+        "note": "2-regime Kim-filter model (per-era θ); illustrative in the extrapolated era."}
 
 
 def main() -> None:
