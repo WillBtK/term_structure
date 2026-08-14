@@ -1,0 +1,731 @@
+<title>Term Premium Atlas</title>
+<style>
+/* ============================== TOKENS ============================== */
+:root{
+  color-scheme: light;
+  --paper:   #F7F4EC;
+  --surface: #FFFFFF;
+  --surface-2: #FBF9F2;
+  --ink:     #23201A;
+  --ink-2:   #45413A;
+  --muted:   #6B6558;
+  --faint:   #96907F;
+  --line:    #DDD6C6;
+  --line-2:  #E9E3D3;
+  --blue:    #2E6B9E;
+  --blue-soft: #DCE7F0;
+  --orange:  #C4622E;
+  --orange-soft: #F3E1D6;
+  --teal:    #1E8C6E;
+  --teal-soft: #DCEDE6;
+  --purple:  #7A5FA0;
+  --focus:   #2E6B9E;
+  --shadow:  0 1px 2px rgba(35,32,26,0.06), 0 4px 16px rgba(35,32,26,0.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --paper:   #14171C;
+    --surface: #1A1E24;
+    --surface-2: #1E222A;
+    --ink:     #E9E4D8;
+    --ink-2:   #C7C1B2;
+    --muted:   #8B92A0;
+    --faint:   #5C6270;
+    --line:    #2A2E36;
+    --line-2:  #23272E;
+    --blue:    #5B93CC;
+    --blue-soft: #23384A;
+    --orange:  #D06B33;
+    --orange-soft: #3B2A20;
+    --teal:    #2FA080;
+    --teal-soft: #1D3630;
+    --purple:  #8C6BC0;
+    --focus:   #5B93CC;
+    --shadow:  0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --paper:   #14171C;
+  --surface: #1A1E24;
+  --surface-2: #1E222A;
+  --ink:     #E9E4D8;
+  --ink-2:   #C7C1B2;
+  --muted:   #8B92A0;
+  --faint:   #5C6270;
+  --line:    #2A2E36;
+  --line-2:  #23272E;
+  --blue:    #5B93CC;
+  --blue-soft: #23384A;
+  --orange:  #D06B33;
+  --orange-soft: #3B2A20;
+  --teal:    #2FA080;
+  --teal-soft: #1D3630;
+  --purple:  #8C6BC0;
+  --focus:   #5B93CC;
+  --shadow:  0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+}
+/* ============================== BASE ============================== */
+* { box-sizing: border-box; }
+html, body { margin:0; padding:0; }
+body{
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+.mono, .num{
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.eyebrow{
+  font-family: "Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  font-variant-caps: small-caps;
+  letter-spacing: 0.06em;
+  font-size: 13px;
+  color: var(--muted);
+}
+h1,h2,h3{ text-wrap: balance; font-weight: 600; margin: 0; }
+a { color: var(--blue); }
+::selection{ background: var(--blue-soft); }
+:focus-visible{ outline: 2px solid var(--focus); outline-offset: 2px; }
+/* ============================== LAYOUT ============================== */
+.app{ display:flex; min-height:100vh; }
+.rail{
+  width: 272px; flex: none;
+  border-right: 1px solid var(--line);
+  padding: 28px 22px 40px;
+  position: sticky; top:0; height:100vh; overflow-y:auto;
+  background: var(--paper);
+}
+.rail-brand{ margin-bottom: 26px; }
+.rail-brand h1{ font-size: 21px; line-height:1.25; margin-top:6px; }
+.rail-brand .sub{ font-size:12.5px; color:var(--muted); margin-top:9px; line-height:1.55; }
+.rail-group{ margin-top: 24px; padding-top:18px; border-top:1px solid var(--line-2); }
+.rail-group:first-of-type{ border-top:none; }
+.rail-group-label{ margin-bottom:10px; display:block; }
+.pillset{ display:flex; flex-direction:column; gap:3px; }
+.pill{
+  display:flex; align-items:center; gap:9px;
+  padding: 7px 9px; border-radius: 5px; cursor:pointer;
+  border: 1px solid transparent; background: none;
+  font-family: inherit; font-size: 13.5px; color: var(--ink-2);
+  text-align:left; width:100%;
+}
+.pill:hover{ background: var(--surface-2); }
+.pill.active{ background: var(--surface-2); border-color: var(--line); color: var(--ink); font-weight:600; }
+.pill .swatch{ width:9px; height:9px; border-radius:2px; flex:none; }
+.rail-nav{ display:flex; flex-direction:column; gap:2px; }
+.rail-nav a{
+  font-size: 13px; color: var(--muted); text-decoration:none;
+  padding: 5px 9px; border-radius:5px; display:block;
+}
+.rail-nav a:hover{ color:var(--ink); background:var(--surface-2); }
+.main{ flex:1; min-width:0; padding: 40px 48px 120px; max-width: 1180px; }
+section.panel{ margin-bottom: 66px; scroll-margin-top: 24px; }
+.panel-head{ margin-bottom: 18px; max-width: 780px; }
+.panel-head .eyebrow{ margin-bottom:6px; display:block; }
+.panel-head h2{ font-size: 23px; margin-bottom: 10px; }
+.panel-head p{ font-size: 14.5px; color: var(--ink-2); margin:0; }
+.panel-head p + p{ margin-top:8px; }
+.card{
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 22px 24px;
+  box-shadow: var(--shadow);
+}
+.card + .card{ margin-top:14px; }
+.card-title{ font-size:14px; font-weight:600; margin-bottom:2px; }
+.card-note{ font-size:12.5px; color:var(--muted); margin-bottom:14px; }
+.grid-2{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+.grid-3{ display:grid; grid-template-columns: repeat(3,1fr); gap:14px; }
+@media (max-width: 980px){ .grid-2, .grid-3{ grid-template-columns:1fr; } }
+.stat-row{ display:flex; gap:14px; flex-wrap:wrap; margin-top:20px; }
+.stat-tile{
+  flex:1; min-width:210px;
+  background:var(--surface); border:1px solid var(--line); border-radius:8px;
+  padding:16px 18px; box-shadow:var(--shadow);
+}
+.stat-tile .k{ font-size:12px; color:var(--muted); font-variant-caps:small-caps; letter-spacing:0.04em; }
+.stat-tile .v{ font-size:25px; margin-top:5px; font-family: ui-monospace,monospace; font-variant-numeric:tabular-nums; }
+.stat-tile .v small{ font-size:13px; color:var(--muted); font-family:"Iowan Old Style",Georgia,serif; }
+.stat-tile .d{ font-size:11.5px; color:var(--faint); margin-top:6px; line-height:1.45; }
+.callout{
+  border-left: 3px solid var(--blue);
+  background: var(--surface-2);
+  padding: 13px 18px; border-radius: 0 6px 6px 0;
+  font-size: 13.5px; color: var(--ink-2);
+  margin: 14px 0 0;
+}
+.callout b{ color:var(--ink); }
+.callout.orange{ border-color: var(--orange); }
+.callout.teal{ border-color: var(--teal); }
+table{ border-collapse:collapse; width:100%; font-size:12.5px; }
+th{
+  text-align:right; font-weight:600; font-variant-caps:small-caps; letter-spacing:0.03em;
+  color:var(--muted); font-size:11.5px; padding:6px 9px; border-bottom:1px solid var(--line);
+  white-space:nowrap; font-family: "Iowan Old Style",Georgia,serif;
+}
+th:first-child, td:first-child{ text-align:left; }
+td{ padding:5px 9px; border-bottom:1px solid var(--line-2); text-align:right; white-space:nowrap;
+    font-family: ui-monospace,monospace; font-variant-numeric:tabular-nums; }
+td:first-child{ font-family:"Iowan Old Style",Georgia,serif; }
+tr:last-child td{ border-bottom:none; }
+.twrap{ overflow-x:auto; }
+.sign-pos{ color: var(--blue); }
+.sign-neg{ color: var(--orange); }
+.dim{ color:var(--faint); }
+tr.hl td{ background: var(--surface-2); font-weight:600; }
+.legend{ display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-bottom:12px; }
+.legend .item{ display:flex; align-items:center; gap:6px; }
+.legend .sw{ width:11px; height:11px; border-radius:2px; flex:none; }
+.legend .ln{ width:16px; height:2px; border-radius:1px; flex:none; }
+#tooltip{
+  position:fixed; pointer-events:none; z-index:1000;
+  background: var(--ink); color: var(--paper);
+  border-radius:6px; padding:9px 12px; font-size:12px; line-height:1.55;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+  max-width:270px; opacity:0; transition: opacity 0.08s ease;
+  font-family: ui-monospace, monospace;
+}
+#tooltip.show{ opacity:1; }
+#tooltip .tt-title{ font-family:"Iowan Old Style",Georgia,serif; font-weight:600; margin-bottom:5px; font-size:12.5px; }
+#tooltip .tt-row{ display:flex; justify-content:space-between; gap:16px; }
+#tooltip .tt-row .l{ opacity:0.65; }
+svg text{ font-family: ui-monospace, monospace; fill: var(--muted); font-size:10.5px; }
+svg text.axis-label{ font-family:"Iowan Old Style",Georgia,serif; font-variant-caps:small-caps; }
+.chip{
+  display:inline-block; font-size:10.5px; padding:2px 7px; border-radius:99px;
+  font-variant-caps:small-caps; letter-spacing:0.02em; border:1px solid var(--line);
+  color:var(--muted); font-family:"Iowan Old Style",Georgia,serif;
+}
+.chip.strong{ border-color: var(--blue); color: var(--blue); }
+footer.rail-foot{ margin-top:26px; padding-top:16px; border-top:1px solid var(--line-2); }
+.theme-toggle{
+  display:flex; gap:4px; background:var(--surface-2); border:1px solid var(--line);
+  border-radius:6px; padding:3px;
+}
+.theme-toggle button{
+  flex:1; border:none; background:none; padding:5px 0; border-radius:4px;
+  font-family:"Iowan Old Style",Georgia,serif; font-size:11.5px; color:var(--muted); cursor:pointer;
+  font-variant-caps: small-caps;
+}
+.theme-toggle button.active{ background:var(--surface); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,0.08); }
+.foot-credit{ font-size:11px; color:var(--faint); margin-top:14px; line-height:1.5; }
+.hint{ font-size:12px; color:var(--faint); margin-top:8px; }
+.matrix-cell{ cursor:pointer; }
+.matrix-cell:hover{ stroke: var(--ink); stroke-width:1.5; }
+.select-control{
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 13px; color: var(--ink); background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px;
+  min-width: 220px; cursor: pointer;
+}
+.select-control:focus-visible{ outline: 2px solid var(--focus); outline-offset: 1px; }
+.lede{ font-size:16.5px; line-height:1.6; color:var(--ink-2); max-width:720px; }
+.lede b{ color:var(--ink); }
+.seg{ display:inline-flex; gap:3px; background:var(--surface-2); border:1px solid var(--line); border-radius:6px; padding:3px; flex-wrap:wrap; }
+.seg button{
+  border:none; background:none; padding:5px 12px; border-radius:4px; cursor:pointer;
+  font-family:ui-monospace,monospace; font-size:12px; color:var(--muted);
+}
+.seg button.active{ background:var(--surface); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,0.08); }
+.chart-title{ font-size:13px; font-weight:600; margin-bottom:2px; }
+.chart-note{ font-size:11.5px; color:var(--muted); margin-bottom:10px; }
+.range-slider{ margin-top:10px; }
+.range-label{ font-family:ui-monospace,monospace; font-variant-numeric:tabular-nums; font-size:11.5px; color:var(--muted); margin-bottom:6px; text-align:center; }
+.dual-track{ position:relative; height:20px; }
+.dual-track .track-bg{ position:absolute; top:8px; left:0; right:0; height:4px; background:var(--line); border-radius:2px; }
+.dual-track .track-fill{ position:absolute; top:8px; height:4px; background:var(--blue); border-radius:2px; }
+.dual-track input[type=range]{
+  position:absolute; top:0; left:0; width:100%; height:20px; margin:0; padding:0;
+  background:none; pointer-events:none; -webkit-appearance:none; appearance:none;
+}
+.dual-track input[type=range]::-webkit-slider-runnable-track{ background:transparent; height:4px; }
+.dual-track input[type=range]::-moz-range-track{ background:transparent; height:4px; }
+.dual-track input[type=range]::-webkit-slider-thumb{
+  pointer-events:auto; -webkit-appearance:none; appearance:none; width:13px; height:13px;
+  border-radius:50%; background:var(--blue); border:2px solid var(--surface);
+  box-shadow:0 0 0 1px var(--line); margin-top:-4.5px; cursor:pointer;
+}
+.dual-track input[type=range]::-moz-range-thumb{
+  pointer-events:auto; width:13px; height:13px; border-radius:50%; background:var(--blue);
+  border:2px solid var(--surface); box-shadow:0 0 0 1px var(--line); cursor:pointer;
+}
+.ctrlbar{ display:flex; gap:18px; flex-wrap:wrap; align-items:flex-end; margin-bottom:16px; }
+.ctrlbar .grp{ display:flex; flex-direction:column; gap:6px; }
+.ctrlbar .grp > .eyebrow{ display:block; }
+.src{ font-size:11px; color:var(--faint); margin-top:10px; }
+.btn{
+  font-family:"Iowan Old Style",Georgia,serif; font-size:13px; color:var(--blue);
+  background:var(--surface-2); border:1px solid var(--line); border-radius:6px;
+  padding:8px 16px; cursor:pointer; font-variant-caps:small-caps; letter-spacing:0.03em;
+}
+.btn:hover{ background:var(--blue-soft); }
+</style>
+
+<div id="tooltip"></div>
+<div class="app">
+  <nav class="rail">
+    <div class="rail-brand">
+      <span class="eyebrow">Government bond term premia</span>
+      <h1>Term Premium Atlas</h1>
+      <p class="sub">One arbitrage-free shadow-rate model across four markets — decomposing every yield curve into an expected-rate path and a term premium.</p>
+    </div>
+    <div class="rail-group">
+      <span class="eyebrow rail-group-label">Jump to</span>
+      <div class="rail-nav" id="jumpNav"></div>
+    </div>
+    <footer class="rail-foot">
+      <span class="eyebrow rail-group-label">Theme</span>
+      <div class="theme-toggle" id="themeToggle">
+        <button data-t="system">System</button>
+        <button data-t="light">Light</button>
+        <button data-t="dark">Dark</button>
+      </div>
+      <p class="foot-credit" id="footCredit"></p>
+    </footer>
+  </nav>
+  <main class="main" id="main"></main>
+</div>
+
+<script id="data-blob" type="application/json">__DATA_BLOB__</script>
+<script>
+const DATA = JSON.parse(document.getElementById('data-blob').textContent);
+/* ============================================== THEME */
+(function(){
+  const btns = document.querySelectorAll('#themeToggle button');
+  function apply(mode){
+    if(mode === 'system'){ document.documentElement.removeAttribute('data-theme'); }
+    else{ document.documentElement.setAttribute('data-theme', mode); }
+    btns.forEach(b => b.classList.toggle('active', b.dataset.t === mode));
+    window.dispatchEvent(new Event('themechange'));
+  }
+  btns.forEach(b => b.addEventListener('click', () => apply(b.dataset.t)));
+  apply('system');
+})();
+/* ============================================== HELPERS */
+function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function fmt(v, d=3){ if(v===null||v===undefined||isNaN(v)) return '—'; return v.toFixed(d); }
+function fmtSigned(v, d=1){ if(v===null||v===undefined||isNaN(v)) return '—'; return (v>=0?'+':'')+v.toFixed(d); }
+function signClass(v){ return v>=0 ? 'sign-pos' : 'sign-neg'; }
+const tt = document.getElementById('tooltip');
+function showTip(evt, html){
+  tt.innerHTML = html; tt.classList.add('show');
+  const x = evt.clientX, y = evt.clientY, pad = 16;
+  tt.style.left='0px'; tt.style.top='0px';
+  const rect = tt.getBoundingClientRect();
+  let left = x+pad, top = y+pad;
+  if(left+rect.width > window.innerWidth-10) left = x-rect.width-pad;
+  if(top+rect.height > window.innerHeight-10) top = y-rect.height-pad;
+  tt.style.left=left+'px'; tt.style.top=top+'px';
+}
+function hideTip(){ tt.classList.remove('show'); }
+const SVGNS='http://www.w3.org/2000/svg';
+function el(tag, attrs){ const e=document.createElementNS(SVGNS,tag); for(const k in attrs) e.setAttribute(k,attrs[k]); return e; }
+function scaleLinear(domain,range){ const [d0,d1]=domain,[r0,r1]=range; const den=(d1-d0)||1; return v=>r0+(v-d0)/den*(r1-r0); }
+function niceTicks(min,max,count){
+  const span=(max-min)||1, step0=span/count, mag=Math.pow(10,Math.floor(Math.log10(step0))), norm=step0/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag; const ticks=[]; let t=Math.ceil(min/step)*step;
+  for(;t<=max+1e-9;t+=step) ticks.push(Math.round(t*1e6)/1e6); return ticks;
+}
+function h(tag, attrs, kids){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){ if(k==='class') e.className=attrs[k]; else if(k==='html') e.innerHTML=attrs[k]; else e.setAttribute(k,attrs[k]); }
+  if(kids) (Array.isArray(kids)?kids:[kids]).forEach(c=> c!=null && e.appendChild(typeof c==='string'?document.createTextNode(c):c));
+  return e;
+}
+const COL = ()=>({blue:cssVar('--blue'),orange:cssVar('--orange'),teal:cssVar('--teal'),purple:cssVar('--purple'),ink:cssVar('--ink'),muted:cssVar('--muted'),faint:cssVar('--faint'),line:cssVar('--line'),line2:cssVar('--line-2'),surface:cssVar('--surface')});
+
+/* ============================================== LINE CHART (crosshair) */
+// opts: {series:[{label,color,dash,pts:[[x,y]]}], yZero, yFmt, xFmt, xTipFmt, height, hideXaxis,
+//        breaks:[{x,label}], onHover(xv), onLeave()}   (breaks/onHover/onLeave are additive linked-chart hooks)
+const CHARTS=[];
+function lineChart(mount, opts){
+  const render=()=>{ mount.innerHTML=''; drawLine(mount, opts); };
+  render(); CHARTS.push(render);
+}
+function drawLine(mount, o){
+  const C=COL();
+  const W = mount.clientWidth || 560;
+  const m={t:16,r:16,b:24,l:38};
+  const all = o.series.flatMap(s=>s.pts);
+  const xs = all.map(p=>p[0]), ys = all.map(p=>p[1]);
+  let ymin = Math.min(...ys), ymax = Math.max(...ys);
+  if(o.yZero){ ymin=Math.min(ymin,0); ymax=Math.max(ymax,0); }
+  const pad=(ymax-ymin)*0.08||1; ymin-=pad; ymax+=pad;
+  const xmin=Math.min(...xs), xmax=Math.max(...xs);
+  const plotW=W-m.l-m.r;
+  const H = o.height || 200;
+  const plotH=H-m.t-m.b;
+  const sx=scaleLinear([xmin,xmax],[m.l,m.l+plotW]);
+  const sy=scaleLinear([ymin,ymax],[m.t+plotH,m.t]);
+  const svg=el('svg',{width:'100%',height:H,viewBox:`0 0 ${W} ${H}`,preserveAspectRatio:'none'});
+  const yt=niceTicks(ymin,ymax,4);
+  const stepA = yt.length>1 ? Math.abs(yt[1]-yt[0]) : 1;
+  const dec = stepA<0.1?2 : stepA<1?1 : 0;
+  const axFmt = v => (Math.abs(v)<1e-9?'0':v.toFixed(dec));
+  const tipFmt = o.yFmt || (v=>fmt(v,2));
+  yt.forEach(t=>{
+    const y=sy(t);
+    svg.appendChild(el('line',{x1:m.l,x2:m.l+plotW,y1:y,y2:y,stroke:C.line2,'stroke-width':1}));
+    const tx=el('text',{x:m.l-6,y:y+3,'text-anchor':'end'}); tx.textContent=axFmt(t); svg.appendChild(tx);
+  });
+  if(ymin<0&&ymax>0){ const y0=sy(0); svg.appendChild(el('line',{x1:m.l,x2:m.l+plotW,y1:y0,y2:y0,stroke:C.faint,'stroke-width':1.2})); }
+  // additive: regime breakpoints as dashed verticals + label
+  (o.breaks||[]).forEach(b=>{
+    if(b.x<xmin||b.x>xmax) return;
+    const x=sx(b.x);
+    svg.appendChild(el('line',{x1:x,x2:x,y1:m.t,y2:m.t+plotH,stroke:C.faint,'stroke-width':1,'stroke-dasharray':'3 3',opacity:0.75}));
+    if(b.label){ const tx=el('text',{x:x+3,y:m.t+9,'text-anchor':'start'}); tx.setAttribute('fill',C.faint); tx.style.fontSize='9px'; tx.textContent=b.label; svg.appendChild(tx); }
+  });
+  if(!o.hideXaxis){
+    niceTicks(xmin,xmax,Math.min(6,Math.round(plotW/90))).forEach(t=>{
+      if(t<xmin-0.5||t>xmax+0.5) return;
+      const x=sx(t); const tx=el('text',{x:x,y:H-8,'text-anchor':'middle'}); tx.textContent=(o.xFmt?o.xFmt(t):Math.round(t)); svg.appendChild(tx);
+    });
+  }
+  o.series.forEach(s=>{
+    if(!s.pts.length) return;
+    const d = s.pts.map((p,i)=> (i?'L':'M')+sx(p[0]).toFixed(1)+' '+sy(p[1]).toFixed(1)).join(' ');
+    svg.appendChild(el('path',{d,fill:'none',stroke:s.color,'stroke-width':s.width||2,'stroke-dasharray':s.dash||'','stroke-linejoin':'round','stroke-linecap':'round',opacity:s.dash?0.9:1}));
+    const lp=s.pts[s.pts.length-1];
+    if(!s.dash) svg.appendChild(el('circle',{cx:sx(lp[0]),cy:sy(lp[1]),r:3,fill:s.color}));
+  });
+  const cross=el('line',{x1:0,x2:0,y1:m.t,y2:m.t+plotH,stroke:C.faint,'stroke-width':1,opacity:0});
+  svg.appendChild(cross);
+  const dots=o.series.map(s=>{ const c=el('circle',{r:3.5,fill:s.color,stroke:C.surface,'stroke-width':1.5,opacity:0}); svg.appendChild(c); return c; });
+  const rect=el('rect',{x:m.l,y:m.t,width:plotW,height:plotH,fill:'transparent'});
+  svg.appendChild(rect);
+  const xvals=[...new Set(xs)].sort((a,b)=>a-b);
+  rect.addEventListener('mousemove',ev=>{
+    const bb=svg.getBoundingClientRect(); const px=(ev.clientX-bb.left)*(W/bb.width);
+    const xv=xvals.reduce((a,b)=>Math.abs(sx(b)-px)<Math.abs(sx(a)-px)?b:a,xvals[0]);
+    cross.setAttribute('x1',sx(xv)); cross.setAttribute('x2',sx(xv)); cross.setAttribute('opacity',0.5);
+    let rows='';
+    o.series.forEach((s,i)=>{
+      const pt=s.pts.find(p=>p[0]===xv);
+      if(pt){ dots[i].setAttribute('cx',sx(pt[0])); dots[i].setAttribute('cy',sy(pt[1])); dots[i].setAttribute('opacity',1);
+        rows+=`<div class="tt-row"><span class="l">${s.label}</span><span>${tipFmt(pt[1])}</span></div>`; }
+      else dots[i].setAttribute('opacity',0);
+    });
+    const xTip=o.xTipFmt||o.xFmt;
+    showTip(ev,`<div class="tt-title">${xTip?xTip(xv):Math.round(xv)}</div>${rows}`);
+    if(o.onHover) o.onHover(xv);
+  });
+  rect.addEventListener('mouseleave',()=>{ cross.setAttribute('opacity',0); dots.forEach(d=>d.setAttribute('opacity',0)); hideTip(); if(o.onLeave) o.onLeave(); });
+  mount.appendChild(svg);
+}
+function legend(items){
+  const wrap=h('div',{class:'legend'});
+  items.forEach(it=>{
+    const mark = it.dash ? h('span',{class:'ln'}) : h('span',{class:'sw'});
+    if(it.dash){ mark.style.background='none'; mark.style.borderTop='2px dashed '+it.color; mark.style.height='0'; }
+    else mark.style.background=it.color;
+    wrap.appendChild(h('span',{class:'item'},[mark, it.label]));
+  });
+  return wrap;
+}
+</script>
+<script>
+/* ============================================== PAGE BUILD */
+const M = document.getElementById('main');
+const NAV = document.getElementById('jumpNav');
+function panel(id, eyebrow, title, paras){
+  const s=h('section',{class:'panel',id});
+  const head=h('div',{class:'panel-head'});
+  head.appendChild(h('span',{class:'eyebrow'},eyebrow));
+  head.appendChild(h('h2',null,title));
+  (paras||[]).forEach(p=> head.appendChild(h('p',{html:p})));
+  s.appendChild(head); M.appendChild(s);
+  NAV.appendChild(h('a',{href:'#'+id},title.length>32?title.slice(0,30)+'…':title));
+  return s;
+}
+document.getElementById('footCredit').textContent = 'Model: AFNS + Christensen–Rudebusch shadow rate, BRW bias-corrected. As of '+DATA.meta.asof+'.';
+
+// CSV download via the viewer's `downloads` capability (graceful when absent /
+// when the .csv extension isn't enabled in this view -> fall back to .txt).
+async function downloadCsv(filename, text, note){
+  note.textContent='';
+  let downloads=null;
+  try{ downloads = (window.claude && claude.use) ? await claude.use('downloads') : null; }catch(e){ downloads=null; }
+  if(!downloads){ note.textContent='Download isn’t available in this view — open the artifact on claude.ai to save the CSV.'; return; }
+  const attempt = async name => downloads.save({filename:name, data:text});
+  try{ await attempt(filename); note.textContent='Saved '+filename+'.'; }
+  catch(err){
+    const code = err && err.code;
+    if(code==='extension_not_enabled'){
+      try{ const alt=filename.replace(/\.csv$/,'.txt'); await attempt(alt); note.textContent='Saved as '+alt+' (CSV content).'; }
+      catch(e2){ note.textContent = e2 && e2.code==='declined' ? 'Save cancelled.' : 'Download unavailable in this view.'; }
+    } else if(code==='declined'){ note.textContent='Save cancelled.'; }
+    else if(code==='rate_limited'){ note.textContent='A save prompt is already open — try again in a moment.'; }
+    else { note.textContent='Download unavailable in this view.'; }
+  }
+}
+
+const MON3=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const xYear=v=>String(Math.round(v));
+function xFmtMonth(v){ const y=Math.floor(v+1e-6); const mo=Math.round((v-y)*12); return MON3[(mo%12+12)%12]+'-'+String(y).slice(-2); }
+const CCOL={US:'blue',UK:'orange',JP:'teal',DE:'purple'};
+const SERIES={obs:'Actual yield',exp:'Expected rate',tp:'Term premium'};
+const pct1=v=>fmtSigned(v,2), pct2=v=>fmt(v,2)+'%';
+
+// helper: [x,y] pairs for a country/instrument/tenor/measure, dropping nulls
+function ptsFor(block, measure, tenor){
+  const arr=block[measure][tenor]; if(!arr) return [];
+  return block.x.map((x,i)=>[x,arr[i]]).filter(p=>p[1]!=null);
+}
+function lastVal(block, measure, tenor){
+  const a=block[measure][tenor]; if(!a) return null;
+  for(let i=a.length-1;i>=0;i--) if(a[i]!=null) return a[i];
+  return null;
+}
+
+/* ------------------------------------------------ 1. OVERVIEW */
+(function(){
+  panel('overview','The big picture','Four markets, one decomposition',
+    ['Every government yield splits into what the market expects short rates to average over the bond’s life (the <b>expected-rate path</b>) and the extra compensation for holding duration (the <b>term premium</b>). Below, the 10-year term premium today and its full history — estimated on each market’s modern, regime-clean sample with a shadow-rate model that respects each country’s effective lower bound.']);
+  const s=M.lastChild;
+  // stat tiles: 10y nominal TP per country
+  const row=h('div',{class:'stat-row'});
+  DATA.order.forEach(cc=>{
+    const b=DATA.countries[cc].instruments.nominal; const v=lastVal(b,'tp','10');
+    const tile=h('div',{class:'stat-tile'});
+    tile.appendChild(h('div',{class:'k'},DATA.countries[cc].name+' · 10y'));
+    const vv=h('div',{class:'v'}); vv.innerHTML=fmtSigned(v,2)+' <small>%</small>'; vv.className='v '+(v>=0?'sign-pos':'sign-neg'); tile.appendChild(vv);
+    tile.appendChild(h('div',{class:'d'},'Nominal, '+b.sample+' sample'));
+    row.appendChild(tile);
+  });
+  s.appendChild(row);
+  // history chart: 10y nominal TP, 4 countries
+  const c=h('div',{class:'card'});
+  c.appendChild(h('div',{class:'card-title'},'10-year nominal term premium, 1970–today'));
+  c.appendChild(h('div',{class:'card-note'},'Realised premium (observed yield minus the model’s expected average short rate). Hover for monthly values.'));
+  c.appendChild(legend(DATA.order.map(cc=>({label:DATA.countries[cc].name,color:COL()[CCOL[cc]]}))));
+  const box=h('div'); c.appendChild(box); s.appendChild(c);
+  lineChart(box,{height:260, yZero:true, yFmt:pct1, xFmt:xYear, xTipFmt:xFmtMonth,
+    series:DATA.order.map(cc=>({label:DATA.countries[cc].name, color:COL()[CCOL[cc]], pts:ptsFor(DATA.countries[cc].instruments.nominal,'tp','10')}))});
+  const call=h('div',{class:'callout'}); call.innerHTML='Ordering today — <b>Germany &lt; US &lt; Japan &lt; UK</b> — is economically coherent: the Bund’s safe-haven/collateral demand compresses its premium, while gilt supply and fiscal risk lift the UK’s. Japan’s premium was <b>negative through QQE/YCC</b> and is now normalising.';
+  s.appendChild(call);
+})();
+
+/* ------------------------------------------------ 2. EXPLORER (linked time-series + curve) */
+(function(){
+  panel('explorer','Explore','Curve explorer — a tenor through time, the whole curve on hover',
+    ['Pick a market, instrument and tenor. The top chart is that tenor’s history; the bottom chart is the <b>entire term structure on whatever date you hover</b>. Switch either chart between the actual yield, the expected-rate path, the term premium, or the two stacked (expected rate + premium = yield). Dashed verticals mark regime breakpoints where identified.']);
+  const s=M.lastChild;
+  const EX={cc:'US', inst:'nominal', tenor:'10', tsM:'tp', xM:'obs', lo:0, hi:0, hoverX:null};
+  function block(){ return DATA.countries[EX.cc].instruments[EX.inst]; }
+  function tenors(){ return block().tenors; }
+
+  // ---- control bar
+  const bar=h('div',{class:'ctrlbar'});
+  const gCc=h('div',{class:'grp'}); gCc.appendChild(h('span',{class:'eyebrow'},'Market'));
+  const segCc=h('div',{class:'seg'});
+  DATA.order.forEach(cc=>{ const btn=h('button',null,cc); if(cc===EX.cc)btn.classList.add('active');
+    btn.onclick=()=>{ EX.cc=cc; if(!DATA.countries[cc].instruments[EX.inst]) EX.inst='nominal';
+      if(!block().tenors.includes(EX.tenor)) EX.tenor=block().tenors.includes('10')?'10':block().tenors[Math.floor(block().tenors.length/2)];
+      syncControls(); full(); };
+    segCc.appendChild(btn); }); gCc.appendChild(segCc); bar.appendChild(gCc);
+
+  const gIn=h('div',{class:'grp'}); gIn.appendChild(h('span',{class:'eyebrow'},'Instrument'));
+  const segIn=h('div',{class:'seg'}); gIn.appendChild(segIn); bar.appendChild(gIn);
+
+  const gTen=h('div',{class:'grp'}); gTen.appendChild(h('span',{class:'eyebrow'},'Tenor'));
+  const selTen=h('select',{class:'select-control'}); selTen.style.minWidth='120px';
+  selTen.onchange=()=>{ EX.tenor=selTen.value; full(); }; gTen.appendChild(selTen); bar.appendChild(gTen);
+  s.appendChild(bar);
+
+  function syncControls(){
+    // instrument seg (nominal + real where present)
+    segIn.innerHTML='';
+    const insts=Object.keys(DATA.countries[EX.cc].instruments);
+    insts.forEach(k=>{ const btn=h('button',null,k==='real'?'Inflation-linked':'Nominal'); if(k===EX.inst)btn.classList.add('active');
+      btn.onclick=()=>{ EX.inst=k; if(!block().tenors.includes(EX.tenor)) EX.tenor=block().tenors.includes('10')?'10':block().tenors[block().tenors.length-2]; syncControls(); full(); };
+      segIn.appendChild(btn); });
+    // tenor dropdown
+    selTen.innerHTML='';
+    tenors().forEach(t=> selTen.appendChild(h('option',{value:t}, t+'y')));
+    selTen.value=EX.tenor;
+  }
+
+  // ---- time-series card
+  const cTs=h('div',{class:'card'});
+  const tsTitle=h('div',{class:'card-title'}); cTs.appendChild(tsTitle);
+  const tsNote=h('div',{class:'card-note'}); cTs.appendChild(tsNote);
+  const segTs=h('div',{class:'seg'}); segTs.style.marginBottom='12px';
+  [['obs','Actual yield'],['exp','Expected rate'],['tp','Term premium'],['stack','Stacked']].forEach(([k,lab],i)=>{
+    const btn=h('button',null,lab); if(k===EX.tsM)btn.classList.add('active');
+    btn.onclick=()=>{ EX.tsM=k; [...segTs.children].forEach(c=>c.classList.toggle('active',c===btn)); renderTs(); };
+    segTs.appendChild(btn); });
+  cTs.appendChild(segTs);
+  const tsLegend=h('div'); cTs.appendChild(tsLegend);
+  const tsBox=h('div'); cTs.appendChild(tsBox);
+  const sliderMount=h('div'); cTs.appendChild(sliderMount);
+  s.appendChild(cTs);
+
+  // ---- cross-section card
+  const cX=h('div',{class:'card'});
+  const xTitle=h('div',{class:'card-title'}); cX.appendChild(xTitle);
+  const xNote=h('div',{class:'card-note'}); cX.appendChild(xNote);
+  const segX=h('div',{class:'seg'}); segX.style.marginBottom='12px';
+  [['obs','Actual curve'],['exp','Expected-rate curve'],['tp','Term-premium curve'],['stack','Stacked']].forEach(([k,lab])=>{
+    const btn=h('button',null,lab); if(k===EX.xM)btn.classList.add('active');
+    btn.onclick=()=>{ EX.xM=k; [...segX.children].forEach(c=>c.classList.toggle('active',c===btn)); renderX(); };
+    segX.appendChild(btn); });
+  cX.appendChild(segX);
+  const xLegend=h('div'); cX.appendChild(xLegend);
+  const xBox=h('div'); cX.appendChild(xBox);
+  s.appendChild(cX);
+
+  const measColor={obs:'blue',exp:'teal',tp:'orange'};
+  function seriesForMeasure(meas, tenor){
+    const b=block();
+    if(meas==='stack') return [
+      {label:'Expected rate',color:COL().teal,pts:ptsFor(b,'exp',tenor)},
+      {label:'Actual yield',color:COL().blue,pts:ptsFor(b,'obs',tenor)}];
+    return [{label:SERIES[meas],color:COL()[measColor[meas]],pts:ptsFor(b,meas,tenor)}];
+  }
+  function windowBreaks(){ return (block().breaks||[]).map(b=>({x:b.x,label:''})); }
+
+  function renderTs(){
+    const b=block();
+    tsTitle.textContent=`${DATA.countries[EX.cc].name} ${EX.inst==='real'?'(real)':''} · ${EX.tenor}y · ${EX.tsM==='stack'?'expected rate + term premium':SERIES[EX.tsM]}`;
+    tsNote.textContent=EX.tsM==='stack'?'Two lines: the gap between the expected-rate path and the actual yield is the term premium.':'Monthly, percent. Drag the handles below to zoom the window.';
+    const full=seriesForMeasure(EX.tsM, EX.tenor);
+    // window filter
+    const xArr=b.x, xlo=xArr[EX.lo], xhi=xArr[EX.hi];
+    const series=full.map(sr=>({...sr,pts:sr.pts.filter(p=>p[0]>=xlo-1e-6&&p[0]<=xhi+1e-6)}));
+    tsLegend.innerHTML=''; if(series.length>1) tsLegend.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
+    tsBox.innerHTML='';
+    drawLine(tsBox,{height:230, yZero:EX.tsM==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtMonth,
+      breaks:windowBreaks().filter(bk=>bk.x>=xlo&&bk.x<=xhi),
+      series,
+      onHover:xv=>{ let bi=0,bd=1e9; xArr.forEach((x,i)=>{const d=Math.abs(x-xv); if(d<bd&&x>=xlo-1e-6&&x<=xhi+1e-6){bd=d;bi=i;}}); EX.hoverX=bi; renderX(); },
+      onLeave:()=>{}});
+  }
+  function renderX(){
+    const b=block(); const idx=(EX.hoverX==null)?b.x.length-1:EX.hoverX;
+    const dstr=b.dates[idx];
+    xTitle.textContent=`${DATA.countries[EX.cc].name} ${EX.inst==='real'?'(real)':''} term structure · ${dstr}`;
+    xNote.textContent='Across maturities on the hovered date. Hover the top chart to move this date.';
+    const ten=b.tenors.map(Number);
+    function curve(meas){ return b.tenors.map((t,i)=>[Number(t), b[meas][t] ? b[meas][t][idx] : null]).filter(p=>p[1]!=null); }
+    let series;
+    if(EX.xM==='stack') series=[{label:'Expected rate',color:COL().teal,pts:curve('exp')},{label:'Actual yield',color:COL().blue,pts:curve('obs')}];
+    else series=[{label:{obs:'Actual curve',exp:'Expected-rate curve',tp:'Term-premium curve'}[EX.xM],color:COL()[measColor[EX.xM]],pts:curve(EX.xM)}];
+    xLegend.innerHTML=''; if(series.length>1) xLegend.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
+    xBox.innerHTML='';
+    drawLine(xBox,{height:210, yZero:EX.xM==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:v=>v+'y', xTipFmt:v=>v+'y',
+      series});
+  }
+  function buildSlider(){
+    const b=block(); const N=b.x.length; EX.lo=0; EX.hi=N-1;
+    sliderMount.innerHTML='';
+    const wrap=h('div',{class:'range-slider'});
+    const label=h('div',{class:'range-label'}); wrap.appendChild(label);
+    const track=h('div',{class:'dual-track'}); track.appendChild(h('div',{class:'track-bg'}));
+    const fill=h('div',{class:'track-fill'}); track.appendChild(fill);
+    const loIn=h('input',{type:'range',min:0,max:N-1,step:1,value:0});
+    const hiIn=h('input',{type:'range',min:0,max:N-1,step:1,value:N-1});
+    track.appendChild(loIn); track.appendChild(hiIn); wrap.appendChild(track); sliderMount.appendChild(wrap);
+    function upd(){ label.textContent=b.dates[EX.lo]+'  –  '+b.dates[EX.hi];
+      const pc=v=>100*v/((N-1)||1); fill.style.left=pc(EX.lo)+'%'; fill.style.width=(pc(EX.hi)-pc(EX.lo))+'%'; }
+    loIn.addEventListener('input',()=>{ EX.lo=Math.min(+loIn.value,EX.hi-1); loIn.value=EX.lo; upd(); renderTs(); });
+    hiIn.addEventListener('input',()=>{ EX.hi=Math.max(+hiIn.value,EX.lo+1); hiIn.value=EX.hi; upd(); renderTs(); });
+    upd();
+  }
+  function full(){ buildSlider(); EX.hoverX=null; renderTs(); renderX(); }
+  syncControls(); full();
+  CHARTS.push(renderTs); CHARTS.push(renderX);
+})();
+
+/* ------------------------------------------------ 3. CROSS-COUNTRY */
+(function(){
+  panel('compare','Compare','Same tenor, many markets',
+    ['Line up two or more markets at the same maturity, and switch between the actual yield, the expected-rate path, and the term premium. Only nominal curves are compared here.']);
+  const s=M.lastChild;
+  const CM={tenor:'10', measure:'tp', ccs:{US:true,UK:true,DE:true,JP:true}};
+  const commonTenors=DATA.order.map(cc=>DATA.countries[cc].instruments.nominal.tenors).reduce((a,b)=>a.filter(t=>b.includes(t)));
+  const bar=h('div',{class:'ctrlbar'});
+  const gT=h('div',{class:'grp'}); gT.appendChild(h('span',{class:'eyebrow'},'Tenor'));
+  const selT=h('select',{class:'select-control'}); selT.style.minWidth='120px';
+  commonTenors.forEach(t=>selT.appendChild(h('option',{value:t},t+'y'))); selT.value=CM.tenor;
+  selT.onchange=()=>{ CM.tenor=selT.value; render(); }; gT.appendChild(selT); bar.appendChild(gT);
+  const gM=h('div',{class:'grp'}); gM.appendChild(h('span',{class:'eyebrow'},'Measure'));
+  const segM=h('div',{class:'seg'});
+  [['obs','Actual yield'],['exp','Expected rate'],['tp','Term premium']].forEach(([k,lab])=>{
+    const btn=h('button',null,lab); if(k===CM.measure)btn.classList.add('active');
+    btn.onclick=()=>{ CM.measure=k; [...segM.children].forEach(c=>c.classList.toggle('active',c===btn)); render(); };
+    segM.appendChild(btn); }); gM.appendChild(segM); bar.appendChild(gM);
+  const gC=h('div',{class:'grp'}); gC.appendChild(h('span',{class:'eyebrow'},'Markets'));
+  const segC=h('div',{class:'seg'});
+  DATA.order.forEach(cc=>{ const btn=h('button',null,cc); if(CM.ccs[cc])btn.classList.add('active');
+    btn.onclick=()=>{ CM.ccs[cc]=!CM.ccs[cc]; btn.classList.toggle('active',CM.ccs[cc]); render(); };
+    segC.appendChild(btn); }); gC.appendChild(segC); bar.appendChild(gC);
+  s.appendChild(bar);
+  const c=h('div',{class:'card'}); const ct=h('div',{class:'card-title'}); c.appendChild(ct);
+  const cn=h('div',{class:'card-note'}); c.appendChild(cn);
+  const lg=h('div'); c.appendChild(lg); const box=h('div'); c.appendChild(box); s.appendChild(c);
+  function render(){
+    ct.textContent=`${CM.tenor}-year ${SERIES[CM.measure].toLowerCase()} — cross-country`;
+    cn.textContent='Nominal government curves, monthly, percent.';
+    const active=DATA.order.filter(cc=>CM.ccs[cc]);
+    const series=active.map(cc=>({label:DATA.countries[cc].name,color:COL()[CCOL[cc]],pts:ptsFor(DATA.countries[cc].instruments.nominal,CM.measure,CM.tenor)}));
+    lg.innerHTML=''; lg.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
+    box.innerHTML=''; drawLine(box,{height:280, yZero:CM.measure==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtMonth, series});
+  }
+  render(); CHARTS.push(render);
+})();
+
+/* ------------------------------------------------ 4. DATA / METHOD */
+(function(){
+  panel('data','The data','Method & download',
+    ['Each curve is fitted with a single arbitrage-free Nelson–Siegel model extended with the Christensen–Rudebusch shadow rate (so it respects each market’s effective lower bound), estimated by extended-Kalman QML on a modern regime-clean sample, with Bauer–Rudebusch–Wu bias-correction of the physical persistence. The term premium shown is the <b>realised</b> premium: the observed yield minus the model’s expected average future short rate. Real curves (US TIPS, UK index-linked) drop the lower bound entirely.']);
+  const s=M.lastChild;
+  // summary table
+  const c=h('div',{class:'card'});
+  c.appendChild(h('div',{class:'card-title'},'Coverage & latest 10-year term premium'));
+  const tw=h('div',{class:'twrap'}); const tb=h('table');
+  tb.appendChild(h('thead',null,h('tr',null,['Market','Instrument','Sample','ELB','10y TP','10y yield'].map(x=>h('th',null,x)))));
+  const body=h('tbody');
+  DATA.order.forEach(cc=>{ Object.entries(DATA.countries[cc].instruments).forEach(([k,b])=>{
+    const tp=lastVal(b,'tp','10'), y=lastVal(b,'obs','10');
+    const tr=h('tr',null,[
+      h('td',null,DATA.countries[cc].name),
+      h('td',null,k==='real'?'Inflation-linked':'Nominal'),
+      h('td',null,b.sample),
+      h('td',null,b.elb==null?'—':fmt(b.elb,2)+'%'),
+      h('td',{class:tp==null?'':(tp>=0?'sign-pos':'sign-neg')}, tp==null?'—':fmtSigned(tp,2)),
+      h('td',null,y==null?'—':fmt(y,2))]);
+    body.appendChild(tr);
+  }); });
+  tb.appendChild(body); tw.appendChild(tb); c.appendChild(tw); s.appendChild(c);
+  // download
+  const c2=h('div',{class:'card'});
+  c2.appendChild(h('div',{class:'card-title'},'Download the full series'));
+  c2.appendChild(h('div',{class:'card-note'},'Long-format CSV: market, instrument, tenor, date, actual yield, expected rate, term premium (percent).'));
+  const btn=h('button',{class:'btn'},'Download CSV'); c2.appendChild(btn);
+  const dnote=h('div',{class:'hint'}); c2.appendChild(dnote); s.appendChild(c2);
+  function buildCsv(){
+    const rows=[['market','instrument','tenor_years','date','actual_yield_pct','expected_rate_pct','term_premium_pct']];
+    DATA.order.forEach(cc=>Object.entries(DATA.countries[cc].instruments).forEach(([k,b])=>{
+      b.tenors.forEach(t=> b.dates.forEach((d,i)=>{
+        const o=b.obs[t][i],e=b.exp[t][i],p=b.tp[t][i];
+        if(o==null&&e==null&&p==null) return;
+        rows.push([cc,k,t,d,o==null?'':o,e==null?'':e,p==null?'':p]);
+      }));
+    }));
+    return rows.map(r=>r.join(',')).join('\n');
+  }
+  btn.onclick=()=>{ downloadCsv('term_premium_atlas.csv', buildCsv(), dnote); };
+})();
+
+// theme + resize redraw (required)
+window.addEventListener('themechange',()=>{ CHARTS.forEach(fn=>fn()); });
+window.addEventListener('resize',()=>{ clearTimeout(window._rz); window._rz=setTimeout(()=>CHARTS.forEach(fn=>fn()),150); });
+</script>
