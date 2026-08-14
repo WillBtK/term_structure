@@ -58,7 +58,13 @@ def parse_series(csv_text: str, freq: str = "M") -> pd.Series:
         if not m:
             continue
         dates.append(m.group(1))
-        vals.append(float(m.group(2)) if m.group(2) not in ("", None) else np.nan)
+        raw = m.group(2)
+        # Bundesbank marks non-trading days (weekends/holidays) with a lone "."
+        # in the daily series; empty and "." both mean "no value" -> NaN.
+        try:
+            vals.append(float(raw))
+        except (TypeError, ValueError):
+            vals.append(np.nan)
     idx = pd.PeriodIndex(dates, freq=("M" if freq == "M" else "D")).to_timestamp(
         how="end" if freq == "M" else "start").normalize()
     return pd.Series(vals, index=idx, dtype=float).sort_index()

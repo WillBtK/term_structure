@@ -29,8 +29,23 @@ _BROWSER_HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "*/*"}
 
 _ZIP = {"nominal": cfg.BOE_NOMINAL_ZIP, "real": cfg.BOE_REAL_ZIP,
         "inflation": cfg.BOE_INFLATION_ZIP}
+_ZIP_D = {"nominal": cfg.BOE_NOMINAL_ZIP_D, "real": cfg.BOE_REAL_ZIP_D,
+          "inflation": cfg.BOE_INFLATION_ZIP_D}
 _PARQUET = {"nominal": cfg.NOMINAL_PARQUET, "real": cfg.REAL_PARQUET,
             "inflation": cfg.INFLATION_PARQUET}
+
+
+def _is_daily(freq: str) -> bool:
+    return freq not in ("M", "monthly")
+
+
+def _zip_name(kind: str, freq: str) -> str:
+    return _ZIP_D[kind] if _is_daily(freq) else _ZIP[kind]
+
+
+def _parquet_path(kind: str, freq: str):
+    pq = _PARQUET[kind]
+    return pq.with_name(pq.stem + "_daily" + pq.suffix) if _is_daily(freq) else pq
 
 
 def discover_zip_url(zip_name: str) -> str:
@@ -49,13 +64,14 @@ def discover_zip_url(zip_name: str) -> str:
     return f"{cfg.BOE_MEDIA_BASE}/{zip_name}"
 
 
-def _download_zip(kind: str) -> bytes:
+def _download_zip(kind: str, freq: str = "M") -> bytes:
     import requests
-    url = discover_zip_url(_ZIP[kind])
-    logger.info("downloading BoE %s curve: %s", kind, url)
+    zip_name = _zip_name(kind, freq)
+    url = discover_zip_url(zip_name)
+    logger.info("downloading BoE %s curve (%s): %s", kind, freq, url)
     content = requests.get(url, headers=_BROWSER_HEADERS, timeout=_TIMEOUT).content
     cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
-    (cfg.RAW_DIR / _ZIP[kind]).write_bytes(content)
+    (cfg.RAW_DIR / zip_name).write_bytes(content)
     return content
 
 
@@ -91,13 +107,15 @@ def parse_spot_workbook(xls_bytes: bytes) -> pd.DataFrame:
     return df[~df.index.duplicated(keep="last")].sort_index()
 
 
-def load_curve(kind: str = "nominal", refresh: bool = False) -> pd.DataFrame:
+def load_curve(kind: str = "nominal", refresh: bool = False,
+               freq: str = "M") -> pd.DataFrame:
     """Full BoE curve (all maturities, decimal), concatenated across era workbooks.
-    Cached to parquet."""
-    pq = _PARQUET[kind]
+    Cached to parquet. ``freq='D'`` pulls the daily GLC archive instead of
+    month-end (same ``4. spot curve`` workbook layout)."""
+    pq = _parquet_path(kind, freq)
     if not refresh and pq.exists():
         return pd.read_parquet(pq)
-    content = _download_zip(kind)
+    content = _download_zip(kind, freq)
     frames = []
     with zipfile.ZipFile(io.BytesIO(content)) as z:
         for name in z.namelist():
@@ -124,7 +142,7 @@ def build_yield_panel(kind: str = "nominal", grid=None, freq: str = "M",
     ``start``. Maturities absent for a date are NaN (ragged)."""
     if grid is None:
         grid = cfg.REAL_GRID if kind == "real" else cfg.COMMON_GRID
-    df = load_curve(kind, refresh=refresh)
+    df = load_curve(kind, refresh=refresh, freq=freq)
     grid = np.asarray(grid, dtype=float)
     # BoE columns are exact 0.5-steps; select the grid maturities that exist.
     cols = [c for c in grid if c in df.columns]
@@ -134,8 +152,6 @@ def build_yield_panel(kind: str = "nominal", grid=None, freq: str = "M",
     panel = df[cols].copy()
     if start is not None:
         panel = panel[panel.index >= pd.Timestamp(start)]
-    if freq not in ("M", "monthly"):
-        raise ValueError("BoE month-end data is monthly; freq must be 'M'")
     return panel.dropna(how="all")
 
 

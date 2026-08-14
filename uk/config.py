@@ -36,6 +36,10 @@ BOE_MEDIA_BASE = os.environ.get(
 BOE_NOMINAL_ZIP = "glcnominalmonthedata.zip"
 BOE_REAL_ZIP = "glcrealmonthedata.zip"
 BOE_INFLATION_ZIP = "glcinflationmonthedata.zip"
+# Daily GLC archives (same "4. spot curve" workbook layout, daily-dated rows).
+BOE_NOMINAL_ZIP_D = "glcnominalddata.zip"
+BOE_REAL_ZIP_D = "glcrealddata.zip"
+BOE_INFLATION_ZIP_D = "glcinflationddata.zip"
 
 # The spot-curve sheet inside each workbook, and the label marking the maturity
 # (in years) header row.
