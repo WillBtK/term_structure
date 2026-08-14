@@ -25,3 +25,6 @@ validation/data/*
 
 # OS
 .DS_Store
+
+# Session scratch (not part of the repo)
+scratchpad/

@@ -100,7 +100,7 @@ def _assemble_tp(states, fitted, K, theta, Sigma, elb, grid, dates,
 
 
 def filter_forward(prod: ProductionParams, panel: pd.DataFrame,
-                   dt: float = 1.0 / 12) -> pd.DataFrame:
+                   dt: float = 1.0 / 12, var_mult_fn=None) -> pd.DataFrame:
     """**Fast daily path**: decompose a yield panel with *cached* params — no
     estimation. This is the operation run every day to publish the term premium.
 
@@ -108,12 +108,15 @@ def filter_forward(prod: ProductionParams, panel: pd.DataFrame,
     the fixed `prod` parameters and decomposes into the canonical TP frame. Cost is
     milliseconds (last-12-months window) to a couple of seconds (full history);
     `dt` should match the panel frequency (1/12 monthly, ~1/252 daily) — `K^P` is
-    continuous-time so any frequency is correct.
+    continuous-time so any frequency is correct. `var_mult_fn(dates, grid)`
+    optionally downweights pegged maturities (Japan YCC) over the filtered window.
     """
     grid = np.asarray(panel.columns, dtype=float)
     Y = panel.to_numpy(dtype=float)
+    var_mult = None if var_mult_fn is None else np.asarray(
+        var_mult_fn(panel.index, grid), dtype=float)
     xs, fits = ekf.filter_states(prod.params, Y, grid, prod.elb, dt,
-                                 n_per_year=prod.n_per_year)
+                                 n_per_year=prod.n_per_year, var_mult=var_mult)
     return _assemble_tp(xs, fits, prod.K_bc, prod.params.theta,
                         np.diag(prod.params.sigma), prod.elb, grid, panel.index,
                         n_per_year=prod.n_per_year)
@@ -123,19 +126,22 @@ def run_production_tp(start: str = "1987-01-01", end=None, maxiter: int = 5000,
                       n_boot: int = 2000, seed: int = 0,
                       warm_start=None, n_per_year: int = 24,
                       panel=None, elb: float | None = None,
-                      estimate_elb: bool = False) -> dict:
+                      estimate_elb: bool = False, var_mult_fn=None) -> dict:
     """Estimate the production term premium (modern-sample shadow AFNS + BRW).
 
     Country-agnostic: pass another country's `panel` + `elb` (and
     `estimate_elb=True` where the bound is well identified, e.g. Germany/Japan);
-    the default is the US 1987+ GSW panel with the fixed US ELB.
+    the default is the US 1987+ GSW panel with the fixed US ELB. `var_mult_fn`
+    (a `(dates, grid) -> (T,m)` callable) supplies the Japan YCC measurement
+    downweight; it flows into estimation and filtering so the BoJ-pegged 10y does
+    not distort the estimated expected-rate path.
 
     Returns both the bias-corrected (headline) and uncorrected canonical frames,
     the shadow short rate, factors, and the BRW diagnostics.
     """
     r = run_shadow(freq="monthly", start=start, end=end, maxiter=maxiter,
                    warm_start=warm_start, panel=panel, elb=elb,
-                   estimate_elb=estimate_elb)
+                   estimate_elb=estimate_elb, var_mult_fn=var_mult_fn)
     states, fitted = r["states"], r["fitted"].to_numpy(dtype=float)
     K, theta = r["params"].K, r["params"].theta
     Sigma = np.diag(r["params"].sigma)

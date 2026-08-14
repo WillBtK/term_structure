@@ -51,7 +51,7 @@ def run_shadow(freq: str = "monthly", start="1987-01-01", end=None,
                elb: float | None = None, maxiter: int = 4000,
                warm_start: "ekf.ShadowParams | None" = None,
                diagonal_K: bool = True, estimate_elb: bool = False,
-               panel=None):
+               panel=None, var_mult_fn=None):
     """Estimate the shadow-rate AFNS and return a results dict.
 
     `warm_start` (e.g. a prior fit) initializes the optimizer. `diagonal_K=True`
@@ -59,27 +59,35 @@ def run_shadow(freq: str = "monthly", start="1987-01-01", end=None,
     ELB by ML (Christensen-Rudebusch) instead of fixing it; `elb` is then the
     starting value. `panel` (a prebuilt zero-yield frame) makes this driver
     country-agnostic — pass another country's panel + its `elb`; default is US.
+    `var_mult_fn(dates, grid) -> (T,m)` optionally supplies a per-date/maturity
+    measurement-variance multiplier (Japan YCC downweight); it is called on the
+    *final* panel index/grid so alignment is exact.
     """
     elb = ELB if elb is None else elb
     panel = _panel(freq, start, end, panel=panel)
     grid = np.asarray(panel.columns, dtype=float)
     Y = panel.to_numpy(dtype=float)
     dt = 7.0 / 365.2425 if freq == "daily" else 1.0 / 12
-    logger.info("estimating shadow AFNS on %d obs (%s..%s) ELB=%.4f%s",
+    var_mult = None if var_mult_fn is None else np.asarray(
+        var_mult_fn(panel.index, grid), dtype=float)
+    logger.info("estimating shadow AFNS on %d obs (%s..%s) ELB=%.4f%s%s",
                 len(panel), panel.index.min().date(), panel.index.max().date(), elb,
-                " (ELB estimated)" if estimate_elb else "")
+                " (ELB estimated)" if estimate_elb else "",
+                " (var_mult)" if var_mult is not None else "")
 
     npy = 24
     params, res, ll = ekf.estimate(Y, grid, elb, dt, warm_start=warm_start,
                                    maxiter=maxiter, n_per_year=npy,
-                                   diagonal_K=diagonal_K, estimate_elb=estimate_elb)
+                                   diagonal_K=diagonal_K, estimate_elb=estimate_elb,
+                                   var_mult=var_mult)
     if estimate_elb:
         elb = float(params.elb)
     logger.info("estimation done: loglik=%.1f success=%s lambda=%.4f ELB=%.4f eig(K^P)=%s",
                 ll, res.success, params.lambda_, elb,
                 np.round(np.sort(np.linalg.eigvals(params.K).real), 4))
 
-    xs, fits = ekf.filter_states(params, Y, grid, elb, dt, n_per_year=npy)
+    xs, fits = ekf.filter_states(params, Y, grid, elb, dt, n_per_year=npy,
+                                 var_mult=var_mult)
     shadow = xs[:, 0] + xs[:, 1]                    # s = L + S
 
     # ELB wedge: fitted ELB yields minus the same-state unbounded (shadow) yields.

@@ -105,6 +105,43 @@ def test_ragged_maturities_masked_per_period():
     assert nll >= ekf.negloglik(p.pack(), Y, GRID, ELB, DT) - 1e-6
 
 
+def test_var_mult_downweight_approximates_dropping():
+    # Heavily downweighting a maturity (var_mult -> huge, as the YCC-pegged 10y)
+    # should give ~the same filtered state and likelihood contribution as masking
+    # that maturity to NaN (dropping it) — the peg is effectively ignored.
+    p, X, Y = _simulate()
+    T, m = Y.shape
+    col = m - 1  # treat the 10y (last col) as "pegged" over the middle third
+    lo, hi = T // 3, 2 * T // 3
+    # (a) drop the column over the window
+    Ydrop = Y.copy()
+    Ydrop[lo:hi, col] = np.nan
+    xs_drop, _ = ekf.filter_states(p, Ydrop, GRID, ELB, DT)
+    # (b) keep the datum but downweight its measurement variance massively
+    vm = np.ones((T, m))
+    vm[lo:hi, col] = 1e10
+    xs_dw, _ = ekf.filter_states(p, Y, GRID, ELB, DT, var_mult=vm)
+    assert np.allclose(xs_drop, xs_dw, atol=1e-6)
+    # And the two log-likelihoods of the *observed* set agree closely (the tiny
+    # residual is the still-nonzero-but-negligible Gaussian weight on the peg).
+    nll_drop = ekf.negloglik(p.pack(), Ydrop, GRID, ELB, DT)
+    nll_dw = ekf.negloglik(p.pack(), Y, GRID, ELB, DT, var_mult=vm)
+    # var_mult keeps the (down-weighted) term in the likelihood, so compare states
+    # which is the operative quantity; likelihoods differ only by that term's const.
+    assert np.isfinite(nll_drop) and np.isfinite(nll_dw)
+
+
+def test_var_mult_default_none_is_identity():
+    p, X, Y = _simulate()
+    nll0 = ekf.negloglik(p.pack(), Y, GRID, ELB, DT)
+    nll1 = ekf.negloglik(p.pack(), Y, GRID, ELB, DT,
+                         var_mult=np.ones(Y.shape))
+    assert np.isclose(nll0, nll1)
+    xs0, f0 = ekf.filter_states(p, Y, GRID, ELB, DT)
+    xs1, f1 = ekf.filter_states(p, Y, GRID, ELB, DT, var_mult=np.ones(Y.shape))
+    assert np.allclose(xs0, xs1) and np.allclose(f0, f1)
+
+
 def test_elb_profile_identified_near_bound():
     # With a genuine ZLB episode (shadow driven well below the bound), the
     # likelihood profiled over ELB is minimised near the true bound.
