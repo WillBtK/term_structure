@@ -134,11 +134,14 @@ unpinned. Symptoms from the re-run (10y, floored):
 | Japan | −2.8% | +3.6% | +0.1% | +1.3% | −3.6% / +7.7% |
 | Germany¹ | −6.4% | −3.7% | — | −6.2% | **17.0% / 11.6%** |
 
-¹ Degenerate: the German regime run had been reading a **clobbered monthly cache**
-(daily 1997+ overwrote the 1972+ monthly file — a single-parquet-path bug now
-fixed, `germany/fetch_bundesbank.py`), so it saw no pre-1997 history and θ_L ran to
-17%. Being re-run on the corrected 1972+ sample. (German 1970s inflation was mild
-under a hawkish Bundesbank, so this remains a minor exhibit regardless.)
+¹ **Germany has no usable regime exhibit.** The first run also read a clobbered
+monthly cache (a single-parquet-path bug, now fixed in `germany/fetch_bundesbank.py`
+— daily 1997+ had overwritten the 1972+ monthly file); but re-running on the correct
+1972+ sample is *even more* degenerate (θ_L → 43%, 10y TP → −21%). The 2-regime Kim
+filter simply does not identify on German data — mild 1970s inflation under a hawkish
+Bundesbank means no clear high-inflation/high-vol regime, and the very persistent Bund
+yields leave θ unpinned. We therefore drop the German regime exhibit; the German
+production term premium (modern single-regime, `FINDINGS_germany.md`) is unaffected.
 
 **What *is* meaningful** is the *direction*: the probability-weighted premium is
 higher in the stagflation era than in calm (UK mixed 1970s **+5.7%** vs post-1990
