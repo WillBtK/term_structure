@@ -32,3 +32,4 @@ uk/data/*
 switzerland/data/*
 viz/data_daily.parquet
 viz/data.json
+scheduler/supabase_stage/
