@@ -26,7 +26,7 @@ logger = logging.getLogger("scheduler.supabase_export")
 ROOT = Path(__file__).resolve().parent.parent
 CANON = ROOT / "viz" / "data_daily.parquet"
 STAGE = ROOT / "scheduler" / "supabase_stage"       # gitignored; transient upload files
-TP_TABLE, BENCH_TABLE = "term_premia", "benchmarks"
+TP_TABLE, BENCH_TABLE, GF_TABLE = "term_premia", "benchmarks", "global_factor"
 
 
 def _benchmarks_long() -> pd.DataFrame:
@@ -81,6 +81,11 @@ def build_exports() -> dict:
     bench = _benchmarks_long()
     p = STAGE / "benchmarks.csv"; bench.to_csv(p, index=False)
     out[BENCH_TABLE] = (p, len(bench))
+    gf = ROOT / "viz" / "global_factor.parquet"
+    if gf.exists():
+        g = pd.read_parquet(gf)                                    # long: date,country,kind,tenor,value
+        p = STAGE / "global_factor.csv"; g.to_csv(p, index=False)
+        out[GF_TABLE] = (p, len(g))
     return out
 
 
@@ -100,7 +105,8 @@ def maybe_upload(exports: dict) -> bool:
         return False
     client = create_client(url, key)
     keys = {TP_TABLE: ["country", "instrument", "date", "tenor"],
-            BENCH_TABLE: ["source", "date", "maturity", "metric"]}
+            BENCH_TABLE: ["source", "date", "maturity", "metric"],
+            GF_TABLE: ["date", "country", "kind", "tenor"]}
     for table, (path, _) in exports.items():
         df = pd.read_csv(path)
         df["date"] = df["date"].astype(str)

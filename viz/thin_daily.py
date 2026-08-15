@@ -90,10 +90,12 @@ def build() -> dict:
     _attach_us_regime_overlay(countries)
     _attach_us_benchmarks(countries)
     _attach_us_tips_noise(countries)
-    return {"meta": {"asof": str(asof.date()), "units": "percent",
-                     "resolution": res,
-                     "note": "Term premium = observed yield - expected avg short rate (realised)."},
-            "order": meta["order"], "countries": countries}
+    result = {"meta": {"asof": str(asof.date()), "units": "percent",
+                       "resolution": res,
+                       "note": "Term premium = observed yield - expected avg short rate (realised)."},
+              "order": meta["order"], "countries": countries}
+    _attach_global_factor(result)
+    return result
 
 
 def _attach_us_regime_overlay(countries: dict) -> None:
@@ -154,6 +156,39 @@ def _attach_us_benchmarks(countries: dict) -> None:
         print(f"benchmark {key}: {len(dates)} months, tenors {sorted(tp)}")
     if out:
         countries["US"]["instruments"]["nominal"]["benchmarks"] = out
+
+
+def _attach_global_factor(result: dict) -> None:
+    """Cross-country global term-premium factor (top-level payload block): the common
+    factor G_t plus each market's observed 10y TP, the global-cycle-implied fitted, and
+    the local residual — month-end (slow cycle; a slider still zooms full history).
+    Optional/guarded on the derived parquet + meta from `viz.global_factor`."""
+    import json as _json
+    f = HERE / "global_factor.parquet"
+    mf = HERE / "global_factor_meta.json"
+    if not f.exists() or not mf.exists():
+        return
+    d = pd.read_parquet(f); d["date"] = pd.to_datetime(d["date"])
+    meta = _json.loads(mf.read_text())
+    names = meta["names"]
+    # month-end pivot per (country, kind)
+    d = d.groupby([d["date"].dt.year, d["date"].dt.month, "country", "kind"]).tail(1)
+    dates = pd.DatetimeIndex(sorted(d[d.country == "GLOBAL"]["date"].unique()))
+    def series(country, kind, scale):
+        s = d[(d.country == country) & (d.kind == kind)].set_index("date")["value"].reindex(dates)
+        return [None if pd.isna(v) else round(float(v) * scale, 4) for v in s]
+    markets = {}
+    for cc in names:
+        markets[cc] = {"observed": series(cc, "observed_tp", 100), "fitted": series(cc, "fitted", 100),
+                       "residual": series(cc, "residual", 100),
+                       "beta": meta["markets"][cc]["beta"], "share": meta["markets"][cc]["global_share"]}
+    result["global_factor"] = {
+        "x": _xdec(dates), "dates": [str(x.date()) for x in dates],
+        "G": series("GLOBAL", "factor", 1),      # standardized (unitless)
+        "markets": markets, "order": names,
+        "pca_ladder": meta.get("pca_ladder", []), "phi": meta.get("phi"),
+        "pca_corr": meta.get("pca_corr"), "balanced_start": meta.get("balanced_start")}
+    print(f"global factor: {len(dates)} months, PC1 {meta.get('pca_ladder', ['?'])[0]}%")
 
 
 def _attach_us_tips_noise(countries: dict) -> None:

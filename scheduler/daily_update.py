@@ -82,8 +82,13 @@ def _run_step(mod: str, timeout: int = 900) -> None:
 
 
 def rebuild_viz() -> None:
-    """Regenerate canonical daily -> thinned payload -> artifact HTML (fast path)."""
+    """Regenerate canonical daily -> derived global factor -> thinned payload -> artifact
+    HTML (fast path)."""
     _run_step("viz.export_daily")
+    try:
+        _run_step("viz.global_factor")       # derived from the canonical TP; never block
+    except Exception as exc:                 # noqa: BLE001
+        logger.warning("global_factor step skipped: %s", exc)
     _run_step("viz.thin_daily")
     _run_step("viz.build_artifact")
 

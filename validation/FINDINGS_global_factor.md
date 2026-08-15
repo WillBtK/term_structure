@@ -93,10 +93,18 @@ portfolio question in the affirmative.
 - **10y only, single global factor** — a curve-wide global level/slope (run at 2y/5y/30y)
   is the natural extension; deliberately not a joint multi-tenor factor here.
 
-## Status & next (research-first)
-Shipped as research: `model/global_factor.py` (estimator, 7 tests), `validation/
-global_factor_rv.py` (RV + construct-validity, 4 tests), this findings doc. **Not yet
-wired into the Atlas / daily pipeline / Supabase** — that productionization (a "Global
-cycle" panel with the factor + per-market local-residual RV chart; a weekly EM fit /
-daily filter-forward in the scheduler; a Supabase table) is gated on this GO verdict and
-is the recommended next step.
+## Status — shipped
+Research validated (GO) and productionized:
+- `model/global_factor.py` (DFM estimator, 7 tests), `validation/global_factor_rv.py`
+  (RV + construct-validity, 4 tests), this findings doc.
+- `viz/global_factor.py` — daily build (warm-started inline EM; the fit is cheap and
+  stable, so no separate slow-cadence step) → `viz/global_factor.parquet` + meta; wired
+  into `scheduler/daily_update.py::rebuild_viz()` (guarded) and exported by
+  `scheduler/supabase_export.py` (`global_factor` table).
+- Atlas **"Global cycle"** panel: the PC1 factor + a per-market "observed vs
+  global-cycle fitted (α+β·G)" chart (the gap = local residual) with a market selector,
+  the PCA variance ladder, and a double-ended time slider. Per-market fitted is clipped
+  to each market's own sample (no pre-existence extrapolation).
+
+Future extension (not built): a curve-wide global **level/slope** (the DFM run at 2y/5y/
+30y), and a rolling re-fit so the production RV signal has zero loadings look-ahead.

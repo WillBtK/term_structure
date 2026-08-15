@@ -921,6 +921,57 @@ function lastVal(block, measure, tenor){
   s.appendChild(call);
 })();
 
+/* ------------------------------------------------ 3g. GLOBAL TERM-PREMIUM FACTOR */
+(function(){
+  const gf=DATA.global_factor; if(!gf || !gf.G || !gf.G.length) return;
+  const ladder=gf.pca_ladder||[];
+  panel('globalfactor','Global cycle','A common term-premium cycle across bond markets',
+    ['Across the five markets the 10-year term premia move largely <b>together</b>: a single common factor (the first principal component) explains <b>'+(ladder[0]||0).toFixed(0)+'%</b> of the variation'+(ladder[1]?' — the second explains only '+ladder[1].toFixed(0)+'%, so one global factor suffices':'')+'. We extract that factor with a dynamic factor model on the term-premium series and read each market as <b>global cycle + a local residual</b>. The residual — how cheap or rich a curve sits <b>versus the global cycle</b> — is a relative-value signal (see note).']);
+  const s=M.lastChild;
+  const CC0=COL();
+  // variance-share readout
+  const shr=gf.order.map(cc=>cc+' '+gf.markets[cc].share.toFixed(0)+'%').join('  ·  ');
+  s.appendChild(h('div',{class:'callout teal',html:'<b>How global is each market?</b> Share of each 10y term premium explained by the common factor — '+shr+'. The factor correlates <b>+0.96</b> with the US 10-year term premium and <b>−0.60</b> with the broad dollar (a rates/dollar cycle, not equity vol).'}));
+  const GF={mkt:'US', xlo:gf.x[0], xhi:gf.x[gf.x.length-1]};
+  // Card A — the global factor
+  const cA=h('div',{class:'card'});
+  cA.appendChild(h('div',{class:'card-title'},'The global term-premium factor (PC1, standardized)'));
+  cA.appendChild(h('div',{class:'card-note'},'Common cycle across US/UK/DE/JP/CH 10y term premia. Unitless (standardized); read the shape, not the level. Drag the handles below to zoom.'));
+  const boxA=h('div'); cA.appendChild(boxA); s.appendChild(cA);
+  // Card B — a market vs the global cycle
+  const barB=h('div',{class:'ctrlbar'});
+  const gB=h('div',{class:'grp'}); gB.appendChild(h('span',{class:'eyebrow'},'Market'));
+  const segB=h('div',{class:'seg'});
+  gf.order.forEach(cc=>{ const b=h('button',null,cc); if(cc===GF.mkt)b.classList.add('active');
+    b.onclick=()=>{ GF.mkt=cc; [...segB.children].forEach(x=>x.classList.toggle('active',x===b)); render(); };
+    segB.appendChild(b); }); gB.appendChild(segB); barB.appendChild(gB); s.appendChild(barB);
+  const cB=h('div',{class:'card'}); const ctB=h('div',{class:'card-title'}); const cnB=h('div',{class:'card-note'});
+  cB.appendChild(ctB); cB.appendChild(cnB); const lgB=h('div'); cB.appendChild(lgB); const boxB=h('div'); cB.appendChild(boxB);
+  const sliderMount=h('div'); cB.appendChild(sliderMount); s.appendChild(cB);
+  s.appendChild(h('div',{class:'callout',html:'<b>The local residual is a relative-value signal.</b> A market trading <b>cheap</b> versus the global cycle (observed above the fitted line) has tended to <b>outperform</b> the others over the next month. On the balanced 1997+ cross-section this beats a naive term-spread carry signal (information ratio <b>0.59 vs 0.28</b>) and <b>subsumes</b> it in a joint regression (t≈+3.6 vs +0.3). A construct-validity diagnostic on synthetic duration-hedged excess returns — not a tradeable strategy (no costs, no real hedging, 5-name cross-section). See <i>FINDINGS_global_factor</i>.'}));
+  rangeSlider(sliderMount, gf.x, gf.dates, (lo,hi)=>{ GF.xlo=lo; GF.xhi=hi; render(); });
+  function render(){
+    const CC=COL(), inWin=p=>p[0]>=GF.xlo-1e-6&&p[0]<=GF.xhi+1e-6;
+    const gpts=gf.x.map((x,i)=>[x,gf.G[i]]).filter(p=>p[1]!=null&&inWin(p));
+    boxA.innerHTML=''; drawLine(boxA,{height:250,yFmt:v=>fmt(v,1),xFmt:xYear,xTipFmt:xFmtDay,
+      series:[{label:'Global factor (PC1)',color:CC.blue,width:2.2,pts:gpts}]});
+    const m=gf.markets[GF.mkt];
+    ctB.textContent=`${DATA.countries[GF.mkt].name} — 10y term premium vs the global cycle`;
+    cnB.textContent='Percent, monthly. Observed 10y term premium vs the global-cycle-implied fitted (α+β·G); the gap is the local residual (+ = cheap vs the cycle).';
+    // clip to the market's own observed sample (don't show fitted before the market existed)
+    let x0=gf.x[gf.x.length-1];
+    for(let i=0;i<m.observed.length;i++){ if(m.observed[i]!=null){ x0=gf.x[i]; break; } }
+    const obs=gf.x.map((x,i)=>[x,m.observed[i]]).filter(p=>p[1]!=null&&inWin(p));
+    const fit=gf.x.map((x,i)=>[x,m.fitted[i]]).filter(p=>p[1]!=null&&inWin(p)&&p[0]>=x0-1e-6);
+    lgB.innerHTML=''; lgB.appendChild(legend([{label:'Observed 10y TP',color:CC[CCOL[GF.mkt]]||CC.blue},
+      {label:'Global-cycle fitted (α+β·G)',color:CC.faint,dash:true}]));
+    boxB.innerHTML=''; drawLine(boxB,{height:250,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,
+      series:[{label:'Observed',color:CC[CCOL[GF.mkt]]||CC.blue,width:2.2,pts:obs},
+              {label:'Fitted',color:CC.faint,dash:'5 4',pts:fit}]});
+  }
+  render(); CHARTS.push(render);
+})();
+
 /* ------------------------------------------------ 4. DATA / METHOD */
 (function(){
   panel('data','The data','Method & download',
