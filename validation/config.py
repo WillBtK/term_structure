@@ -76,7 +76,7 @@ ACM_URL = os.environ.get(
     "https://www.newyorkfed.org/medialibrary/media/research/data_indicators/ACMTermPremium.csv")
 KIM_WRIGHT_FRED_BASE = os.environ.get(
     "KIM_WRIGHT_FRED_BASE", "https://fred.stlouisfed.org/graph/fredgraph.csv?id=")
-KIM_WRIGHT_IDS = [f"THREEFYTP{n:02d}" for n in range(1, 11)]   # 1y..10y term premium
+KIM_WRIGHT_IDS = [f"THREEFYTP{n}" for n in range(1, 11)]   # 1y..10y term premium (no zero-pad)
 DKW_URL = os.environ.get(
     "DKW_URL",
     "https://www.federalreserve.gov/econres/notes/feds-notes/DKW_updates.csv")

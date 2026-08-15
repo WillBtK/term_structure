@@ -87,15 +87,10 @@ ZLB_WINDOWS = [("2008-12-01", "2015-12-01"), ("2020-03-01", "2021-12-01")]
 
 
 def load_fed_funds() -> pd.Series:
-    """Monthly effective federal funds rate (decimal) from FRED."""
-    import requests
-
-    txt = requests.get(FEDFUNDS_CSV, timeout=60).text
-    df = pd.read_csv(io.StringIO(txt))
-    df.columns = ["date", "ff"]
-    df["date"] = pd.to_datetime(df["date"])
-    df["ff"] = pd.to_numeric(df["ff"], errors="coerce") / 100.0
-    return df.dropna().set_index("date")["ff"]
+    """Monthly effective federal funds rate (decimal) from FRED (official API when
+    FRED_API_KEY is set, else the keyless CSV fallback)."""
+    from validation.fred_api import fred_series
+    return (fred_series("FEDFUNDS") / 100.0).rename("ff")
 
 
 def load_wu_xia() -> pd.Series:

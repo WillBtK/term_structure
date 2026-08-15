@@ -128,18 +128,13 @@ def load_acm(refresh: bool = False) -> pd.DataFrame:
 
 # -------------------------------------------------------------------- Kim-Wright
 def _build_kim_wright() -> pd.DataFrame:
+    from validation.fred_api import fred_series
     frames = []
     for n, sid in enumerate(cfg.KIM_WRIGHT_IDS, start=1):
-        text = _download_bytes(cfg.KIM_WRIGHT_FRED_BASE + sid).decode("utf-8")
-        s = pd.read_csv(io.StringIO(text))
-        s.columns = ["date", "val"]
-        s["date"] = pd.to_datetime(s["date"], errors="coerce")
-        s["val"] = pd.to_numeric(s["val"], errors="coerce")
-        s = s.dropna(subset=["date"])
-        s["maturity"] = float(n)
-        frames.append(s.rename(columns={"val": "term_premium"}))
+        s = fred_series(sid)                             # official API (key) or CSV fallback
+        frames.append(pd.DataFrame({"date": s.index, "maturity": float(n),
+                                    "term_premium": s.to_numpy() / 100.0}))  # pct -> decimal
     df = pd.concat(frames, ignore_index=True)
-    df["term_premium"] = df["term_premium"] / 100.0                  # percent -> decimal
     return df[["date", "maturity", "term_premium"]].dropna(subset=["term_premium"])
 
 

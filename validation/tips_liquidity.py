@@ -21,22 +21,17 @@ exposes each security's maturity date in the series title). No paid data, no DKW
 """
 from __future__ import annotations
 
-import datetime as _dt
-import json
 import logging
-import os
 import re
-import time
-import urllib.request
 
 import numpy as np
 import pandas as pd
 
 from validation import config as cfg
+from validation.fred_api import fred_get, fred_series
 
 logger = logging.getLogger(__name__)
 
-FRED_API = "https://api.stlouisfed.org/fred"
 _TIPS_CATEGORY = 82                       # FRED "Treasury Inflation-Indexed Securities"
 _NS_LAMBDA = 0.7                          # fixed Nelson-Siegel decay (Diebold-Li) -> linear fit
 _MIN_RESID_MAT = 1.5                      # drop near-maturity TIPS (yields blow up)
@@ -45,34 +40,13 @@ _MIN_BONDS = 5                            # need > n_params(=3) bonds for a mean
 
 
 # --------------------------------------------------------------------------- io
-def _fred_key() -> str:
-    key = os.environ.get("FRED_API_KEY")
-    if not key:
-        raise RuntimeError("FRED_API_KEY not set (needed for the TIPS liquidity proxy).")
-    return key
-
-
-def _fred_get(path: str, **params) -> dict:
-    params.update(api_key=_fred_key(), file_type="json")
-    url = FRED_API + path + "?" + "&".join(f"{k}={v}" for k, v in params.items())
-    last = None
-    for attempt in range(4):
-        try:
-            with urllib.request.urlopen(url, timeout=40) as r:
-                return json.load(r)
-        except Exception as exc:                                   # noqa: BLE001
-            last = exc
-            time.sleep(2 ** attempt)
-    raise RuntimeError(f"FRED API failed for {path}: {last}")
-
-
 _DUE_RE = re.compile(r"Due\s+(\d{1,2})/(\d{1,2})/(\d{4})")
 
 
 def list_tips_series() -> pd.DataFrame:
     """All individual TIPS (`DTP*`) on FRED with their maturity date (parsed from the
     series title 'Due M/D/YYYY') and observation span."""
-    js = _fred_get("/category/series", category_id=_TIPS_CATEGORY, limit=1000)
+    js = fred_get("/category/series", category_id=_TIPS_CATEGORY, limit=1000)
     rows = []
     for s in js["seriess"]:
         if not s["id"].startswith("DTP"):
@@ -91,14 +65,7 @@ def list_tips_series() -> pd.DataFrame:
 
 
 def _fetch_one(series_id: str) -> pd.Series:
-    js = _fred_get("/series/observations", series_id=series_id)
-    dates, vals = [], []
-    for o in js["observations"]:
-        v = o["value"]
-        if v in (".", "", None):
-            continue
-        dates.append(pd.Timestamp(o["date"])); vals.append(float(v))
-    return pd.Series(vals, index=pd.DatetimeIndex(dates), name=series_id)
+    return fred_series(series_id)
 
 
 def fetch_tips_yields(refresh: bool = False) -> pd.DataFrame:
