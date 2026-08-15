@@ -825,6 +825,59 @@ function lastVal(block, measure, tenor){
   render(); CHARTS.push(render);
 })();
 
+/* ------------------------------------------------ 3d. US NOMINAL vs REAL TERM PREMIUM */
+(function(){
+  const b=DATA.countries.US.instruments; if(!b.nominal||!b.real) return;
+  panel('realtp','Inflation-linked','US term premium — nominal vs inflation-protected',
+    ['Two robust, separately-estimated premia side by side: the term premium on <b>nominal</b> Treasuries and on <b>inflation-protected</b> TIPS (real), each fit with the same single-curve model on its own curve. The nominal premium compensates for both real-rate and inflation risk; the real premium strips inflation out, isolating compensation for <b>real-rate</b> uncertainty. We show the two premia directly and deliberately stop there — splitting their difference into expected inflation and an inflation-risk premium is not yet on a footing we would publish (see note). Monthly overlap from 2004 (the TIPS sample); pick a maturity.']);
+  const s=M.lastChild;
+  const RT={};
+  const tenors=b.real.tenors.filter(t=>b.nominal.tenors.includes(t));
+  const bar=h('div',{class:'ctrlbar'});
+  const g=h('div',{class:'grp'}); g.appendChild(h('span',{class:'eyebrow'},'Maturity'));
+  const sel=h('select',{class:'select-control'}); sel.style.minWidth='110px';
+  tenors.forEach(t=>sel.appendChild(h('option',{value:t},t+'y'))); sel.value=(tenors.includes('10')?'10':tenors[tenors.length-1]); RT.tenor=sel.value;
+  sel.onchange=()=>{ RT.tenor=sel.value; render(); }; g.appendChild(sel); bar.appendChild(g); s.appendChild(bar);
+  const c=h('div',{class:'card'}); const ct=h('div',{class:'card-title'}); c.appendChild(ct);
+  const cn=h('div',{class:'card-note'}); c.appendChild(cn);
+  const lg=h('div'); c.appendChild(lg); const box=h('div'); c.appendChild(box); s.appendChild(c);
+  const call=h('div',{class:'callout orange'});
+  call.innerHTML='<b>Why we stop at the two premia.</b> The gap between the nominal and real curves (the breakeven) is a clean market number, but decomposing it into <b>expected inflation</b> versus an <b>inflation-risk premium</b> requires separating the TIPS <b>liquidity</b> premium from genuine risk compensation — a pricing-side split that yields and inflation surveys alone cannot pin down. A joint nominal/real model recovers the real premium and expected inflation well but not yet that risk-premium split, so we report the two premia and leave the decomposition as ongoing work.';
+  c.appendChild(call);
+  function render(){
+    const t=RT.tenor, CC=COL();
+    ct.textContent=`US ${t}-year term premium — nominal vs real (TIPS)`;
+    cn.textContent='Percent, monthly. Each estimated with the same single-curve model on its own curve; shown over the TIPS overlap window (2004+).';
+    const realPts=ptsFor(b.real,'tp',t);
+    const x0=realPts.length?realPts[0][0]:0;
+    const series=[
+      {label:'Nominal Treasury',color:CC.blue,width:2.2,pts:ptsFor(b.nominal,'tp',t).filter(p=>p[0]>=x0)},
+      {label:'TIPS (real)',color:CC.teal,width:2.2,pts:realPts}];
+    lg.innerHTML=''; lg.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
+    box.innerHTML=''; drawLine(box,{height:300,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,series});
+  }
+  render(); CHARTS.push(render);
+})();
+
+/* ------------------------------------------------ 3e. US TIPS LIQUIDITY GAUGE (noise) */
+(function(){
+  const nz=DATA.countries.US.tips_noise; if(!nz) return;
+  panel('liquidity','Market quality','US TIPS liquidity — curve-fitting “noise”',
+    ['A byproduct worth its own chart: the <b>RMS deviation of individual TIPS from a smooth fitted curve</b> (the Hu–Pan–Wang “noise” measure). When the market is liquid every bond sits on the curve and the noise is a few basis points; when liquidity dries up, individual issues scatter and the noise jumps. It’s a free daily substitute for the vendor liquidity/RMSE series, built only from public security-level data.']);
+  const s=M.lastChild, CC=COL();
+  const c=h('div',{class:'card'});
+  c.appendChild(h('div',{class:'card-title'},'US TIPS cross-sectional fitting noise'));
+  c.appendChild(h('div',{class:'card-note'},'Basis points, monthly. Higher = individual TIPS priced further from a smooth curve (less liquid).'));
+  const box=h('div'); c.appendChild(box); s.appendChild(c);
+  const pts=nz.x.map((x,i)=>[x,nz.noise[i]]).filter(p=>p[1]!=null);
+  lineChart(box,{height:260,yZero:true,yFmt:v=>fmt(v,0)+' bp',xFmt:xYear,xTipFmt:xFmtDay,
+    bands:[{x0:ym(2008,9),x1:ym(2009,3),fill:CC.orange,opacity:0.14,label:'GFC'}],
+    series:[{label:'TIPS noise',color:CC.crimson,pts}]});
+  const call=h('div',{class:'callout'});
+  call.innerHTML='The gauge peaks at <b>~45 bp in December 2008</b> — the post-Lehman TIPS freeze, when the market dislocated so badly that breakevens turned negative — and sits near <b>8 bp</b> today. It is independent of any term-premium model, so it doubles as a data-quality check on the real curve.';
+  s.appendChild(call);
+})();
+
 /* ------------------------------------------------ 4. DATA / METHOD */
 (function(){
   panel('data','The data','Method & download',

@@ -89,6 +89,7 @@ def build() -> dict:
     res = "daily, full history" if full else f"daily (last {DAILY_YEARS:g}y) + weekly history"
     _attach_us_regime_overlay(countries)
     _attach_us_benchmarks(countries)
+    _attach_us_tips_noise(countries)
     return {"meta": {"asof": str(asof.date()), "units": "percent",
                      "resolution": res,
                      "note": "Term premium = observed yield - expected avg short rate (realised)."},
@@ -153,6 +154,27 @@ def _attach_us_benchmarks(countries: dict) -> None:
         print(f"benchmark {key}: {len(dates)} months, tenors {sorted(tp)}")
     if out:
         countries["US"]["instruments"]["nominal"]["benchmarks"] = out
+
+
+def _attach_us_tips_noise(countries: dict) -> None:
+    """US TIPS market-liquidity gauge — the curve-fitting 'noise' (RMS deviation of
+    individual TIPS from a smooth fit), month-end in bp. Optional/guarded."""
+    from validation import config as vcfg
+    if not vcfg.TIPS_NOISE_PARQUET.exists():
+        return
+    try:
+        from validation.tips_liquidity import build_noise
+        m = build_noise(refresh=False, freq="M").dropna(subset=["noise"])
+    except Exception:                                              # noqa: BLE001
+        return
+    if m.empty:
+        return
+    dates = pd.DatetimeIndex(m["date"])
+    countries["US"]["tips_noise"] = {
+        "x": _xdec(dates), "dates": [str(d.date()) for d in dates],
+        "noise": [round(float(v) * 1e4, 2) for v in m["noise"]]}       # decimal -> bp
+    print(f"US TIPS noise gauge: {len(dates)} months, latest "
+          f"{countries['US']['tips_noise']['noise'][-1]:.1f} bp")
 
 
 def main() -> None:
