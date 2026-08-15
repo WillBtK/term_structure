@@ -324,13 +324,26 @@ def _survey_precompute(p: JointParams, grid_common, mr_halflife: float | None = 
     tau_max = float(grid.max())
     Ku = max(int(np.ceil(tau_max * n_per_year)) + 1, 8)
     u = np.linspace(0.0, tau_max, Ku)
+    du = u[1] - u[0]
+    SS = Sig @ Sig.T
+    # Accumulate e^{-K_exp u} along the uniform grid (E_{j} = e^{-K_exp du} · E_{j-1})
+    # instead of an expm per point, and cumulative-trapezoid the covariance integrand
+    # V(u)=∫_0^u e^{-K s}SSe^{-K's}ds — turning ~Ku·(2·80+1) expm calls into ~Ku matmuls
+    # (this precompute runs inside the estimation loop, so speed matters). The reported
+    # series still use the accurate per-point `_expected_floored_yields` in decompose.
+    E_step = scipy.linalg.expm(-K_exp * du)
     gn = np.empty((Ku, n)); gr = np.empty((Ku, n)); sn = np.empty(Ku)
-    for j, uu in enumerate(u):
-        E = scipy.linalg.expm(-K_exp * uu)
+    E = np.eye(n)
+    V = np.zeros((n, n)); prev_M = SS.copy()                  # integrand at u=0 is SS
+    for j in range(Ku):
         gn[j] = E.T @ rho_n                       # ∂μ^N_u/∂x = e^{-K_exp u}'ρ_N
         gr[j] = E.T @ rho_r
-        sn[j] = 0.0 if uu <= 0 else np.sqrt(
-            max(float(rho_n @ sr.cond_cov(K_exp, Sig, uu) @ rho_n), 0.0))
+        M = E @ SS @ E.T                          # integrand e^{-Ku}SSe^{-K'u}
+        if j > 0:
+            V = V + 0.5 * du * (prev_M + M)       # cumulative trapezoid
+        prev_M = M
+        sn[j] = np.sqrt(max(float(rho_n @ V @ rho_n), 0.0))
+        E = E_step @ E
     masks = [u <= tau + 1e-12 for tau in grid]
     return {"u": u, "gn": gn, "gr": gr, "sn": sn, "grid": grid, "masks": masks,
             "rho_n": rho_n, "rho_r": rho_r, "theta": np.asarray(p.theta, float),
