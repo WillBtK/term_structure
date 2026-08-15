@@ -461,6 +461,29 @@ function legend(items){
   });
   return wrap;
 }
+/* Reusable double-ended time-range slider. Renders a dual-track into `mount` from an
+   ascending x-array (+ optional date labels) and calls onRange(xlo,xhi) on drag.
+   Built once per chart; the chart's render() reads the window and filters its series. */
+function rangeSlider(mount, xArr, dates, onRange){
+  const N=xArr.length; mount.innerHTML='';
+  if(N<3){ return; }
+  let lo=0, hi=N-1;
+  const wrap=h('div',{class:'range-slider'});
+  const label=h('div',{class:'range-label'}); wrap.appendChild(label);
+  const track=h('div',{class:'dual-track'}); track.appendChild(h('div',{class:'track-bg'}));
+  const fill=h('div',{class:'track-fill'}); track.appendChild(fill);
+  const loIn=h('input',{type:'range',min:0,max:N-1,step:1,value:0});
+  const hiIn=h('input',{type:'range',min:0,max:N-1,step:1,value:N-1});
+  loIn.setAttribute('aria-label','Range start'); hiIn.setAttribute('aria-label','Range end');
+  track.appendChild(loIn); track.appendChild(hiIn); wrap.appendChild(track); mount.appendChild(wrap);
+  const lab=i=>dates?dates[i]:String(Math.round(xArr[i]));
+  function upd(fire){ label.textContent=lab(lo)+'  –  '+lab(hi);
+    const pc=v=>100*v/((N-1)||1); fill.style.left=pc(lo)+'%'; fill.style.width=(pc(hi)-pc(lo))+'%';
+    if(fire) onRange(xArr[lo], xArr[hi]); }
+  loIn.addEventListener('input',()=>{ lo=Math.min(+loIn.value,hi-1); loIn.value=lo; upd(true); });
+  hiIn.addEventListener('input',()=>{ hi=Math.max(+hiIn.value,lo+1); hiIn.value=hi; upd(true); });
+  upd(false);
+}
 </script>
 <script>
 /* ============================================== PAGE BUILD */
@@ -742,16 +765,24 @@ function lastVal(block, measure, tenor){
   s.appendChild(bar);
   const c=h('div',{class:'card'}); const ct=h('div',{class:'card-title'}); c.appendChild(ct);
   const cn=h('div',{class:'card-note'}); c.appendChild(cn);
-  const lg=h('div'); c.appendChild(lg); const box=h('div'); c.appendChild(box); s.appendChild(c);
+  const lg=h('div'); c.appendChild(lg); const box=h('div'); c.appendChild(box);
+  const sliderMount=h('div'); c.appendChild(sliderMount); s.appendChild(c);
+  // reference timeline = the longest nominal series (US, 1961+); window persists across toggles
+  let refCC=DATA.order[0];
+  DATA.order.forEach(cc=>{ if(DATA.countries[cc].instruments.nominal.x.length>DATA.countries[refCC].instruments.nominal.x.length) refCC=cc; });
+  const refBlk=DATA.countries[refCC].instruments.nominal;
+  CM.xlo=refBlk.x[0]; CM.xhi=refBlk.x[refBlk.x.length-1];
   function render(){
     ct.textContent=`${CM.tenor}-year ${SERIES[CM.measure].toLowerCase()} — cross-country`;
-    cn.textContent='Nominal government curves, daily (recent) / weekly (history), percent.';
+    cn.textContent='Nominal government curves, daily (recent) / weekly (history), percent. Drag the handles below to zoom.';
     const active=DATA.order.filter(cc=>CM.ccs[cc]);
-    const series=active.map(cc=>({label:DATA.countries[cc].name,color:COL()[CCOL[cc]],pts:ptsFor(DATA.countries[cc].instruments.nominal,CM.measure,CM.tenor)}));
+    const series=active.map(cc=>({label:DATA.countries[cc].name,color:COL()[CCOL[cc]],
+      pts:ptsFor(DATA.countries[cc].instruments.nominal,CM.measure,CM.tenor).filter(p=>p[0]>=CM.xlo-1e-6&&p[0]<=CM.xhi+1e-6)}));
     lg.innerHTML=''; lg.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
     box.innerHTML=''; drawLine(box,{height:280, yZero:CM.measure==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtDay, series});
   }
   render(); CHARTS.push(render);
+  rangeSlider(sliderMount, refBlk.x, refBlk.dates, (lo,hi)=>{ CM.xlo=lo; CM.xhi=hi; render(); });
 })();
 
 /* ------------------------------------------------ 3b. STAGFLATION LENS (US, two decompositions) */
@@ -803,26 +834,30 @@ function lastVal(block, measure, tenor){
   sel.onchange=()=>{ BM.tenor=sel.value; render(); }; g.appendChild(sel); bar.appendChild(g); s.appendChild(bar);
   const c=h('div',{class:'card'}); const ct=h('div',{class:'card-title'}); c.appendChild(ct);
   const cn=h('div',{class:'card-note'}); c.appendChild(cn);
-  const lg=h('div'); c.appendChild(lg); const box=h('div'); c.appendChild(box); s.appendChild(c);
+  const lg=h('div'); c.appendChild(lg); const box=h('div'); c.appendChild(box);
+  const sliderMount=h('div'); c.appendChild(sliderMount); s.appendChild(c);
+  BM.xlo=b.x[0]; BM.xhi=b.x[b.x.length-1];
   const call=h('div',{class:'callout'});
   call.innerHTML='These are independent models on similar data, so the <b>spread between them is itself the honest uncertainty band</b> on “the” term premium — often 100&nbsp;bp+ at the long end. Ours is anchored to Christensen-Rudebusch by construction (the mean-reversion calibration); ACM and Kim-Wright typically read lower (more of the curve attributed to expected rates), DKW sits in between. Divergence widens exactly when it matters most — the 2008 crisis, the 2013 taper, 2020, and the 2022–23 hiking cycle.';
   c.appendChild(call);
   function render(){
-    const t=BM.tenor;
+    const t=BM.tenor, inWin=p=>p[0]>=BM.xlo-1e-6&&p[0]<=BM.xhi+1e-6;
     ct.textContent=`US ${t}-year term premium — our estimate vs external models`;
-    cn.textContent='Percent, monthly. Each line is a different published term-premium model.';
+    cn.textContent='Percent, monthly. Each line is a different published term-premium model. Drag the handles below to zoom.';
     const series=[];
     ORDER.forEach(k=>{
       let pts;
       if(k==='ours') pts=ptsFor(b,'tp',t);
       else { const bd=bench[k]; if(!bd||!bd.tp[t]) return; pts=bd.x.map((x,i)=>[x,bd.tp[t][i]]).filter(p=>p[1]!=null); }
-      if(pts&&pts.length) series.push({label:LABELS[k]||k, color:COL()[BCOL[k]], width:k==='ours'?2.5:1.5, pts});
+      pts=(pts||[]).filter(inWin);
+      if(pts.length) series.push({label:LABELS[k]||k, color:COL()[BCOL[k]], width:k==='ours'?2.5:1.5, pts});
     });
     lg.innerHTML=''; lg.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
     box.innerHTML='';
     drawLine(box,{height:300, yZero:true, yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtDay, series});
   }
   render(); CHARTS.push(render);
+  rangeSlider(sliderMount, b.x, b.dates, (lo,hi)=>{ BM.xlo=lo; BM.xhi=hi; render(); });
 })();
 
 /* ------------------------------------------------ 3d. US NOMINAL vs REAL TERM PREMIUM */
@@ -840,23 +875,24 @@ function lastVal(block, measure, tenor){
   sel.onchange=()=>{ RT.tenor=sel.value; render(); }; g.appendChild(sel); bar.appendChild(g); s.appendChild(bar);
   const c=h('div',{class:'card'}); const ct=h('div',{class:'card-title'}); c.appendChild(ct);
   const cn=h('div',{class:'card-note'}); c.appendChild(cn);
-  const lg=h('div'); c.appendChild(lg); const box=h('div'); c.appendChild(box); s.appendChild(c);
+  const lg=h('div'); c.appendChild(lg); const box=h('div'); c.appendChild(box);
+  const sliderMount=h('div'); c.appendChild(sliderMount); s.appendChild(c);
+  RT.xlo=b.real.x[0]; RT.xhi=b.real.x[b.real.x.length-1];   // window bounded by the TIPS sample
   const call=h('div',{class:'callout orange'});
   call.innerHTML='<b>Why we stop at the two premia.</b> The gap between the nominal and real curves (the breakeven) is a clean market number, but decomposing it into <b>expected inflation</b> versus an <b>inflation-risk premium</b> requires separating the TIPS <b>liquidity</b> premium from genuine risk compensation — a pricing-side split that yields and inflation surveys alone cannot pin down. A joint nominal/real model recovers the real premium and expected inflation well but not yet that risk-premium split, so we report the two premia and leave the decomposition as ongoing work.';
   c.appendChild(call);
   function render(){
-    const t=RT.tenor, CC=COL();
+    const t=RT.tenor, CC=COL(), inWin=p=>p[0]>=RT.xlo-1e-6&&p[0]<=RT.xhi+1e-6;
     ct.textContent=`US ${t}-year term premium — nominal vs real (TIPS)`;
-    cn.textContent='Percent, monthly. Each estimated with the same single-curve model on its own curve; shown over the TIPS overlap window (2004+).';
-    const realPts=ptsFor(b.real,'tp',t);
-    const x0=realPts.length?realPts[0][0]:0;
+    cn.textContent='Percent, monthly. Each estimated with the same single-curve model on its own curve; over the TIPS overlap window (2004+). Drag the handles below to zoom.';
     const series=[
-      {label:'Nominal Treasury',color:CC.blue,width:2.2,pts:ptsFor(b.nominal,'tp',t).filter(p=>p[0]>=x0)},
-      {label:'TIPS (real)',color:CC.teal,width:2.2,pts:realPts}];
+      {label:'Nominal Treasury',color:CC.blue,width:2.2,pts:ptsFor(b.nominal,'tp',t).filter(inWin)},
+      {label:'TIPS (real)',color:CC.teal,width:2.2,pts:ptsFor(b.real,'tp',t).filter(inWin)}];
     lg.innerHTML=''; lg.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
     box.innerHTML=''; drawLine(box,{height:300,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,series});
   }
   render(); CHARTS.push(render);
+  rangeSlider(sliderMount, b.real.x, b.real.dates, (lo,hi)=>{ RT.xlo=lo; RT.xhi=hi; render(); });
 })();
 
 /* ------------------------------------------------ 3e. US TIPS LIQUIDITY GAUGE (noise) */
@@ -864,15 +900,22 @@ function lastVal(block, measure, tenor){
   const nz=DATA.countries.US.tips_noise; if(!nz) return;
   panel('liquidity','Market quality','US TIPS liquidity — curve-fitting “noise”',
     ['A byproduct worth its own chart: the <b>RMS deviation of individual TIPS from a smooth fitted curve</b> (the Hu–Pan–Wang “noise” measure). When the market is liquid every bond sits on the curve and the noise is a few basis points; when liquidity dries up, individual issues scatter and the noise jumps. It’s a free daily substitute for the vendor liquidity/RMSE series, built only from public security-level data.']);
-  const s=M.lastChild, CC=COL();
+  const s=M.lastChild;
   const c=h('div',{class:'card'});
   c.appendChild(h('div',{class:'card-title'},'US TIPS cross-sectional fitting noise'));
-  c.appendChild(h('div',{class:'card-note'},'Basis points, monthly. Higher = individual TIPS priced further from a smooth curve (less liquid).'));
-  const box=h('div'); c.appendChild(box); s.appendChild(c);
-  const pts=nz.x.map((x,i)=>[x,nz.noise[i]]).filter(p=>p[1]!=null);
-  lineChart(box,{height:260,yZero:true,yFmt:v=>fmt(v,0)+' bp',xFmt:xYear,xTipFmt:xFmtDay,
-    bands:[{x0:ym(2008,9),x1:ym(2009,3),fill:CC.orange,opacity:0.14,label:'GFC'}],
-    series:[{label:'TIPS noise',color:CC.crimson,pts}]});
+  c.appendChild(h('div',{class:'card-note'},'Basis points, monthly. Higher = individual TIPS priced further from a smooth curve (less liquid). Drag the handles below to zoom.'));
+  const box=h('div'); c.appendChild(box);
+  const sliderMount=h('div'); c.appendChild(sliderMount); s.appendChild(c);
+  const allPts=nz.x.map((x,i)=>[x,nz.noise[i]]).filter(p=>p[1]!=null);
+  const NZ={xlo:nz.x[0], xhi:nz.x[nz.x.length-1]};
+  function render(){
+    const CC=COL();
+    box.innerHTML=''; drawLine(box,{height:260,yZero:true,yFmt:v=>fmt(v,0)+' bp',xFmt:xYear,xTipFmt:xFmtDay,
+      bands:[{x0:ym(2008,9),x1:ym(2009,3),fill:CC.orange,opacity:0.14,label:'GFC'}],
+      series:[{label:'TIPS noise',color:CC.crimson,pts:allPts.filter(p=>p[0]>=NZ.xlo-1e-6&&p[0]<=NZ.xhi+1e-6)}]});
+  }
+  render(); CHARTS.push(render);
+  rangeSlider(sliderMount, nz.x, nz.dates, (lo,hi)=>{ NZ.xlo=lo; NZ.xhi=hi; render(); });
   const call=h('div',{class:'callout'});
   call.innerHTML='The gauge peaks at <b>~45 bp in December 2008</b> — the post-Lehman TIPS freeze, when the market dislocated so badly that breakevens turned negative — and sits near <b>8 bp</b> today. It is independent of any term-premium model, so it doubles as a data-quality check on the real curve.';
   s.appendChild(call);
