@@ -40,18 +40,18 @@ def build_matched_panels():
     return nom.loc[idx], real.loc[idx]
 
 
-def run(maxiter: int = 2500) -> dict:
+def run(maxiter: int = 2500, liq: bool = False) -> dict:
     nom, real = build_matched_panels()
     Yn, Yr = nom.to_numpy(float), real.to_numpy(float)
-    logger.info("joint US: %d months %s..%s | nom %s real %s", len(nom),
-                nom.index.min().date(), nom.index.max().date(), list(NOM_GRID), list(REAL_GRID))
+    logger.info("joint US%s: %d months %s..%s | nom %s real %s", " +liquidity" if liq else "",
+                len(nom), nom.index.min().date(), nom.index.max().date(),
+                list(NOM_GRID), list(REAL_GRID))
     p, res = ja.estimate(Yn, Yr, NOM_GRID, REAL_GRID, dt=1 / 12, elb_n=-0.0035,
-                         maxiter=maxiter, n_per_year=24)
+                         maxiter=maxiter, n_per_year=24, liq=liq)
     xf, _, ll = ja.filter_states(p, Yn, Yr, NOM_GRID, REAL_GRID, 1 / 12)
     d = ja.decompose(p, xf, NOM_GRID, REAL_GRID, mr_halflife=3.5)
     dates = nom.index
-    # persist the headline series (5y/10y) for comparison + reuse
-    out = {"dates": [str(x.date()) for x in dates], "loglik": float(ll),
+    out = {"dates": [str(x.date()) for x in dates], "loglik": float(ll), "liq": liq,
            "success": bool(res.success), "common": [float(c) for c in d["common"]],
            "kappa": p.kappa.tolist(), "theta": p.theta.tolist(), "sigma": p.sigma.tolist(),
            "lambda": float(p.lambda_), "h_n": float(p.h_n), "h_r": float(p.h_r)}
@@ -63,16 +63,18 @@ def run(maxiter: int = 2500) -> dict:
         out[f"tp_r_{m:g}"] = (d["tp_r"][:, jr] * 100).round(4).tolist()
         out[f"irp_{m:g}"] = (d["irp"][:, jc] * 100).round(4).tolist()
         out[f"einfl_{m:g}"] = (d["expected_inflation"][:, jc] * 100).round(4).tolist()
+        out[f"liq_{m:g}"] = (d["liquidity_premium"][:, jc] * 100).round(4).tolist()
     SCRATCH.mkdir(exist_ok=True)
-    (SCRATCH / "joint_us_results.json").write_text(json.dumps(out))
-    logger.info("joint US done: loglik=%.1f success=%s -> scratchpad/joint_us_results.json",
-                ll, res.success)
+    fname = "joint_us_liq_results.json" if liq else "joint_us_results.json"
+    (SCRATCH / fname).write_text(json.dumps(out))
+    logger.info("joint US done: loglik=%.1f success=%s -> scratchpad/%s", ll, res.success, fname)
     return out
 
 
-def compare() -> None:
+def compare(liq: bool = False) -> None:
     """Print joint vs DKW (and note vs separate-AFNS) at 5y/10y, latest + correlation."""
-    res = json.loads((SCRATCH / "joint_us_results.json").read_text())
+    fname = "joint_us_liq_results.json" if liq else "joint_us_results.json"
+    res = json.loads((SCRATCH / fname).read_text())
     dates = pd.DatetimeIndex(res["dates"])
     from validation.benchmarks import load_dkw
     dkw = load_dkw()
@@ -93,6 +95,12 @@ def compare() -> None:
         line("real term premium", jr, dkr)
         line("inflation-risk prem", js, dki)
         line("expected inflation", je, dke)
+        if res.get("liq"):
+            jl = pd.Series(res[f"liq_{m}"], index=dates)
+            dkl = (dk["tips_liquidity_premium"] * 100).reindex(dates, method="nearest") \
+                if "tips_liquidity_premium" in dk.columns else None
+            extra = f"  DKW {dkl.iloc[-1]:+.2f}% corr {jl.corr(dkl):.2f}" if dkl is not None else ""
+            print(f"  {m:>2}y {'TIPS liquidity prem':<20} joint {jl.iloc[-1]:+.2f}%{extra}")
         print()
 
 
@@ -100,12 +108,13 @@ def _main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     ap = argparse.ArgumentParser(description="US joint nominal/real AFNS spike")
     ap.add_argument("--compare", action="store_true")
+    ap.add_argument("--liq", action="store_true", help="add the TIPS liquidity factor (5-factor)")
     ap.add_argument("--maxiter", type=int, default=2500)
     args = ap.parse_args()
     if args.compare:
-        compare()
+        compare(liq=args.liq)
     else:
-        run(maxiter=args.maxiter)
+        run(maxiter=args.maxiter, liq=args.liq)
 
 
 if __name__ == "__main__":

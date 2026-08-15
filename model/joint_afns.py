@@ -34,40 +34,72 @@ from model import shadow_rate as sr
 from model import term_premium as tp
 
 _LOG_FLOOR = 1e-8
-RHO_N = np.array([1.0, 0.0, 1.0, 0.0])      # nominal short = L_N + S
-RHO_R = np.array([0.0, 1.0, 1.0, 0.0])      # real short   = L_R + S
-_NOM_SUB = [0, 2, 3]                         # (L_N, S, C) columns of the 4-state
+_NOM_SUB = [0, 2, 3]                         # (L_N, S, C) columns of the state
 _REAL_SUB = [1, 2, 3]                        # (L_R, S, C)
 _REAL_ELB = -1.0                             # real curve: plain AFNS (no floor)
+LIQ_GAMMA = 1.0                             # fixed decay of the TIPS-liquidity loading
+
+# 5th factor (optional) = TIPS liquidity ℓ. It loads on the REAL (TIPS) measurement
+# ONLY, with a maturity-decaying shape β(τ)=(1-e^{-γτ})/(γτ) — distinct from the flat
+# real level L_R (so it is identified) — capturing the illiquidity that makes observed
+# TIPS yields sit above the model real yield. It does NOT enter the pricing kernel or
+# the expectations legs, so the "clean" real yield/TP excludes it (a reduced-form,
+# measurement-side liquidity wedge; DKW's is priced — a documented approximation).
+
+
+def _rho_n(n):  # nominal short = L_N + S
+    r = np.zeros(n); r[0] = 1.0; r[2] = 1.0; return r
+
+
+def _rho_r(n):  # real short = L_R + S
+    r = np.zeros(n); r[1] = 1.0; r[2] = 1.0; return r
+
+
+def _liq_loading(grid, gamma=LIQ_GAMMA):
+    tau = np.asarray(grid, float)
+    return (1.0 - np.exp(-gamma * tau)) / (gamma * tau)
+
+
+# Backwards-compatible 4-factor rho constants (used where n is known to be 4).
+RHO_N = _rho_n(4)
+RHO_R = _rho_r(4)
 
 
 @dataclass
 class JointParams:
-    kappa: np.ndarray      # (4,) diagonal P mean-reversion, >0  [L_N,L_R,S,C]
-    theta: np.ndarray      # (4,) P long-run mean
-    sigma: np.ndarray      # (4,) factor vols, >0 (diagonal Σ)
+    kappa: np.ndarray      # (n,) diagonal P mean-reversion, >0  [L_N,L_R,S,C,(ℓ)]
+    theta: np.ndarray      # (n,) P long-run mean
+    sigma: np.ndarray      # (n,) factor vols, >0 (diagonal Σ)
     lambda_: float         # shared NS decay, >0
     h_n: float             # nominal measurement-error SD, >0
     h_r: float             # real measurement-error SD, >0
     elb_n: float = -0.0035  # nominal effective lower bound (fixed)
 
+    @property
+    def n(self) -> int:
+        return len(self.kappa)
+
+    @property
+    def liq(self) -> bool:
+        return self.n == 5     # 5th factor is the TIPS liquidity ℓ
+
     def pack(self) -> np.ndarray:
         return np.concatenate([
-            np.log(np.maximum(self.kappa, _LOG_FLOOR)),           # 4
-            np.asarray(self.theta, float),                        # 4
-            np.log(np.maximum(self.sigma, _LOG_FLOOR)),           # 4
+            np.log(np.maximum(self.kappa, _LOG_FLOOR)),           # n
+            np.asarray(self.theta, float),                        # n
+            np.log(np.maximum(self.sigma, _LOG_FLOOR)),           # n
             [np.log(max(self.lambda_, _LOG_FLOOR)),
              np.log(max(self.h_n, _LOG_FLOOR)),
              np.log(max(self.h_r, _LOG_FLOOR))],                  # 3
         ])
 
     @staticmethod
-    def unpack(v: np.ndarray, elb_n: float) -> "JointParams":
+    def unpack(v: np.ndarray, elb_n: float, n: int = 4) -> "JointParams":
         v = np.asarray(v, dtype=float)
         return JointParams(
-            kappa=np.exp(v[0:4]), theta=v[4:8].copy(), sigma=np.exp(v[8:12]),
-            lambda_=float(np.exp(v[12])), h_n=float(np.exp(v[13])),
-            h_r=float(np.exp(v[14])), elb_n=elb_n)
+            kappa=np.exp(v[0:n]), theta=v[n:2 * n].copy(), sigma=np.exp(v[2 * n:3 * n]),
+            lambda_=float(np.exp(v[3 * n])), h_n=float(np.exp(v[3 * n + 1])),
+            h_r=float(np.exp(v[3 * n + 2])), elb_n=elb_n)
 
     @property
     def K(self) -> np.ndarray:
@@ -85,14 +117,21 @@ def _precompute(p: JointParams, grid_n, grid_r, n_per_year=48):
     return pre_n, pre_r
 
 
-def _measure(x, pre_n, pre_r, m_n):
-    """Stacked [nominal; real] yields and Jacobian wrt the 4-factor state."""
+def _measure(x, pre_n, pre_r, m_n, beta_r=None):
+    """Stacked [nominal; real] yields and Jacobian wrt the n-factor state. When
+    ``beta_r`` (real liquidity loading, length m_r) is given, the real block adds
+    β(τ)·ℓ with ℓ = x[4] and a 5th Jacobian column."""
+    n = x.shape[0]
     yn, Jn = sr.elb_yields_and_jac(x[_NOM_SUB], pre_n)
     yr, Jr = sr.elb_yields_and_jac(x[_REAL_SUB], pre_r)
+    if beta_r is not None:
+        yr = yr + beta_r * x[4]
     y = np.concatenate([yn, yr])
-    J = np.zeros((y.shape[0], 4))
+    J = np.zeros((y.shape[0], n))
     J[:m_n][:, _NOM_SUB] = Jn
     J[m_n:][:, _REAL_SUB] = Jr
+    if beta_r is not None:
+        J[m_n:, 4] = beta_r
     return y, J
 
 
@@ -109,6 +148,8 @@ def filter_states(p: JointParams, Yn, Yr, grid_n, grid_r, dt, n_per_year=48):
     Returns filtered states xs (T,4), stacked fitted yields (T,m_n+m_r), loglik."""
     Yn = np.asarray(Yn, float); Yr = np.asarray(Yr, float)
     T, m_n = Yn.shape; m_r = Yr.shape[1]
+    n = p.n
+    beta_r = _liq_loading(grid_r) if p.liq else None
     pre_n, pre_r = _precompute(p, grid_n, grid_r, n_per_year)
     A, Q = _transition(p, dt)
     r_diag = np.concatenate([np.full(m_n, p.h_n ** 2), np.full(m_r, p.h_r ** 2)])
@@ -117,15 +158,15 @@ def filter_states(p: JointParams, Yn, Yr, grid_n, grid_r, dt, n_per_year=48):
     try:
         P = scipy.linalg.solve_discrete_lyapunov(A, Q)
     except Exception:                                             # noqa: BLE001
-        P = np.eye(4)
-    xs = np.empty((T, 4)); fits = np.empty((T, m_n + m_r)); ll = 0.0
+        P = np.eye(n)
+    xs = np.empty((T, n)); fits = np.empty((T, m_n + m_r)); ll = 0.0
     for t in range(T):
         # predict
         xp = p.theta + A @ (x - p.theta)
         Pp = A @ P @ A.T + Q
         # measure (nonlinear) + mask NaN
         y_row = np.concatenate([Yn[t], Yr[t]])
-        y_hat, J = _measure(xp, pre_n, pre_r, m_n)
+        y_hat, J = _measure(xp, pre_n, pre_r, m_n, beta_r)
         fits[t] = y_hat
         mask = np.isfinite(y_row)
         if not mask.any():
@@ -138,7 +179,7 @@ def filter_states(p: JointParams, Yn, Yr, grid_n, grid_r, dt, n_per_year=48):
             return xs, fits, -1e12
         Kg = Pp @ Jm.T @ Sinv
         x = xp + Kg @ v
-        P = (np.eye(4) - Kg @ Jm) @ Pp
+        P = (np.eye(n) - Kg @ Jm) @ Pp
         sign, logdet = np.linalg.slogdet(S)
         ll += -0.5 * (mask.sum() * np.log(2 * np.pi) + logdet + v @ Sinv @ v)
         xs[t] = x
@@ -151,7 +192,8 @@ def _stationary(p: JointParams, dt: float) -> bool:
 
 
 def negloglik(v, Yn, Yr, grid_n, grid_r, dt, elb_n, n_per_year=48) -> float:
-    p = JointParams.unpack(v, elb_n)
+    n = (len(v) - 3) // 3
+    p = JointParams.unpack(v, elb_n, n)
     if not np.all(np.isfinite(v)) or not _stationary(p, dt):
         return 1e12
     try:
@@ -162,21 +204,28 @@ def negloglik(v, Yn, Yr, grid_n, grid_r, dt, elb_n, n_per_year=48) -> float:
 
 
 def estimate(Yn, Yr, grid_n, grid_r, dt, elb_n=-0.0035, warm: JointParams | None = None,
-             maxiter=4000, n_per_year=24):
-    """QML estimate of the joint model (Nelder-Mead). Warm-start from `warm` if given."""
+             maxiter=4000, n_per_year=24, liq=False):
+    """QML estimate of the joint model (Nelder-Mead). ``liq=True`` adds the TIPS
+    liquidity factor (5-factor). Warm-start from `warm` if given."""
     if warm is None:
-        warm = _default_init(Yn, Yr)
+        warm = _default_init(Yn, Yr, liq=liq)
     v0 = warm.pack()
+    n = warm.n
     res = scipy.optimize.minimize(
         negloglik, v0, args=(Yn, Yr, grid_n, grid_r, dt, elb_n, n_per_year),
         method="Nelder-Mead",
         options={"maxiter": maxiter, "maxfev": maxiter, "xatol": 1e-5, "fatol": 1e-4})
-    p = JointParams.unpack(res.x, elb_n)
+    p = JointParams.unpack(res.x, elb_n, n)
     return p, res
 
 
-def _default_init(Yn, Yr) -> JointParams:
+def _default_init(Yn, Yr, liq=False) -> JointParams:
     ln = np.nanmean(Yn[:, -1]); lr = np.nanmean(Yr[:, -1])       # long-end level proxies
+    if liq:
+        return JointParams(kappa=np.array([0.3, 0.3, 0.5, 0.8, 0.6]),
+                           theta=np.array([ln, lr, 0.0, 0.0, 0.0]),
+                           sigma=np.array([0.01, 0.01, 0.01, 0.01, 0.005]),
+                           lambda_=0.5, h_n=0.001, h_r=0.002, elb_n=-0.0035)
     return JointParams(kappa=np.array([0.3, 0.3, 0.5, 0.8]),
                        theta=np.array([ln, lr, 0.0, 0.0]),
                        sigma=np.array([0.01, 0.01, 0.01, 0.01]),
@@ -230,28 +279,39 @@ def decompose(p: JointParams, states, grid_n, grid_r, mr_halflife: float | None 
     expected inflation from filtered `states` (T,4). Applies the mean-reversion
     floor to the P-dynamics for the expectations legs (as the production series)."""
     states = np.asarray(states, float)
+    nfac = p.n
     K = p.K
     K_exp = tp.mean_reversion_floor(K, np.log(2) / mr_halflife) if mr_halflife else K
     Sig = np.diag(p.sigma)
     gn = np.asarray(grid_n, float); gr = np.asarray(grid_r, float)
-    # fitted yields (Q pricing) per block
+    rho_n, rho_r = _rho_n(nfac), _rho_r(nfac)
+    # fitted yields (Q pricing) per block. The real block is the CLEAN model real
+    # yield (AFNS on L_R,S,C) — the liquidity wedge is added separately below.
     pre_n, pre_r = _precompute(p, gn, gr, n_per_year)
     fit_n = np.array([sr.elb_yields(x[_NOM_SUB], pre_n) for x in states])
-    fit_r = np.array([sr.elb_yields(x[_REAL_SUB], pre_r) for x in states])
+    fit_r = np.array([sr.elb_yields(x[_REAL_SUB], pre_r) for x in states])   # clean
     # expected average short rate (P): nominal floored at elb_n, real plain affine
     exp_n = _expected_floored_yields(states, K_exp, p.theta, Sig,
-                                     p.elb_n, RHO_N, gn, n_per_year)
-    exp_r = tp.expected_rate_yields(states, K_exp, p.theta, RHO_R, gr)
+                                     p.elb_n, rho_n, gn, n_per_year)
+    exp_r = tp.expected_rate_yields(states, K_exp, p.theta, rho_r, gr)
     tp_n = fit_n - exp_n
-    tp_r = fit_r - exp_r
+    tp_r = fit_r - exp_r                                   # CLEAN real term premium
+    # TIPS liquidity premium (observed real yield = clean + liquidity), if modelled
+    if p.liq:
+        beta_r = _liq_loading(gr)
+        liq_prem = states[:, 4][:, None] * beta_r[None, :]   # (T, m_r)
+    else:
+        liq_prem = np.zeros_like(fit_r)
+    obs_fit_r = fit_r + liq_prem
     # IRP and expected inflation on the common grid (intersection of gn, gr)
     common = np.array([g for g in gr if np.isclose(gn, g).any()])
     idx_n = [int(np.where(np.isclose(gn, g))[0][0]) for g in common]
     idx_r = [int(np.where(np.isclose(gr, g))[0][0]) for g in common]
     irp = tp_n[:, idx_n] - tp_r[:, idx_r]
     exp_infl = exp_n[:, idx_n] - exp_r[:, idx_r]           # E[avg nominal-real short]
-    breakeven = fit_n[:, idx_n] - fit_r[:, idx_r]
+    breakeven = fit_n[:, idx_n] - obs_fit_r[:, idx_r]     # observed inflation compensation
     return {"grid_n": gn, "grid_r": gr, "common": common,
-            "fitted_n": fit_n, "fitted_r": fit_r, "exp_n": exp_n, "exp_r": exp_r,
-            "tp_n": tp_n, "tp_r": tp_r, "irp": irp,
-            "expected_inflation": exp_infl, "breakeven": breakeven}
+            "fitted_n": fit_n, "fitted_r": fit_r, "obs_fitted_r": obs_fit_r,
+            "exp_n": exp_n, "exp_r": exp_r, "tp_n": tp_n, "tp_r": tp_r, "irp": irp,
+            "liquidity_premium": liq_prem[:, idx_r], "expected_inflation": exp_infl,
+            "breakeven": breakeven}

@@ -154,6 +154,7 @@ _DKW_QUANTITIES = {                       # canonical name -> DKW column stem
     "inflation_risk_premium": "inflation.risk.prem",
     "expected_inflation": "exp.inflation",
     "expected_real_short_rate": "exp.real.short.rate",
+    "tips_liquidity_premium": "tips.liq.prem",
     "nominal_yield": "nominal.yield.fitted",
 }
 

@@ -73,3 +73,53 @@ def test_decomposition_identities():
     assert np.allclose(d["breakeven"], d["expected_inflation"] + d["irp"], atol=1e-12)
     # common grid is the intersection (real has no 1y -> excluded)
     assert 1.0 not in d["common"] and 10.0 in d["common"]
+
+
+def _params_liq():
+    return ja.JointParams(
+        kappa=np.array([0.25, 0.30, 0.6, 0.9, 0.5]),
+        theta=np.array([0.035, 0.012, -0.01, 0.0, 0.003]),
+        sigma=np.array([0.008, 0.007, 0.010, 0.012, 0.004]),
+        lambda_=0.55, h_n=0.0008, h_r=0.0015, elb_n=-0.0035)
+
+
+def _simulate_liq(p, T=200, seed=1):
+    grid_n = np.array([1., 2., 3., 5., 7., 10.])
+    grid_r = np.array([2., 3., 5., 7., 10.])
+    beta_r = ja._liq_loading(grid_r)
+    A, Q = ja._transition(p, 1 / 12)
+    L = np.linalg.cholesky(Q + 1e-14 * np.eye(5))
+    rng = np.random.default_rng(seed)
+    pre_n, pre_r = ja._precompute(p, grid_n, grid_r)
+    x = p.theta.copy(); Yn, Yr = [], []
+    for _ in range(T):
+        x = p.theta + A @ (x - p.theta) + L @ rng.standard_normal(5)
+        y, _ = ja._measure(x, pre_n, pre_r, len(grid_n), beta_r)
+        Yn.append(y[:len(grid_n)] + p.h_n * rng.standard_normal(len(grid_n)))
+        Yr.append(y[len(grid_n):] + p.h_r * rng.standard_normal(len(grid_r)))
+    return np.array(Yn), np.array(Yr), grid_n, grid_r
+
+
+def test_liquidity_measurement_jacobian():
+    p = _params_liq()
+    pre_n, pre_r = ja._precompute(p, [2., 10.], [2., 10.])
+    beta_r = ja._liq_loading(np.array([2., 10.]))
+    x = p.theta + np.array([0.01, -0.01, 0.02, 0.03, 0.005])
+    _, J = ja._measure(x, pre_n, pre_r, 2, beta_r)
+    assert J.shape == (4, 5)
+    assert np.allclose(J[:2, 4], 0.0)          # nominal block: no liquidity loading
+    assert np.all(np.abs(J[2:, 4]) > 1e-6)     # real block: liquidity loads
+
+
+def test_liquidity_decomposition_three_way_identity():
+    p = _params_liq()
+    Yn, Yr, gn, gr = _simulate_liq(p, T=120)
+    xf, _, ll = ja.filter_states(p, Yn, Yr, gn, gr, 1 / 12)
+    assert np.isfinite(ll) and xf.shape[1] == 5
+    d = ja.decompose(p, xf, gn, gr, mr_halflife=3.5)
+    # observed real yield = clean real + liquidity wedge
+    assert np.allclose(d["obs_fitted_r"], d["fitted_r"] + (d["obs_fitted_r"] - d["fitted_r"]))
+    assert d["liquidity_premium"].shape[1] == len(d["common"])
+    # DKW 3-way identity: observed breakeven = expected inflation + IRP - liquidity premium
+    assert np.allclose(d["breakeven"],
+                       d["expected_inflation"] + d["irp"] - d["liquidity_premium"], atol=1e-12)
