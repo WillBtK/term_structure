@@ -193,3 +193,48 @@ def test_survey_pack_roundtrip():
     assert v0.shape[0] == 3 * p.n + 3
     q0 = ja.JointParams.unpack(v0, p.elb_n, p.n, survey=False)
     assert np.isclose(q0.h_s, 0.005)
+
+
+# ------------------------------------------------- TIPS liquidity-proxy measurement
+def test_liqproxy_pack_roundtrip():
+    """pack/unpack with every combination of the survey and liqproxy blocks."""
+    p = ja.JointParams(**{**_params_liq().__dict__, "h_s": 0.003,
+                          "a_lp": 0.02, "b_lp": 1.5, "h_lp": 0.001})
+    for survey in (False, True):
+        for liqproxy in (False, True):
+            v = p.pack(survey=survey, liqproxy=liqproxy)
+            assert v.shape[0] == 3 * p.n + 3 + int(survey) + 3 * int(liqproxy)
+            q = ja.JointParams.unpack(v, p.elb_n, p.n, survey=survey, liqproxy=liqproxy)
+            assert np.isclose(q.h_s, 0.003 if survey else 0.005)
+            if liqproxy:
+                assert np.isclose(q.a_lp, 0.02) and np.isclose(q.b_lp, 1.5)
+                assert np.isclose(q.h_lp, 0.001)
+            else:
+                assert q.b_lp == 0.0
+
+
+def test_liqproxy_anchors_liquidity_factor():
+    """Feed a proxy that is an exact affine image of the TRUE liquidity factor; the
+    anchored filter should recover ℓ (hence the liquidity premium) far better than
+    yields alone — the identification the proxy is meant to provide."""
+    p = _params_liq()
+    Yn, Yr, gn, gr = _simulate_liq(p, T=200, seed=7)
+    # reconstruct the true ℓ path used by the simulator (re-simulate states)
+    grid_n = np.array([1., 2., 3., 5., 7., 10.]); grid_r = np.array([2., 3., 5., 7., 10.])
+    A, Q = ja._transition(p, 1 / 12)
+    L = np.linalg.cholesky(Q + 1e-14 * np.eye(5))
+    rng = np.random.default_rng(7)
+    x = p.theta.copy(); ell = []
+    for _ in range(200):
+        x = p.theta + A @ (x - p.theta) + L @ rng.standard_normal(5)
+        ell.append(x[4])
+    ell = np.array(ell)
+    proxy = 0.02 + 3.0 * ell                       # exact affine image (a_lp=0.02,b_lp=3)
+    p_lp = ja.JointParams(**{**p.__dict__, "a_lp": 0.02, "b_lp": 3.0, "h_lp": 1e-5})
+    xf0, _, _ = ja.filter_states(p, Yn, Yr, gn, gr, 1 / 12)                # yields only
+    xf1, _, ll = ja.filter_states(p_lp, Yn, Yr, gn, gr, 1 / 12, Yproxy=proxy)  # + proxy
+    assert np.isfinite(ll)
+    corr0 = np.corrcoef(xf0[:, 4], ell)[0, 1]
+    corr1 = np.corrcoef(xf1[:, 4], ell)[0, 1]
+    assert corr1 > corr0                            # proxy improves ℓ identification
+    assert corr1 > 0.9                              # and pins it tightly

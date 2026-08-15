@@ -75,6 +75,12 @@ class JointParams:
     h_r: float             # real measurement-error SD, >0
     elb_n: float = -0.0035  # nominal effective lower bound (fixed)
     h_s: float = 0.005     # survey (ATSIX) measurement-error SD, >0 (used iff anchored)
+    # TIPS liquidity-proxy (HPW "noise") measurement: proxy_t = a_lp + b_lp·ℓ_t + η,
+    # η ~ N(0, h_lp²). Identifies the liquidity factor ℓ's dynamics from an independent,
+    # non-circular, price-based observable (used iff liq and a proxy is supplied).
+    a_lp: float = 0.0       # proxy offset
+    b_lp: float = 0.0       # proxy loading on ℓ
+    h_lp: float = 0.005     # proxy measurement-error SD, >0
 
     @property
     def n(self) -> int:
@@ -84,7 +90,7 @@ class JointParams:
     def liq(self) -> bool:
         return self.n == 5     # 5th factor is the TIPS liquidity ℓ
 
-    def pack(self, survey: bool = False) -> np.ndarray:
+    def pack(self, survey: bool = False, liqproxy: bool = False) -> np.ndarray:
         base = np.concatenate([
             np.log(np.maximum(self.kappa, _LOG_FLOOR)),           # n
             np.asarray(self.theta, float),                        # n
@@ -95,17 +101,26 @@ class JointParams:
         ])
         if survey:                                                # +1 survey error
             base = np.concatenate([base, [np.log(max(self.h_s, _LOG_FLOOR))]])
+        if liqproxy:                                              # +3: offset, loading, error
+            base = np.concatenate([base, [self.a_lp, self.b_lp,
+                                          np.log(max(self.h_lp, _LOG_FLOOR))]])
         return base
 
     @staticmethod
     def unpack(v: np.ndarray, elb_n: float, n: int = 4,
-               survey: bool = False) -> "JointParams":
+               survey: bool = False, liqproxy: bool = False) -> "JointParams":
         v = np.asarray(v, dtype=float)
-        h_s = float(np.exp(v[3 * n + 3])) if survey else 0.005
+        i = 3 * n + 3
+        h_s = float(np.exp(v[i])) if survey else 0.005
+        i += int(survey)
+        a_lp = float(v[i]) if liqproxy else 0.0
+        b_lp = float(v[i + 1]) if liqproxy else 0.0
+        h_lp = float(np.exp(v[i + 2])) if liqproxy else 0.005
         return JointParams(
             kappa=np.exp(v[0:n]), theta=v[n:2 * n].copy(), sigma=np.exp(v[2 * n:3 * n]),
             lambda_=float(np.exp(v[3 * n])), h_n=float(np.exp(v[3 * n + 1])),
-            h_r=float(np.exp(v[3 * n + 2])), elb_n=elb_n, h_s=h_s)
+            h_r=float(np.exp(v[3 * n + 2])), elb_n=elb_n, h_s=h_s,
+            a_lp=a_lp, b_lp=b_lp, h_lp=h_lp)
 
     @property
     def K(self) -> np.ndarray:
@@ -150,18 +165,24 @@ def _transition(p: JointParams, dt: float):
 
 # --------------------------------------------------------------------- filter
 def filter_states(p: JointParams, Yn, Yr, grid_n, grid_r, dt, n_per_year=48,
-                  Ysurv=None, grid_surv=None, mr_halflife: float | None = 3.5):
+                  Ysurv=None, grid_surv=None, mr_halflife: float | None = 3.5,
+                  Yproxy=None):
     """EKF over the joint panel. Yn (T,m_n), Yr (T,m_r) may contain NaN (ragged).
     Returns filtered states xs (T,n), stacked fitted yields (T,m_n+m_r), loglik.
 
     ``Ysurv`` (T,m_s) optionally supplies survey (ATSIX) expected-inflation on
     ``grid_surv`` (years); those rows are appended to the measurement (with error SD
     ``p.h_s``) so the P-expected inflation *level* is anchored — identifying the IRP
-    that yields-only cannot. Survey rows are NaN-masked like the yields (ragged OK)."""
+    that yields-only cannot. Survey rows are NaN-masked like the yields (ragged OK).
+
+    ``Yproxy`` (T,) optionally supplies the TIPS liquidity 'noise' proxy, appended as
+    one measurement row `a_lp + b_lp·ℓ` (needs the liquidity factor, n=5); it identifies
+    ℓ's dynamics from a price-based, non-circular observable."""
     Yn = np.asarray(Yn, float); Yr = np.asarray(Yr, float)
     T, m_n = Yn.shape; m_r = Yr.shape[1]
     n = p.n
     use_surv = Ysurv is not None
+    use_proxy = Yproxy is not None and p.liq
     beta_r = _liq_loading(grid_r) if p.liq else None
     pre_n, pre_r = _precompute(p, grid_n, grid_r, n_per_year)
     A, Q = _transition(p, dt)
@@ -171,6 +192,9 @@ def filter_states(p: JointParams, Yn, Yr, grid_n, grid_r, dt, n_per_year=48,
         pre_s = _survey_precompute(p, grid_surv, mr_halflife)
         m_s = Ysurv.shape[1]
         r_diag = np.concatenate([r_diag, np.full(m_s, p.h_s ** 2)])
+    if use_proxy:
+        Yproxy = np.asarray(Yproxy, float).reshape(-1)
+        r_diag = np.concatenate([r_diag, [p.h_lp ** 2]])
     # init at unconditional moments
     x = p.theta.copy()
     try:
@@ -185,12 +209,17 @@ def filter_states(p: JointParams, Yn, Yr, grid_n, grid_r, dt, n_per_year=48,
         # measure (nonlinear) + mask NaN
         y_hat, J = _measure(xp, pre_n, pre_r, m_n, beta_r)
         fits[t] = y_hat                                    # yields only (survey excluded)
+        parts = [Yn[t], Yr[t]]
         if use_surv:
             ys, Js = _survey_measure(xp, pre_s)
             y_hat = np.concatenate([y_hat, ys]); J = np.vstack([J, Js])
-            y_row = np.concatenate([Yn[t], Yr[t], Ysurv[t]])
-        else:
-            y_row = np.concatenate([Yn[t], Yr[t]])
+            parts.append(Ysurv[t])
+        if use_proxy:
+            yp = np.array([p.a_lp + p.b_lp * xp[4]])
+            Jp = np.zeros((1, n)); Jp[0, 4] = p.b_lp
+            y_hat = np.concatenate([y_hat, yp]); J = np.vstack([J, Jp])
+            parts.append(np.array([Yproxy[t]]))
+        y_row = np.concatenate(parts)
         mask = np.isfinite(y_row)
         if not mask.any():
             x, P = xp, Pp; xs[t] = x; continue
@@ -215,15 +244,17 @@ def _stationary(p: JointParams, dt: float) -> bool:
 
 
 def negloglik(v, Yn, Yr, grid_n, grid_r, dt, elb_n, n_per_year=48,
-              Ysurv=None, grid_surv=None, mr_halflife=3.5, survey=False) -> float:
-    extra = 4 if survey else 3
+              Ysurv=None, grid_surv=None, mr_halflife=3.5, survey=False,
+              Yproxy=None, liqproxy=False) -> float:
+    extra = 3 + int(survey) + 3 * int(liqproxy)
     n = (len(v) - extra) // 3
-    p = JointParams.unpack(v, elb_n, n, survey=survey)
+    p = JointParams.unpack(v, elb_n, n, survey=survey, liqproxy=liqproxy)
     if not np.all(np.isfinite(v)) or not _stationary(p, dt):
         return 1e12
     try:
         _, _, ll = filter_states(p, Yn, Yr, grid_n, grid_r, dt, n_per_year,
-                                 Ysurv=Ysurv, grid_surv=grid_surv, mr_halflife=mr_halflife)
+                                 Ysurv=Ysurv, grid_surv=grid_surv, mr_halflife=mr_halflife,
+                                 Yproxy=Yproxy)
     except Exception:                                             # noqa: BLE001
         return 1e12
     return 1e12 if not np.isfinite(ll) else -ll
@@ -231,23 +262,30 @@ def negloglik(v, Yn, Yr, grid_n, grid_r, dt, elb_n, n_per_year=48,
 
 def estimate(Yn, Yr, grid_n, grid_r, dt, elb_n=-0.0035, warm: JointParams | None = None,
              maxiter=4000, n_per_year=24, liq=False,
-             Ysurv=None, grid_surv=None, mr_halflife=3.5):
+             Ysurv=None, grid_surv=None, mr_halflife=3.5, Yproxy=None):
     """QML estimate of the joint model (Nelder-Mead). ``liq=True`` adds the TIPS
     liquidity factor (5-factor). ``Ysurv`` (with ``grid_surv``) anchors the model's
     expected-inflation term structure to survey (ATSIX) observations, identifying the
-    IRP level. Warm-start from `warm` if given."""
+    IRP level. ``Yproxy`` (needs ``liq``) adds the TIPS liquidity 'noise' proxy as an
+    affine observation of ℓ, identifying the liquidity/IRP split from a price-based,
+    non-circular source. Warm-start from `warm` if given."""
     survey = Ysurv is not None
+    liqproxy = Yproxy is not None and liq
     if warm is None:
         warm = _default_init(Yn, Yr, liq=liq)
-    v0 = warm.pack(survey=survey)
+    if liqproxy and warm.b_lp == 0.0:                            # sane proxy-loading init
+        pr = np.asarray(Yproxy, float)
+        warm.a_lp = float(np.nanmean(pr)); warm.b_lp = 1.0
+        warm.h_lp = float(np.nanstd(pr)) or 0.005
+    v0 = warm.pack(survey=survey, liqproxy=liqproxy)
     n = warm.n
     res = scipy.optimize.minimize(
         negloglik, v0,
         args=(Yn, Yr, grid_n, grid_r, dt, elb_n, n_per_year,
-              Ysurv, grid_surv, mr_halflife, survey),
+              Ysurv, grid_surv, mr_halflife, survey, Yproxy, liqproxy),
         method="Nelder-Mead",
         options={"maxiter": maxiter, "maxfev": maxiter, "xatol": 1e-5, "fatol": 1e-4})
-    p = JointParams.unpack(res.x, elb_n, n, survey=survey)
+    p = JointParams.unpack(res.x, elb_n, n, survey=survey, liqproxy=liqproxy)
     return p, res
 
 

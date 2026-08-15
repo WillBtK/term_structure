@@ -29,8 +29,9 @@ COMMON = np.array([g for g in REAL_GRID if np.isclose(NOM_GRID, g).any()])  # su
 START = "2004-01-01"
 
 
-def _fname(liq: bool, survey: bool) -> str:
-    tag = "".join(["_liq" if liq else "", "_surv" if survey else ""])
+def _fname(liq: bool, survey: bool, liqproxy: bool = False) -> str:
+    tag = "".join(["_liq" if liq else "", "_surv" if survey else "",
+                   "_lp" if liqproxy else ""])
     return f"joint_us{tag}_results.json"
 
 
@@ -60,37 +61,48 @@ def _warm_from_result(fname: str) -> "ja.JointParams | None":
         h_s=r.get("h_s", 0.005))
 
 
-def run(maxiter: int = 2500, liq: bool = False, survey: bool = False) -> dict:
+def run(maxiter: int = 2500, liq: bool = False, survey: bool = False,
+        liqproxy: bool = False) -> dict:
     nom, real = build_matched_panels()
     Yn, Yr = nom.to_numpy(float), real.to_numpy(float)
     dates = nom.index
-    Ysurv = grid_surv = None
-    warm = _warm_from_result(_fname(liq, survey=False)) if survey else None
+    Ysurv = grid_surv = Yproxy = None
+    warm = _warm_from_result(_fname(liq, survey, liqproxy=False)) if liqproxy \
+        else (_warm_from_result(_fname(liq, survey=False)) if survey else None)
     if warm is not None:
-        logger.info("warm-starting from %s", _fname(liq, survey=False))
+        logger.info("warm-starting from %s",
+                    _fname(liq, survey, liqproxy=False) if liqproxy else _fname(liq, False))
     if survey:
         from validation.benchmarks import atsix_panel
-        surv = atsix_panel(COMMON, dates=dates)
-        Ysurv, grid_surv = surv.to_numpy(float), COMMON
-        cov = int(np.isfinite(Ysurv).all(axis=1).sum())
+        Ysurv, grid_surv = atsix_panel(COMMON, dates=dates).to_numpy(float), COMMON
         logger.info("ATSIX survey anchor: %d/%d months covered, tenors %s",
-                    cov, len(dates), list(COMMON))
-    logger.info("joint US%s%s: %d months %s..%s | nom %s real %s",
+                    int(np.isfinite(Ysurv).all(axis=1).sum()), len(dates), list(COMMON))
+    if liqproxy:
+        if not liq:
+            raise ValueError("--liqproxy requires --liq (needs the liquidity factor ℓ)")
+        from validation.tips_liquidity import noise_panel
+        Yproxy = noise_panel(dates).to_numpy(float)
+        logger.info("TIPS 'noise' liquidity proxy: %d/%d months covered (price-based, "
+                    "non-circular)", int(np.isfinite(Yproxy).sum()), len(dates))
+    logger.info("joint US%s%s%s: %d months %s..%s | nom %s real %s",
                 " +liquidity" if liq else "", " +survey" if survey else "",
+                " +liqproxy" if liqproxy else "",
                 len(nom), dates.min().date(), dates.max().date(),
                 list(NOM_GRID), list(REAL_GRID))
     p, res = ja.estimate(Yn, Yr, NOM_GRID, REAL_GRID, dt=1 / 12, elb_n=-0.0035,
-                         maxiter=maxiter, n_per_year=24, liq=liq,
-                         Ysurv=Ysurv, grid_surv=grid_surv, mr_halflife=3.5)
+                         warm=warm, maxiter=maxiter, n_per_year=24, liq=liq,
+                         Ysurv=Ysurv, grid_surv=grid_surv, mr_halflife=3.5, Yproxy=Yproxy)
     xf, _, ll = ja.filter_states(p, Yn, Yr, NOM_GRID, REAL_GRID, 1 / 12,
-                                 Ysurv=Ysurv, grid_surv=grid_surv, mr_halflife=3.5)
+                                 Ysurv=Ysurv, grid_surv=grid_surv, mr_halflife=3.5,
+                                 Yproxy=Yproxy)
     d = ja.decompose(p, xf, NOM_GRID, REAL_GRID, mr_halflife=3.5)
     out = {"dates": [str(x.date()) for x in dates], "loglik": float(ll),
-           "liq": liq, "survey": survey,
+           "liq": liq, "survey": survey, "liqproxy": liqproxy,
            "success": bool(res.success), "common": [float(c) for c in d["common"]],
            "kappa": p.kappa.tolist(), "theta": p.theta.tolist(), "sigma": p.sigma.tolist(),
            "lambda": float(p.lambda_), "h_n": float(p.h_n), "h_r": float(p.h_r),
-           "h_s": float(p.h_s)}
+           "h_s": float(p.h_s), "a_lp": float(p.a_lp), "b_lp": float(p.b_lp),
+           "h_lp": float(p.h_lp)}
     for m in (5.0, 10.0):
         jn = int(np.where(np.isclose(NOM_GRID, m))[0][0])
         jr = int(np.where(np.isclose(REAL_GRID, m))[0][0])
@@ -101,24 +113,25 @@ def run(maxiter: int = 2500, liq: bool = False, survey: bool = False) -> dict:
         out[f"einfl_{m:g}"] = (d["expected_inflation"][:, jc] * 100).round(4).tolist()
         out[f"liq_{m:g}"] = (d["liquidity_premium"][:, jc] * 100).round(4).tolist()
     SCRATCH.mkdir(exist_ok=True)
-    fname = _fname(liq, survey)
+    fname = _fname(liq, survey, liqproxy)
     (SCRATCH / fname).write_text(json.dumps(out))
-    logger.info("joint US done: loglik=%.1f success=%s h_s=%.4f -> scratchpad/%s",
-                ll, res.success, p.h_s, fname)
+    logger.info("joint US done: loglik=%.1f success=%s h_s=%.4f b_lp=%.3f -> scratchpad/%s",
+                ll, res.success, p.h_s, p.b_lp, fname)
     return out
 
 
-def compare(liq: bool = False, survey: bool = False) -> None:
+def compare(liq: bool = False, survey: bool = False, liqproxy: bool = False) -> None:
     """Print joint vs DKW (and note vs separate-AFNS) at 5y/10y, latest + correlation."""
-    fname = _fname(liq, survey)
+    fname = _fname(liq, survey, liqproxy)
     res = json.loads((SCRATCH / fname).read_text())
     dates = pd.DatetimeIndex(res["dates"])
     from validation.benchmarks import load_dkw, atsix_panel
     dkw = load_dkw()
     atsix = atsix_panel(COMMON, dates=dates) if res.get("survey") else None
     print(f"\nJoint US spike — {dates.min().date()}..{dates.max().date()} "
-          f"(loglik {res['loglik']:.0f}, success {res['success']}, "
-          f"liq={res.get('liq')}, survey={res.get('survey')}, h_s={res.get('h_s', float('nan')):.4f})\n")
+          f"(loglik {res['loglik']:.0f}, success {res['success']}, liq={res.get('liq')}, "
+          f"survey={res.get('survey')}, liqproxy={res.get('liqproxy')}, "
+          f"h_s={res.get('h_s', float('nan')):.4f}, b_lp={res.get('b_lp', float('nan')):.3f})\n")
     for m in (5, 10):
         js = pd.Series(res[f"irp_{m}"], index=dates)
         jr = pd.Series(res[f"tp_r_{m}"], index=dates)
@@ -153,12 +166,14 @@ def _main() -> None:
     ap.add_argument("--liq", action="store_true", help="add the TIPS liquidity factor (5-factor)")
     ap.add_argument("--survey", action="store_true",
                     help="anchor expected inflation to the ATSIX survey term structure")
+    ap.add_argument("--liqproxy", action="store_true",
+                    help="identify the liquidity factor with the TIPS 'noise' proxy (needs --liq)")
     ap.add_argument("--maxiter", type=int, default=2500)
     args = ap.parse_args()
     if args.compare:
-        compare(liq=args.liq, survey=args.survey)
+        compare(liq=args.liq, survey=args.survey, liqproxy=args.liqproxy)
     else:
-        run(maxiter=args.maxiter, liq=args.liq, survey=args.survey)
+        run(maxiter=args.maxiter, liq=args.liq, survey=args.survey, liqproxy=args.liqproxy)
 
 
 if __name__ == "__main__":

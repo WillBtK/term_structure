@@ -106,3 +106,12 @@ ATSIX_URL = os.environ.get(
     "ATSIX_Vintages.xlsx?la=en&sc_lang=en&hash=EF53EB526F14CD928F9FCEB7F9A33946")
 ATSIX_RAW_PATH = DATA_DIR / "atsix_vintages.xlsx"
 ATSIX_PARQUET_PATH = DATA_DIR / "atsix_series.parquet"
+
+# ---------------------------------------------------------------------------
+# TIPS liquidity "noise" proxy (Hu-Pan-Wang 2013 applied to the TIPS cross-section),
+# built from FRED individual TIPS securities via the official API. A price-based,
+# non-circular liquidity observable to identify the joint model's IRP dynamics
+# (validation/tips_liquidity.py). FRED_API_KEY read from the environment.
+# ---------------------------------------------------------------------------
+TIPS_NOISE_RAW_PARQUET = DATA_DIR / "tips_individual_yields.parquet"
+TIPS_NOISE_PARQUET = DATA_DIR / "tips_noise_daily.parquet"
