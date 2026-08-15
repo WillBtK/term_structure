@@ -38,6 +38,7 @@ def _refreshers():
     from switzerland.fetch_snb import load_yields as ch_load
     from validation import benchmarks as bench
     from validation.sf_fed import load_sf_fed_series
+    from validation.tips_liquidity import build_noise
     return [
         ("US GSW (nominal)", lambda: load_gsw_params(refresh=True)),
         ("US TIPS (real)", lambda: load_tips_params(refresh=True)),
@@ -48,6 +49,10 @@ def _refreshers():
         ("Switzerland (daily)", lambda: ch_load(refresh=True, freq="D")),
         ("Benchmark: C&R (SF Fed)", lambda: load_sf_fed_series(refresh=True)),
         ("Benchmarks: ACM/KW/DKW", lambda: bench.refresh_all_us_benchmarks(refresh=True)),
+        # Standalone daily product (not just a model input): the TIPS curve-fitting
+        # "noise" / liquidity gauge — a free substitute for the vendor RMSE series.
+        # Needs FRED_API_KEY; guarded like every other source (cache fallback).
+        ("TIPS noise (liquidity gauge)", lambda: build_noise(refresh=True, freq="D")),
     ]
 
 

@@ -53,6 +53,17 @@ def _benchmarks_long() -> pd.DataFrame:
                        var_name="metric", value_name="value").dropna(subset=["value"])
         long.insert(0, "source", name)
         frames.append(long)
+    # TIPS curve-fitting "noise" (liquidity gauge) — a standalone daily product, not a
+    # TP model. Curve-wide (no maturity), so maturity=0 sentinel; value in decimal.
+    if vcfg.TIPS_NOISE_PARQUET.exists():
+        try:
+            from validation.tips_liquidity import build_noise
+            nz = build_noise(refresh=False, freq="D")[["date", "noise"]].dropna()
+            nz = nz.rename(columns={"noise": "value"})
+            nz["source"] = "tips_noise"; nz["maturity"] = 0.0; nz["metric"] = "rmse"
+            frames.append(nz[["source", "date", "maturity", "metric", "value"]])
+        except Exception:                                          # noqa: BLE001
+            pass
     return (pd.concat(frames, ignore_index=True) if frames
             else pd.DataFrame(columns=["source", "date", "maturity", "metric", "value"]))
 
