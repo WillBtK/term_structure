@@ -62,3 +62,48 @@ factor (per `FINDINGS_inflation.md`) — i.e. more identification burden, not le
 Until then, the production IRP stays the documented separate-AFNS "subtract" number
 (US clean, UK caveated); the joint model lives in `model/joint_afns.py` / `us/joint_us.py`
 as the validated foundation for the liquidity-factor extension.
+
+---
+
+## Update — the TIPS liquidity factor (5-factor joint model)
+
+Added a 5th latent factor loading on the **real (TIPS)** measurement only, via a
+maturity-decaying loading β(τ)=(1−e^{−γτ})/(γτ) (distinct from the flat real level, so
+identified). It captures TIPS illiquidity; the **clean** real yield/TP excludes it and
+the liquidity wedge is reported separately. Re-estimated on the same US 2004+ panel.
+
+| 10y quantity | 4-factor | **5-factor (+liq)** | DKW | 5f corr vs DKW |
+|---|---|---|---|---|
+| loglik | 14723 | **15980** | — | — |
+| real term premium | +1.68% | **+0.06%** | +0.79% | **0.93** |
+| inflation-risk premium | −0.17% | +0.38% | +0.11% | **−0.65** |
+| expected inflation | +2.59% | +2.15% | +2.80% | **0.86** |
+| TIPS liquidity premium | — | +0.10% | +0.44% | **0.65** |
+
+**What the liquidity factor fixes (real improvements):**
+- **Much better fit** (loglik 14723 → 15980) — TIPS illiquidity was a large, real,
+  previously-unmodelled source of misfit (the 4-factor `h_r`=31 bp was the tell).
+- **Real-TP co-movement rises to 0.93** (from 0.84) and it is pulled *down* off the
+  inflated 4-factor level toward DKW's neighbourhood.
+- **Expected-inflation co-movement jumps to 0.86** (from 0.38), level ~2.2% (DKW 2.8%).
+- **A recovered liquidity series that tracks DKW's** (corr 0.65) — spiking in
+  2008/2020 as it should.
+
+**What it still does not fix (the honest wall):**
+- **The IRP is still wrong** — the 10y IRP now *negatively* correlates with DKW
+  (−0.65). The IRP is the small residual difference of two large components (nominal
+  TP, clean real TP), and without an external anchor the model cannot pin the *level
+  split* between the real term premium and the liquidity premium: it overshoots
+  (clean real TP → ~0, below DKW; liquidity premium ~0.1% vs DKW's ~0.44%). Good
+  co-movement, wrong decomposition of the level.
+
+**Refined verdict — GO on the model, but the IRP needs a survey anchor before
+production.** The joint + liquidity model is a clear, coherent improvement (fit,
+real-TP and expected-inflation co-movement, a DKW-tracking liquidity series). The
+remaining gap is exactly what DKW has and we do not: **survey inflation expectations**
+(SPF / Blue Chip) to anchor the level split and identify the IRP. That is a **US-only
+overlay** (the portability caveat in `FINDINGS_phase3.md` Strand E) — acceptable for a
+US inflation product. Sequencing: add the survey anchor and re-validate the US IRP vs
+DKW; only then take the joint model to the **UK** (which additionally needs RPI→CPI and
+an LDI/convenience factor). The production IRP stays the separate-AFNS number until the
+US joint IRP validates.
