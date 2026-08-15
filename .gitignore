@@ -32,4 +32,6 @@ uk/data/*
 switzerland/data/*
 viz/data_daily.parquet
 viz/data.json
+viz/global_factor_meta.json
+viz/params/global_factor.json
 scheduler/supabase_stage/
