@@ -170,6 +170,13 @@ Target a common maturity grid across countries for comparability, e.g.
 - Expect the shadow-rate model to **diverge** from both plain-AFNS and from
   Krippner during each country's ZLB/negative-rate window — that divergence
   is expected, not a bug.
+- **US external benchmarks** (`validation/benchmarks.py`, pulled alongside the
+  rates): **ACM** (NY Fed, 5-factor), **Kim-Wright** (Fed Board, via FRED
+  `THREEFYTP*`), and **DKW** (D'Amico-Kim-Wei; also supplies real-TP and
+  inflation-risk-premium references for the joint model) — plus C&R above. The
+  Atlas "Cross-check" panel overlays our US term premium on all four; the spread
+  between these independent models is the honest uncertainty band on "the" US term
+  premium. Each loader mirrors `sf_fed.py` (env-URL, parquet cache, cached-fallback).
 
 ## Estimation cadence (operational design)
 
@@ -200,6 +207,14 @@ rolling window. Implementation: `us.production_tp.ProductionParams` (the cached,
 JSON-serializable parameter set produced by a re-estimation) + `filter_forward`
 (the fast daily decomposition). Estimation `restarts` default is **1** (warm-started
 re-estimation converges in one pass; multi-start is opt-in for cold fits).
+
+**Implemented in `/scheduler`.** `daily_update.py` is the fast daily path (refresh
+all source caches + benchmarks → `export_daily` → `thin_daily` → `build_artifact`,
+cached params, no estimation); `reestimate.py` is the slow weekly re-estimation
+(warm-started, falls back to the last valid `viz/params/*.json` on failure);
+`supabase_export.py` writes/ upserts the Supabase-ready tables. A daily Routine
+(cron, **00:00 UTC = 7pm EST**) runs the fast path, commits+pushes `viz/data.json`
+and `viz/artifact.html`, and republishes the Atlas. See `scheduler/README.md`.
 
 ## Build sequence
 
