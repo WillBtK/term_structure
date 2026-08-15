@@ -14,20 +14,28 @@ separated so the daily job never runs the convergence-fragile optimizer.
 
 ## Daily schedule + publish
 
-A Claude Code Remote **Routine** (cron trigger) fires a fresh session at **00:00 UTC
-(= 7pm EST / 8pm EDT, fixed)** which:
-1. `python -m scheduler.daily_update` — refresh + rebuild (fast path),
-2. commits & pushes `viz/data.json`, `viz/artifact.html` (data caches are gitignored)
-   to `claude/us-yield-curve-plan-ryw3is`,
-3. `python -m scheduler.supabase_export` — stage (+ upload if creds),
-4. republishes the Atlas to its existing artifact URL.
+**Primary: GitHub Actions + GitHub Pages** (`.github/workflows/daily-update.yml`),
+cron **00:00 UTC (= 7pm EST / 8pm EDT, fixed)**. On a GitHub runner (open egress —
+no proxy flakiness, so FRED/NY-Fed/etc. all resolve) it runs `daily_update`, then
+`supabase_export` (with `SUPABASE_URL`/`SUPABASE_KEY` repo secrets), then deploys
+`viz/artifact.html` to **GitHub Pages** — an auto-updating public URL that needs no
+Artifact tool and no daily 13 MB git commit. One-time owner setup: enable Actions,
+set **Pages → Source: GitHub Actions**, (optional) add the two Supabase secrets.
+Scheduled runs fire only from the **default branch**, so it stays dormant until this
+work merges; use "Run workflow" to trigger manually meanwhile.
 
-00:00 UTC is fixed (a 1-hour seasonal drift under US daylight saving is accepted);
-it is late enough in the US day that same-day GSW / ACM / DKW / FRED updates have
-posted. A fired session inherits this environment's repo write access, the source
-allowlist, and the Artifact tool. (A GitHub Action could run steps 1–3 with open
-egress, but cannot republish the Artifact, so a fired session is the single
-mechanism.)
+**Why not auto-republish the claude.ai Artifact:** neither a GitHub runner nor a
+Claude Code Remote fired session has the **Artifact tool** (verified — the tool is
+only in interactive sessions), so the live *claude.ai* Atlas is refreshed
+interactively (or you rely on the Pages URL, which updates automatically). 00:00 UTC
+is fixed (1-hour seasonal DST drift accepted); it is late enough that same-day GSW /
+ACM / DKW / FRED updates have posted.
+
+**Fallback (disabled): a Claude Code Remote Routine** (`trig_017cXP2SMdLX3MiP7Hc7tzs4`,
+currently disabled). It fires a fresh session that runs `daily_update` +
+`supabase_export` + git-push (data-only; no republish). It works without GitHub
+setup but uses the flakier sandbox egress and can't publish the live Atlas — re-enable
+it via `update_trigger(enabled=true)` only if you prefer it over GitHub Actions.
 
 ## Manual runs
 

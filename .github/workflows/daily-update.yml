@@ -1,0 +1,70 @@
+name: Daily term-premium update
+
+# Robust daily pipeline: refresh all source data (open egress on GitHub runners —
+# no proxy flakiness), recompute term premia via the cached-params filter-forward,
+# publish the Atlas to GitHub Pages (an auto-updating URL — no Artifact tool needed),
+# and upsert the dataset to Supabase when secrets are configured.
+#
+# NOTE: scheduled workflows only run from the repository's DEFAULT branch, so this
+# stays dormant until the work merges to the default branch. Use "Run workflow"
+# (workflow_dispatch) to trigger it manually on any branch meanwhile.
+#
+# One-time setup by the repo owner:
+#   * Settings → Actions → allow workflows (read/write via the built-in GITHUB_TOKEN).
+#   * Settings → Pages → Source: GitHub Actions (enables the Pages deploy).
+#   * (optional) Settings → Secrets → Actions: SUPABASE_URL, SUPABASE_KEY.
+
+on:
+  schedule:
+    - cron: "0 0 * * *"        # 00:00 UTC = 7pm EST / 8pm EDT (fixed)
+  workflow_dispatch: {}         # manual trigger (any branch)
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: daily-term-premium
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Refresh data + rebuild atlas (fast filter-forward path)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+        run: python -m scheduler.daily_update
+      - name: Export to Supabase (inert without secrets)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python -m scheduler.supabase_export
+      - name: Stage the Atlas for Pages
+        run: |
+          mkdir -p _site
+          cp viz/artifact.html _site/index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
