@@ -88,6 +88,7 @@ def build() -> dict:
     full = cutoff <= canon["date"].min()
     res = "daily, full history" if full else f"daily (last {DAILY_YEARS:g}y) + weekly history"
     _attach_us_regime_overlay(countries)
+    _attach_us_benchmarks(countries)
     return {"meta": {"asof": str(asof.date()), "units": "percent",
                      "resolution": res,
                      "note": "Term premium = observed yield - expected avg short rate (realised)."},
@@ -109,6 +110,49 @@ def _attach_us_regime_overlay(countries: dict) -> None:
         "x": _xdec(idx), "dates": [str(d.date()) for d in idx],
         "tp": [round(float(v), 4) for v in s.values],
         "note": "2-regime Kim-filter model (per-era θ); illustrative in the extrapolated era."}
+
+
+# External US TP benchmarks for side-by-side plotting. (label, loader) — C&R via
+# sf_fed; ACM/Kim-Wright/DKW via benchmarks. Each is optional/guarded so a cold or
+# degraded source (e.g. FRED) never breaks the build.
+def _attach_us_benchmarks(countries: dict) -> None:
+    """Attach external US term-premium benchmarks (ACM, Kim-Wright, DKW, C&R) to
+    US:nominal as a `benchmarks` sub-block, each `{label, tp:{tenor:[pct]}, x, dates}`
+    at month-end resolution (the panel is a slow-moving comparison)."""
+    from validation import benchmarks as bm
+    from validation import sf_fed
+    from validation import config as vcfg
+    # (key, label, cache_path, loader) — cache-ONLY: skip any source whose parquet is
+    # absent so the build never triggers a live fetch (the daily job refreshes first).
+    sources = [
+        ("acm", "ACM (NY Fed)", vcfg.ACM_PARQUET_PATH, bm.load_acm),
+        ("kim_wright", "Kim-Wright (FRED)", vcfg.KIM_WRIGHT_PARQUET_PATH, bm.load_kim_wright),
+        ("dkw", "DKW (Fed Board)", vcfg.DKW_PARQUET_PATH, bm.load_dkw),
+        ("cr", "Christensen-Rudebusch (SF Fed)", vcfg.SF_FED_PARQUET_PATH, sf_fed.load_sf_fed_series),
+    ]
+    out = {}
+    for key, label, cache_path, load in sources:
+        if not cache_path.exists():
+            continue                                               # no cache -> skip (no fetch)
+        try:
+            df = load(refresh=False)
+        except Exception:                                          # noqa: BLE001
+            continue
+        if df is None or "term_premium" not in df.columns or df.empty:
+            continue
+        d = df.dropna(subset=["term_premium"]).copy()
+        d["date"] = pd.to_datetime(d["date"])
+        d = d.groupby([d["date"].dt.year, d["date"].dt.month, "maturity"]).tail(1)  # month-end
+        dates = pd.DatetimeIndex(sorted(d["date"].unique()))
+        tp = {}
+        for mat, g in d.groupby("maturity"):
+            s = g.set_index("date")["term_premium"].reindex(dates)
+            tp["%g" % float(mat)] = [None if pd.isna(v) else round(float(v) * 100, 4) for v in s]
+        out[key] = {"label": label, "x": _xdec(dates),
+                    "dates": [str(x.date()) for x in dates], "tp": tp}
+        print(f"benchmark {key}: {len(dates)} months, tenors {sorted(tp)}")
+    if out:
+        countries["US"]["instruments"]["nominal"]["benchmarks"] = out
 
 
 def main() -> None:

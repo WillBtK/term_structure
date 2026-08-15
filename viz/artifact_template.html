@@ -780,6 +780,51 @@ function lastVal(block, measure, tenor){
   s.appendChild(call);
 })();
 
+/* ------------------------------------------------ 3c. US TP vs EXTERNAL MODELS */
+(function(){
+  const b=DATA.countries.US.instruments.nominal;
+  const bench=b.benchmarks; if(!bench || !Object.keys(bench).length) return;
+  panel('benchmarks','Cross-check','Our US term premium vs the standard models',
+    ['The US 10-year term premium is a much-watched number with several published estimates that often disagree by a percentage point or more. Here our estimate sits alongside <b>ACM</b> (NY Fed, 5-factor), <b>Kim-Wright</b> (Fed Board, 3-factor), <b>DKW</b> (D’Amico-Kim-Wei, nominal+real), and <b>Christensen-Rudebusch</b> (SF Fed) — the series our expected-rate anchor was calibrated to. Monthly; pick a maturity.']);
+  const s=M.lastChild;
+  // fixed colour per source (categorical, stable)
+  const BCOL={ours:'blue', cr:'crimson', acm:'orange', kim_wright:'teal', dkw:'purple'};
+  const ORDER=['ours','cr','acm','kim_wright','dkw'];
+  const LABELS={ours:'Our estimate', cr:bench.cr&&bench.cr.label, acm:bench.acm&&bench.acm.label,
+                kim_wright:bench.kim_wright&&bench.kim_wright.label, dkw:bench.dkw&&bench.dkw.label};
+  const BM={tenor:'10'};
+  // tenors offered = those our series has AND at least one benchmark has
+  const benchTenors=new Set(); Object.values(bench).forEach(v=>Object.keys(v.tp).forEach(t=>benchTenors.add(t)));
+  const tenors=b.tenors.filter(t=>benchTenors.has(t));
+  const bar=h('div',{class:'ctrlbar'});
+  const g=h('div',{class:'grp'}); g.appendChild(h('span',{class:'eyebrow'},'Maturity'));
+  const sel=h('select',{class:'select-control'}); sel.style.minWidth='110px';
+  tenors.forEach(t=>sel.appendChild(h('option',{value:t}, t+'y'))); sel.value=(tenors.includes('10')?'10':tenors[tenors.length-1]); BM.tenor=sel.value;
+  sel.onchange=()=>{ BM.tenor=sel.value; render(); }; g.appendChild(sel); bar.appendChild(g); s.appendChild(bar);
+  const c=h('div',{class:'card'}); const ct=h('div',{class:'card-title'}); c.appendChild(ct);
+  const cn=h('div',{class:'card-note'}); c.appendChild(cn);
+  const lg=h('div'); c.appendChild(lg); const box=h('div'); c.appendChild(box); s.appendChild(c);
+  const call=h('div',{class:'callout'});
+  call.innerHTML='These are independent models on similar data, so the <b>spread between them is itself the honest uncertainty band</b> on “the” term premium — often 100&nbsp;bp+ at the long end. Ours is anchored to Christensen-Rudebusch by construction (the mean-reversion calibration); ACM and Kim-Wright typically read lower (more of the curve attributed to expected rates), DKW sits in between. Divergence widens exactly when it matters most — the 2008 crisis, the 2013 taper, 2020, and the 2022–23 hiking cycle.';
+  c.appendChild(call);
+  function render(){
+    const t=BM.tenor;
+    ct.textContent=`US ${t}-year term premium — our estimate vs external models`;
+    cn.textContent='Percent, monthly. Each line is a different published term-premium model.';
+    const series=[];
+    ORDER.forEach(k=>{
+      let pts;
+      if(k==='ours') pts=ptsFor(b,'tp',t);
+      else { const bd=bench[k]; if(!bd||!bd.tp[t]) return; pts=bd.x.map((x,i)=>[x,bd.tp[t][i]]).filter(p=>p[1]!=null); }
+      if(pts&&pts.length) series.push({label:LABELS[k]||k, color:COL()[BCOL[k]], width:k==='ours'?2.5:1.5, pts});
+    });
+    lg.innerHTML=''; lg.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
+    box.innerHTML='';
+    drawLine(box,{height:300, yZero:true, yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtDay, series});
+  }
+  render(); CHARTS.push(render);
+})();
+
 /* ------------------------------------------------ 4. DATA / METHOD */
 (function(){
   panel('data','The data','Method & download',
