@@ -56,3 +56,33 @@ DATA_DIR = Path(__file__).resolve().parent / "reports"
 SF_FED_RAW_PATH = DATA_DIR / "sf_fed_raw"          # extension added by fetcher
 SF_FED_PARQUET_PATH = DATA_DIR / "sf_fed_series.parquet"
 REPORTS_DIR = DATA_DIR
+
+# ---------------------------------------------------------------------------
+# External US term-premium benchmark series (for side-by-side plotting and as
+# validation references). Pulled alongside the underlying rates. All parsed to the
+# canonical decimal schema (date, maturity, ...) by validation/benchmarks.py.
+#
+#   ACM  — Adrian-Crump-Moench (NY Fed), 5-factor, daily 1961+, maturities 1-10y.
+#          The ".csv" endpoint actually serves a legacy .xls workbook (sheets
+#          "ACM Daily"/"ACM Monthly"; columns ACMTP/ACMRNY/ACMY 01..10, percent).
+#   KW   — Kim-Wright (Fed Board 3-factor), FRED series THREEFYTP01..10 (term
+#          premium, percent, daily 1990+); one keyless CSV per maturity.
+#   DKW  — D'Amico-Kim-Wei (Fed Board), daily 1983+; 5y/10y/5f5 decomposition of
+#          nominal + real. Nominal term premium = real.term.prem + inflation.risk.prem.
+# Christensen-Rudebusch (SF Fed) is handled separately in validation/sf_fed.py.
+# ---------------------------------------------------------------------------
+ACM_URL = os.environ.get(
+    "ACM_URL",
+    "https://www.newyorkfed.org/medialibrary/media/research/data_indicators/ACMTermPremium.csv")
+KIM_WRIGHT_FRED_BASE = os.environ.get(
+    "KIM_WRIGHT_FRED_BASE", "https://fred.stlouisfed.org/graph/fredgraph.csv?id=")
+KIM_WRIGHT_IDS = [f"THREEFYTP{n:02d}" for n in range(1, 11)]   # 1y..10y term premium
+DKW_URL = os.environ.get(
+    "DKW_URL",
+    "https://www.federalreserve.gov/econres/notes/feds-notes/DKW_updates.csv")
+
+ACM_RAW_PATH = DATA_DIR / "acm_raw.xls"
+ACM_PARQUET_PATH = DATA_DIR / "acm_series.parquet"
+KIM_WRIGHT_PARQUET_PATH = DATA_DIR / "kim_wright_series.parquet"
+DKW_RAW_PATH = DATA_DIR / "dkw_updates.csv"
+DKW_PARQUET_PATH = DATA_DIR / "dkw_series.parquet"
