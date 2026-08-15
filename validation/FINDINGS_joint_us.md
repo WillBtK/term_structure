@@ -107,3 +107,87 @@ US inflation product. Sequencing: add the survey anchor and re-validate the US I
 DKW; only then take the joint model to the **UK** (which additionally needs RPI→CPI and
 an LDI/convenience factor). The production IRP stays the separate-AFNS number until the
 US joint IRP validates.
+
+---
+
+## Update — the ATSIX survey anchor (expected-inflation identification)
+
+Blue Chip is paywalled, so we anchor to the Philadelphia Fed's **ATSIX** (Aruoba Term
+Structure of Inflation Expectations) instead: free, monthly (1998+), a full term
+structure of *survey-based* expected inflation that itself blends SPF + Blue Chip +
+Michigan through a Nelson-Siegel state-space model — i.e. the same survey information
+DKW use, delivered ready-to-use. `infexp{h}` is the horizon-average expected inflation,
+matching the model's `expected_inflation(τ)` object; horizons map exactly to the grid
+(2y=`infexp24` … 10y=`infexp120`). It enters as **extra EKF measurement rows** on the
+model's expected-inflation term structure (survey error SD `h_s`, analytic Jacobian
+`d E[max(s,ELB)]/dμ = Φ(d)`, verified vs finite differences to 7e-12). Estimated on the
+same US 2004+ panel; `atsix_panel` covered all 271 months.
+
+### Result at 10y (correlation over the sample; E[infl] vs ATSIX, the anchor target)
+
+| 10y quantity | 4f | 5f (+liq) | **4f +survey** | **5f (+liq) +survey** | DKW |
+|---|---|---|---|---|---|
+| real term premium corr(DKW) | 0.84 | 0.93 | 0.97 | **0.98** | — |
+| real term premium (latest) | +1.68% | +0.06% | +1.05% | +1.28% | +0.79% |
+| TIPS liquidity prem corr(DKW) | — | 0.65 | — | **0.77** | — |
+| expected inflation corr | 0.38(DKW) | 0.86(DKW) | 0.71(ATSIX) | 0.67(ATSIX) | — |
+| inflation-risk prem corr(DKW) | −0.14 | −0.65 | −0.68 | **−0.21** | — |
+| inflation-risk prem (latest) | −0.17% | +0.38% | −0.20% | **−0.03%** | +0.11% |
+
+`h_s` converged to **~6 bp** (5f) — the optimizer *chose* to trust the survey tightly.
+At 5y the survey pins E[infl] to ATSIX at **corr 0.95**.
+
+### What the survey fixes (real improvements)
+- **Expected inflation is now anchored, by construction**: E[infl] tracks ATSIX at
+  0.95 (5y) / 0.67 (10y), mean gap ≈ 0. (Corr vs *DKW* is lower, ~0.5, only because
+  ATSIX and DKW's own expected-inflation series genuinely differ — ATSIX is smoother;
+  we chose ATSIX as the anchor, so we track ATSIX.)
+- **Real term premium co-moves with DKW at 0.98** (5f+survey), up from 0.84 (4f) /
+  0.93 (5f) — the best of any configuration — and its *level* is pulled to within
+  ~0.1 pp of DKW.
+- **The TIPS liquidity factor is better identified with the anchor present**: liquidity
+  corr(DKW) rises to **0.77** (from 0.65), spiking in 2008/2020 as it should. The
+  survey frees the yields to load illiquidity onto the liquidity factor rather than the
+  real level.
+- **The IRP level lands in DKW's neighborhood**: 5f+survey 10y IRP −0.03% vs DKW
+  +0.11% (was +0.38% for 5f-no-survey, −0.17% for 4f) — a small, near-zero premium, as
+  DKW's is.
+
+### The honest wall — the IRP's *dynamics*, and why expectations data can't fix it
+- **The IRP's high-frequency correlation with DKW stays weak** (−0.21 at 10y, −0.06 at
+  5y for 5f+survey; the 4-factor case is worse, −0.68). The IRP is the small residual
+  of two large components (nominal TP, clean real TP), so small errors in each dominate
+  it.
+- **The structural reason is decisive and worth stating**: the TIPS liquidity premium
+  is a **Q-side (pricing) wedge** on observed real yields — `observed real yield =
+  clean real yield + liquidity`, one equation with two unknowns per date/tenor. A
+  survey on *expectations* (ATSIX InfExp or Real, FRB/US PTR/RSTAR — all P-side) pins
+  the expected-rate paths but **cannot separate two pricing-side objects**. The
+  4-factor+survey case makes this visible: with no liquidity factor the IRP =
+  observed-breakeven − E[infl] is fully identified, but the observed breakeven carries
+  the TIPS-illiquidity spikes (2008, 2020) — which crater the IRP exactly when DKW's
+  liquidity-cleaned IRP does not — hence the *negative* correlation. That is the
+  liquidity signature, direct.
+- The 5-factor liquidity factor mitigates this (IRP corr −0.65 → −0.21, level → DKW's
+  neighborhood) because it *does* carry a pricing-side loading, but yields+survey alone
+  identify it only weakly. Fully pinning the IRP/liquidity split needs a **direct TIPS
+  liquidity observable** (on/off-the-run TIPS spread, TIPS-vs-inflation-swap basis, or
+  DKW's own liquidity series as a prior — the last legitimate for production, circular
+  for validation), *not* more expectations data.
+
+*(Aside considered and rejected as non-additive: the FRB/US `LONGBASE` dataset has
+`PTR` (10y survey inflation) and `RSTAR`/`RRTR` (equilibrium real rate). These anchor
+the same P-side that ATSIX already covers — more redundant expectations, plus a
+quarterly dependency to maintain — and, being P-side, cannot touch the liquidity split.
+Skipped.)*
+
+### Refined verdict — survey anchor is a clear GO; ship the level, caveat the dynamics
+The ATSIX anchor materially improves the joint model: it identifies expected inflation
+(→ ATSIX), delivers the best real-TP co-movement with DKW (0.98) and a well-tracking
+liquidity series (0.77), and brings the IRP **level** into DKW's neighborhood. For a US
+inflation product this is production-usable for **expected inflation, the real term
+premium, and a defensible IRP level**. The IRP's **time-variation** remains
+under-identified (corr ~−0.2 vs DKW) and is gated on a direct liquidity observable, not
+survey data — that is the one remaining ingredient before the joint IRP dynamics match
+DKW. UK extension stays deferred (RPI→CPI + LDI/convenience factor on top of this).
+Config: `python -m us.joint_us --liq --survey` (best), warm-started from `--liq`.
