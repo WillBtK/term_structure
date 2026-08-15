@@ -191,3 +191,53 @@ under-identified (corr ~−0.2 vs DKW) and is gated on a direct liquidity observ
 survey data — that is the one remaining ingredient before the joint IRP dynamics match
 DKW. UK extension stays deferred (RPI→CPI + LDI/convenience factor on top of this).
 Config: `python -m us.joint_us --liq --survey` (best), warm-started from `--liq`.
+
+---
+
+## Update — a price-based TIPS liquidity proxy (HPW "noise"): a negative result
+
+To pin the IRP *dynamics* without the circular DKW series, we built an independent,
+**price-based, non-circular** liquidity observable: the Hu-Pan-Wang (2013) **"noise"
+measure** applied to the TIPS cross-section — per date, the RMS deviation of the
+individual outstanding TIPS yields (all `DTP*` securities from the FRED official API)
+from a smooth fixed-λ Nelson-Siegel fit (`validation/tips_liquidity.py`). It's built
+entirely from individual TIPS prices, never DKW. As a series it behaves exactly as a
+TIPS-illiquidity measure should: **peaking at 45 bp in Dec-2008** (the GFC TIPS freeze),
+~8 bp now, and co-moving with DKW's 10y liquidity premium at **0.43 (levels, 2004+) /
+0.71 (2008-12)**. It enters the model as an affine EKF measurement on the liquidity
+factor, `proxy_t = a + b·ℓ_t + η` (`us/joint_us.py --liq --survey --liqproxy`).
+
+**Result: the proxy does not help — it slightly hurts (10y, vs the `--liq --survey` best):**
+
+| 10y quantity | liq+survey (best) | + noise proxy | DKW |
+|---|---|---|---|
+| real term premium corr | **0.98** | 0.91 | — |
+| TIPS liquidity prem corr | **0.77** | 0.43 | — |
+| TIPS liquidity prem (latest) | +0.05% | ~0.00% (collapsed) | +0.44% |
+| inflation-risk prem corr | **−0.21** | −0.65 | — |
+
+**Why (the honest diagnosis).** The HPW noise is a cross-sectional **dispersion /
+limits-to-arbitrage** measure — small in level (~7 bp mean), dominated by crisis spikes.
+The *priced* TIPS liquidity premium (DKW ~40 bp, persistent) is a **level**. They
+co-move in crises but the noise lacks the persistent-level content. Anchoring ℓ to it
+pins the liquidity factor to the dispersion profile, **collapsing the modelled liquidity
+premium** and pushing the persistent illiquidity back into the real term premium — so
+liquidity co-movement *falls* (0.77→0.43) and the IRP gets worse. Yields + survey alone
+identify the liquidity factor **better** than yields + survey + this proxy. (Persistence
+is not the culprit — both are AR≈0.9, half-lives 5–8 months; the gap is level content.)
+
+**Conclusion.** The best free, non-circular, price-based proxy we can build is a
+*frictions* measure, not the *persistent liquidity-premium level* that separates the
+IRP from the real term premium. That level is available only from (a) arbitrage-basis
+measures — the TIPS-vs-inflation-swap / Fleckenstein-Longstaff-Lustig basis, which needs
+**paid inflation-swap data**, or (b) DKW's own liquidity series, which is **circular**
+for validation. Neither is acceptable here, so the IRP *dynamics* remain a documented
+data limitation.
+
+**Production recommendation — unchanged: `--liq --survey`** (do **not** enable
+`--liqproxy`). The noise-proxy dependency does not earn its keep in the model: it
+degrades the fit it was meant to improve. The `tips_liquidity` loader and the
+`--liqproxy` path are retained as a validated, reusable tool and as the record of this
+experiment, not as a production input. Ship expected inflation, the real term premium,
+and the IRP **level** from `--liq --survey`; treat the IRP's high-frequency dynamics as
+gated on paid arbitrage-basis data (a deliberate non-dependency).
