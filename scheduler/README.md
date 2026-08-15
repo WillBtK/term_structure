@@ -8,9 +8,9 @@ separated so the daily job never runs the convergence-fragile optimizer.
 
 | Script | Cadence | What it does |
 |---|---|---|
-| `daily_update.py` | **daily** | Refresh every source cache (5 rate curves + ACM/Kim-Wright/DKW/C&R benchmarks), then rebuild `viz/data_daily.parquet` → `viz/data.json` → `viz/artifact.html` via the **cached** params (`viz/params/*.json`). No estimation. Per-source fault-tolerant (a failed fetch falls back to that source's cache and is noted in the summary). |
+| `daily_update.py` | **daily** | Refresh every source cache (5 rate curves + ACM/Kim-Wright/DKW/C&R benchmarks + the **TIPS liquidity "noise" gauge**), then rebuild `viz/data_daily.parquet` → `viz/data.json` → `viz/artifact.html` via the **cached** params (`viz/params/*.json`). No estimation. Per-source fault-tolerant (a failed fetch falls back to that source's cache and is noted in the summary). FRED-based sources (Kim-Wright, TIPS noise) use the official API when `FRED_API_KEY` is set. |
 | `reestimate.py` | **weekly/monthly** | Re-estimate each market's state-space params and rewrite `viz/params/*.json`, **warm-started** from the existing params, **falling back to the last valid JSON on failure**. Slow + reclaim-fragile → run deliberately, off the daily job. |
-| `supabase_export.py` | daily (with the daily job) | Write upload-ready long-form CSVs (`term_premia`, `benchmarks`) and, when `SUPABASE_URL`/`SUPABASE_KEY` are set (+ `supabase.co` allowlisted), upsert them. **Inert without credentials** — writes staging files and logs. |
+| `supabase_export.py` | daily (with the daily job) | Write upload-ready long-form CSVs (`term_premia`, `benchmarks` — the latter includes the TIPS noise gauge as `source="tips_noise"`) and, when `SUPABASE_URL`/`SUPABASE_KEY` are set (+ `supabase.co` allowlisted), upsert them. **Inert without credentials** — writes staging files and logs. |
 
 ## Daily schedule + publish
 

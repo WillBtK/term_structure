@@ -8,6 +8,18 @@
 > decomposition method and the RPI-CPI / LDI caveats below still stand, but the
 > IRP = nominal-TP − real-TP levels shift with the corrected inputs.
 
+> **⚠ "Clean" refers to the level, not the dynamics — and the split is NOT
+> shipped.** The US verdict below ("a clean decomposition", "E[inflation] lands at
+> target") is about the *latest/average* implied expected inflation, which does sit
+> near 2%. The full *time series* of the separate-AFNS split is another matter: the
+> implied 10y expected inflation swings from **−1.3% to +5.4% (std 1.27)** because
+> it is the small difference of two independently-estimated premia and inherits both
+> models' noise. For that reason the **Atlas publishes only the two term premia
+> (nominal, real) and does not surface the breakeven → E[infl] + IRP split**. The
+> joint model was built to fix this and gets expected inflation right (tracks ATSIX,
+> std 0.06) but not the IRP — see `FINDINGS_joint_us.md`. Treat the split here as a
+> validated *method* whose separate-AFNS *implementation* is too noisy to headline.
+
 The inflation-linked leg: **real** term premia (US TIPS, UK index-linked gilts)
 and the **breakeven / inflation-risk-premium** decomposition, via the "two
 separate AFNS, subtract" approach (chosen with the user). Real rates have **no

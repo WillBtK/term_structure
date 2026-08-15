@@ -3,9 +3,10 @@
 ## Objective
 
 Estimate government bond term premia consistently across the United States,
-Germany, Japan, and the United Kingdom, using a single model specification
-across all four markets, while correctly handling periods of zero or negative
-short-term rates (Japan since the mid-1990s; Germany/euro area since 2014).
+Germany, Japan, the United Kingdom, and Switzerland, using a single model
+specification across all five markets, while correctly handling periods of zero or
+negative short-term rates (Japan since the mid-1990s; Germany/euro area since 2014;
+Switzerland since 2015).
 
 ## Model
 
@@ -22,7 +23,7 @@ shadow-rate specification** for the zero/negative lower bound.
 - Shadow-rate extension follows: Christensen, Jens H. E., and Glenn D. Rudebusch.
   2015. "Estimating Shadow-Rate Term Structure Models with Near-Zero Yields."
   *Journal of Financial Econometrics* 13 (2): 226-59.
-- One model, one codebase, run identically across all four countries. Do not
+- One model, one codebase, run identically across all five countries. Do not
   fork the model per country — only the data ingestion differs.
 
 ## Effective lower bound (ELB): values and rationale
@@ -76,7 +77,7 @@ yields-only affine model's expected-rate/premium split hinges on the estimated
 persistence of the short rate under P, which is weakly identified and biased
 toward *too little* persistence in finite samples — so the premium is understated,
 most severely in the highly persistent 1970s. We address this **without** giving
-up portability (surveys are US-rich but patchy across the four markets, so they
+up portability (surveys are US-rich but patchy across the five markets, so they
 stay out of the core; they remain an optional US-only overlay):
 
 - **Bias-correction** (Bauer-Rudebusch-Wu 2012; `model/bias_correction.py`): a
@@ -96,7 +97,7 @@ Engine note: the production plain-AFNS term premium is validated against SF Fed
 via `TermStructureModels.jl`; the **Python EKF** (`model/ekf.py`) is the workhorse
 for the shadow-rate, historical, bias-corrected, and regime extensions because it
 exposes `K^P`, handles ragged data, and can estimate the ELB. One model family,
-one codebase, across all four countries.
+one codebase, across all five countries.
 
 ## Two deliverables: the modern production TP and the historical exhibit
 
@@ -150,8 +151,13 @@ so no third regime needed). See `validation/FINDINGS_kim_validation.md`,
 |---|---|---|---|
 | US | Federal Reserve Board (GSW) | Svensson, parametric | Daily parameters (beta0-3, tau1-2); reconstruct yield grid on demand |
 | Germany | Bundesbank | Svensson, parametric | Daily parameters since Aug 1997 (monthly since Sept 1972) |
-| UK | Bank of England | VRP spline, non-parametric | Full published yield curve grid, daily since Jan 1979, out to 20y |
-| Japan | MOF / BoJ | Spline-based (per BIS Papers no. 25) | **Confirm current source and method directly before building — not verified as closely as the other three.** |
+| UK | Bank of England | VRP spline, non-parametric | Full published yield curve grid (nominal + real), daily since 1979 (real 1985), out to 20y+ |
+| Japan | MOF / BoJ | Spline-based (per BIS Papers no. 25) | MoF JGB spot yields, ragged panel 1986+ |
+| Switzerland | SNB | `rendoblim` Svensson spot curve | Daily CHF spot rates, 1988+ (ragged long end from 1997-12) |
+
+US real (TIPS, GSW feds200805, 2004+) and UK real (index-linked gilts, 1985+) are
+also pulled for the inflation-linked leg. US benchmark/survey series (ACM,
+Kim-Wright, DKW, C&R, ATSIX, and the TIPS liquidity gauge) come via `/validation`.
 
 Target a common maturity grid across countries for comparability, e.g.
 3m / 6m / 1y / 2y / 3y / 5y / 7y / 10y.
@@ -163,7 +169,7 @@ Target a common maturity grid across countries for comparability, e.g.
   Same model family (plain AFNS, no ZLB constraint), same GSW input data —
   use this to validate the AFNS implementation itself before adding the
   shadow-rate extension. Expect close tracking throughout.
-- **All four countries, directional cross-check**: Leo Krippner's published
+- **All five countries, directional cross-check**: Leo Krippner's published
   series (https://www.ljkmfa.com/visitors/). Methodology differs (his current
   model is three-factor, OIS-augmented, survey-based natural rate) — use for
   plausibility on level and turning points, not as a target to match exactly.
@@ -171,12 +177,33 @@ Target a common maturity grid across countries for comparability, e.g.
   Krippner during each country's ZLB/negative-rate window — that divergence
   is expected, not a bug.
 - **US external benchmarks** (`validation/benchmarks.py`, pulled alongside the
-  rates): **ACM** (NY Fed, 5-factor), **Kim-Wright** (Fed Board, via FRED
-  `THREEFYTP*`), and **DKW** (D'Amico-Kim-Wei; also supplies real-TP and
-  inflation-risk-premium references for the joint model) — plus C&R above. The
+  rates): **ACM** (NY Fed, 5-factor), **Kim-Wright** (Fed Board, FRED
+  `THREEFYTP1..10`), and **DKW** (D'Amico-Kim-Wei; also supplies real-TP,
+  inflation-risk-premium and TIPS-liquidity references) — plus C&R above. The
   Atlas "Cross-check" panel overlays our US term premium on all four; the spread
   between these independent models is the honest uncertainty band on "the" US term
   premium. Each loader mirrors `sf_fed.py` (env-URL, parquet cache, cached-fallback).
+- **FRED access** goes through `validation/fred_api.py` — the official API
+  (`api.stlouisfed.org`) when `FRED_API_KEY` is set, else the keyless
+  `fredgraph.csv` fallback. The official path is materially more reliable through
+  the egress proxy (the keyless CSV times out) and exposes series/category
+  metadata. (Switching to it also surfaced a latent bug: the Kim-Wright IDs are
+  `THREEFYTP1..10`, not the zero-padded `THREEFYTP01` — now fixed and populated.)
+- **ATSIX survey anchor** (`validation/benchmarks.py::load_atsix`): the
+  Philadelphia Fed *Aruoba Term Structure of Inflation Expectations* — a free,
+  monthly (1998+), survey-based **expected-inflation term structure** (it blends
+  SPF + Blue Chip + Michigan, so it carries the Blue-Chip signal that is otherwise
+  paywalled). Used to anchor the joint model's expected inflation (below); it is
+  **US-only**, so it stays out of the portable cross-country core.
+- **TIPS liquidity gauge** (`validation/tips_liquidity.py`): a standalone,
+  price-based, **non-circular** liquidity measure — the Hu-Pan-Wang (2013) "noise"
+  statistic (RMS deviation of every outstanding TIPS from a smooth fitted curve),
+  built from FRED's individual TIPS securities (`DTP*`) via the official API. It
+  peaks at ~45 bp in Dec-2008 (the post-Lehman TIPS freeze) and sits ~8 bp now —
+  a free daily substitute for the vendor liquidity/RMSE series, shipped as its own
+  Atlas panel and daily export. (No nominal-UST analogue: FRED carries individual
+  TIPS but only the *smooth* nominal curve; a nominal cross-section is CRSP/Bloomberg,
+  i.e. paid.)
 
 ## Estimation cadence (operational design)
 
@@ -201,7 +228,7 @@ is a single Kalman/EKF pass with *fixed, cached* parameters, which is fast:
 | full-history monthly re-filter + decompose (~40y) | ~0.5 s |
 | full-history *daily* re-filter + decompose (~28y) | ~8 s |
 
-So publishing the term premium daily across all four markets is well under a
+So publishing the term premium daily across all five markets is well under a
 minute even re-filtering the whole history each day, and milliseconds with a
 rolling window. Implementation: `us.production_tp.ProductionParams` (the cached,
 JSON-serializable parameter set produced by a re-estimation) + `filter_forward`
@@ -242,14 +269,45 @@ and `viz/artifact.html`, and republishes the Atlas. See `scheduler/README.md`.
    safe-haven, currently negative). Added as the 5th market in the atlas.
 
 ### Inflation-linked extension (US + UK real curves)
-Real term premia and the breakeven / inflation-risk-premium decomposition
-(nominal TP − real TP), via two separate AFNS. Real rates have **no ELB** (plain
-AFNS). US TIPS (`us/tips.py`, GSW feds200805, 2004+) and UK index-linked gilts
-(`uk` real curve, 1985+). The **US decomposition validates cleanly** (implied
-expected inflation ≈ the 2% target); the **UK IRP is distorted** by the RPI-CPI
-basis and LDI-driven negative real term premia — reported with the caveat. See
-`validation/FINDINGS_inflation.md`. Country-agnostic decomposition in
-`us/inflation.py`.
+**Real** term premia (US TIPS `us/tips.py`, GSW feds200805, 2004+; UK
+index-linked gilts, 1985+), estimated with plain AFNS — real rates have **no ELB**
+("no real cash", bound pushed to −100%). These two real term premia are solid and
+are **what the Atlas publishes**: a "nominal vs inflation-protected" panel puts the
+US nominal and TIPS term premia side by side over their overlap (2004+).
+
+What the Atlas deliberately **does not** publish is the further split of the
+breakeven into *expected inflation* + an *inflation-risk premium* (IRP). The
+breakeven itself (nominal − real yield) is a clean market number, but the
+"two separate AFNS, subtract" split (`us/inflation.py`, IRP = nominal TP − real
+TP) is **too noisy to headline**: the implied 10y expected-inflation series swings
+from −1.3% to +5.4% (std 1.27) even though its *latest/average* value lands near
+the 2% target — the split is the small difference of two independently-estimated
+premia, and it inherits both models' noise. So we report the two term premia and
+stop there. The UK split is worse still (RPI-CPI basis + LDI-driven negative real
+term premia). See `validation/FINDINGS_inflation.md`.
+
+### Joint nominal/real model & the inflation decomposition — exploratory (not shipped)
+A single-kernel **joint** AFNS (`model/joint_afns.py`, `us/joint_us.py`) prices
+both the nominal and TIPS curves at once, to try to extract a better IRP than
+"subtract". Extensions built and evaluated: a **TIPS liquidity factor**, an
+**ATSIX survey anchor** on expected inflation, and a price-based **TIPS "noise"
+liquidity proxy**. Outcome (US, vs the Fed Board's DKW model):
+
+- **Real term premium** co-moves with DKW at **0.98**, and **expected inflation**
+  tracks the ATSIX survey (both are the usable results).
+- **The IRP is not yet resolved.** Its high-frequency correlation with DKW stays
+  weak because the IRP is the small residual of two large premia, and separating
+  the **TIPS liquidity level** (a pricing-side quantity) from the real term premium
+  needs a direct liquidity observable — the TIPS–inflation-swap basis, which is
+  **paid data**. DKW's own liquidity series would work but is **circular** for
+  validation. The free price-based noise proxy is a crisis-frictions measure, not
+  the persistent premium level, so it does not close the gap.
+
+So the joint model stays a **documented research spike**, not surfaced in the
+public Atlas. Full write-up: `validation/FINDINGS_joint_us.md`.
+**UK joint model: on hold** — runnable (both curves exist) but not validatable to
+the US standard (no ATSIX analogue, an RPI→CPI wedge to model, a larger unidentified
+LDI/convenience premium, and no public benchmark to check against).
 
 ### Cross-country nominal 10y term premium (production, latest)
 | Switzerland | US | Germany | UK | Japan |
@@ -276,13 +334,16 @@ are the **mean-reversion-floor** numbers — see the note below.
 ## Repo structure
 
 ```
-/model          # shared AFNS + shadow-rate extension (forked from snejens/arbfree_dynamic_nelson_siegel)
-/us             # data fetcher + country-specific config
+/model          # shared AFNS + CR shadow-rate + EKF; joint nominal/real spike (joint_afns.py)
+/us             # US GSW nominal + TIPS real fetchers, drivers, inflation decomposition
 /germany
 /japan
 /uk
-/validation     # SF Fed and Krippner benchmark comparisons
-/scheduler      # cadence logic: weekly/monthly re-estimation, daily filter-forward, warm-start, fallback
+/switzerland    # SNB CHF spot curve (5th market)
+/validation     # benchmarks (SF Fed / ACM / Kim-Wright / DKW), ATSIX survey anchor,
+                #   TIPS liquidity gauge (tips_liquidity.py), FRED API helper (fred_api.py)
+/scheduler      # cadence: weekly/monthly re-estimation, daily filter-forward, Supabase export
+/viz            # canonical daily dataset -> thinned payload -> self-contained Atlas artifact
 ```
 
 ## Session guidance
