@@ -25,7 +25,13 @@ logger = logging.getLogger("us.joint_us")
 SCRATCH = Path(__file__).resolve().parent.parent / "scratchpad"
 NOM_GRID = np.array([1., 2., 3., 5., 7., 10.])
 REAL_GRID = np.array([2., 3., 5., 7., 10.])
+COMMON = np.array([g for g in REAL_GRID if np.isclose(NOM_GRID, g).any()])  # survey grid
 START = "2004-01-01"
+
+
+def _fname(liq: bool, survey: bool) -> str:
+    tag = "".join(["_liq" if liq else "", "_surv" if survey else ""])
+    return f"joint_us{tag}_results.json"
 
 
 def build_matched_panels():
@@ -40,21 +46,51 @@ def build_matched_panels():
     return nom.loc[idx], real.loc[idx]
 
 
-def run(maxiter: int = 2500, liq: bool = False) -> dict:
+def _warm_from_result(fname: str) -> "ja.JointParams | None":
+    """Build a warm-start JointParams from a previously-saved run (same factor count),
+    so the survey run starts from the converged yields-fit and just re-identifies the
+    level split. Returns None if the file is absent."""
+    path = SCRATCH / fname
+    if not path.exists():
+        return None
+    r = json.loads(path.read_text())
+    return ja.JointParams(
+        kappa=np.array(r["kappa"]), theta=np.array(r["theta"]), sigma=np.array(r["sigma"]),
+        lambda_=r["lambda"], h_n=r["h_n"], h_r=r["h_r"], elb_n=-0.0035,
+        h_s=r.get("h_s", 0.005))
+
+
+def run(maxiter: int = 2500, liq: bool = False, survey: bool = False) -> dict:
     nom, real = build_matched_panels()
     Yn, Yr = nom.to_numpy(float), real.to_numpy(float)
-    logger.info("joint US%s: %d months %s..%s | nom %s real %s", " +liquidity" if liq else "",
-                len(nom), nom.index.min().date(), nom.index.max().date(),
+    dates = nom.index
+    Ysurv = grid_surv = None
+    warm = _warm_from_result(_fname(liq, survey=False)) if survey else None
+    if warm is not None:
+        logger.info("warm-starting from %s", _fname(liq, survey=False))
+    if survey:
+        from validation.benchmarks import atsix_panel
+        surv = atsix_panel(COMMON, dates=dates)
+        Ysurv, grid_surv = surv.to_numpy(float), COMMON
+        cov = int(np.isfinite(Ysurv).all(axis=1).sum())
+        logger.info("ATSIX survey anchor: %d/%d months covered, tenors %s",
+                    cov, len(dates), list(COMMON))
+    logger.info("joint US%s%s: %d months %s..%s | nom %s real %s",
+                " +liquidity" if liq else "", " +survey" if survey else "",
+                len(nom), dates.min().date(), dates.max().date(),
                 list(NOM_GRID), list(REAL_GRID))
     p, res = ja.estimate(Yn, Yr, NOM_GRID, REAL_GRID, dt=1 / 12, elb_n=-0.0035,
-                         maxiter=maxiter, n_per_year=24, liq=liq)
-    xf, _, ll = ja.filter_states(p, Yn, Yr, NOM_GRID, REAL_GRID, 1 / 12)
+                         maxiter=maxiter, n_per_year=24, liq=liq,
+                         Ysurv=Ysurv, grid_surv=grid_surv, mr_halflife=3.5)
+    xf, _, ll = ja.filter_states(p, Yn, Yr, NOM_GRID, REAL_GRID, 1 / 12,
+                                 Ysurv=Ysurv, grid_surv=grid_surv, mr_halflife=3.5)
     d = ja.decompose(p, xf, NOM_GRID, REAL_GRID, mr_halflife=3.5)
-    dates = nom.index
-    out = {"dates": [str(x.date()) for x in dates], "loglik": float(ll), "liq": liq,
+    out = {"dates": [str(x.date()) for x in dates], "loglik": float(ll),
+           "liq": liq, "survey": survey,
            "success": bool(res.success), "common": [float(c) for c in d["common"]],
            "kappa": p.kappa.tolist(), "theta": p.theta.tolist(), "sigma": p.sigma.tolist(),
-           "lambda": float(p.lambda_), "h_n": float(p.h_n), "h_r": float(p.h_r)}
+           "lambda": float(p.lambda_), "h_n": float(p.h_n), "h_r": float(p.h_r),
+           "h_s": float(p.h_s)}
     for m in (5.0, 10.0):
         jn = int(np.where(np.isclose(NOM_GRID, m))[0][0])
         jr = int(np.where(np.isclose(REAL_GRID, m))[0][0])
@@ -65,21 +101,24 @@ def run(maxiter: int = 2500, liq: bool = False) -> dict:
         out[f"einfl_{m:g}"] = (d["expected_inflation"][:, jc] * 100).round(4).tolist()
         out[f"liq_{m:g}"] = (d["liquidity_premium"][:, jc] * 100).round(4).tolist()
     SCRATCH.mkdir(exist_ok=True)
-    fname = "joint_us_liq_results.json" if liq else "joint_us_results.json"
+    fname = _fname(liq, survey)
     (SCRATCH / fname).write_text(json.dumps(out))
-    logger.info("joint US done: loglik=%.1f success=%s -> scratchpad/%s", ll, res.success, fname)
+    logger.info("joint US done: loglik=%.1f success=%s h_s=%.4f -> scratchpad/%s",
+                ll, res.success, p.h_s, fname)
     return out
 
 
-def compare(liq: bool = False) -> None:
+def compare(liq: bool = False, survey: bool = False) -> None:
     """Print joint vs DKW (and note vs separate-AFNS) at 5y/10y, latest + correlation."""
-    fname = "joint_us_liq_results.json" if liq else "joint_us_results.json"
+    fname = _fname(liq, survey)
     res = json.loads((SCRATCH / fname).read_text())
     dates = pd.DatetimeIndex(res["dates"])
-    from validation.benchmarks import load_dkw
+    from validation.benchmarks import load_dkw, atsix_panel
     dkw = load_dkw()
+    atsix = atsix_panel(COMMON, dates=dates) if res.get("survey") else None
     print(f"\nJoint US spike — {dates.min().date()}..{dates.max().date()} "
-          f"(loglik {res['loglik']:.0f}, success {res['success']})\n")
+          f"(loglik {res['loglik']:.0f}, success {res['success']}, "
+          f"liq={res.get('liq')}, survey={res.get('survey')}, h_s={res.get('h_s', float('nan')):.4f})\n")
     for m in (5, 10):
         js = pd.Series(res[f"irp_{m}"], index=dates)
         jr = pd.Series(res[f"tp_r_{m}"], index=dates)
@@ -88,13 +127,16 @@ def compare(liq: bool = False) -> None:
         dki = (dk["inflation_risk_premium"] * 100).reindex(dates, method="nearest")
         dkr = (dk["real_term_premium"] * 100).reindex(dates, method="nearest")
         dke = (dk["expected_inflation"] * 100).reindex(dates, method="nearest")
-        def line(name, a, b):
+        def line(name, a, b, blabel="DKW"):
             corr = a.corr(b)
-            print(f"  {m:>2}y {name:<20} joint {a.iloc[-1]:+.2f}%  DKW {b.iloc[-1]:+.2f}%  "
+            print(f"  {m:>2}y {name:<20} joint {a.iloc[-1]:+.2f}%  {blabel} {b.iloc[-1]:+.2f}%  "
                   f"| corr {corr:.2f}  mean gap {(a-b).mean():+.2f}pp")
         line("real term premium", jr, dkr)
         line("inflation-risk prem", js, dki)
         line("expected inflation", je, dke)
+        if atsix is not None and float(m) in list(atsix.columns):
+            ae = atsix[float(m)] * 100
+            line("  E[infl] vs ATSIX", je, ae, blabel="ATSIX")
         if res.get("liq"):
             jl = pd.Series(res[f"liq_{m}"], index=dates)
             dkl = (dk["tips_liquidity_premium"] * 100).reindex(dates, method="nearest") \
@@ -109,12 +151,14 @@ def _main() -> None:
     ap = argparse.ArgumentParser(description="US joint nominal/real AFNS spike")
     ap.add_argument("--compare", action="store_true")
     ap.add_argument("--liq", action="store_true", help="add the TIPS liquidity factor (5-factor)")
+    ap.add_argument("--survey", action="store_true",
+                    help="anchor expected inflation to the ATSIX survey term structure")
     ap.add_argument("--maxiter", type=int, default=2500)
     args = ap.parse_args()
     if args.compare:
-        compare(liq=args.liq)
+        compare(liq=args.liq, survey=args.survey)
     else:
-        run(maxiter=args.maxiter, liq=args.liq)
+        run(maxiter=args.maxiter, liq=args.liq, survey=args.survey)
 
 
 if __name__ == "__main__":

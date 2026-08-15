@@ -74,6 +74,7 @@ class JointParams:
     h_n: float             # nominal measurement-error SD, >0
     h_r: float             # real measurement-error SD, >0
     elb_n: float = -0.0035  # nominal effective lower bound (fixed)
+    h_s: float = 0.005     # survey (ATSIX) measurement-error SD, >0 (used iff anchored)
 
     @property
     def n(self) -> int:
@@ -83,8 +84,8 @@ class JointParams:
     def liq(self) -> bool:
         return self.n == 5     # 5th factor is the TIPS liquidity ℓ
 
-    def pack(self) -> np.ndarray:
-        return np.concatenate([
+    def pack(self, survey: bool = False) -> np.ndarray:
+        base = np.concatenate([
             np.log(np.maximum(self.kappa, _LOG_FLOOR)),           # n
             np.asarray(self.theta, float),                        # n
             np.log(np.maximum(self.sigma, _LOG_FLOOR)),           # n
@@ -92,14 +93,19 @@ class JointParams:
              np.log(max(self.h_n, _LOG_FLOOR)),
              np.log(max(self.h_r, _LOG_FLOOR))],                  # 3
         ])
+        if survey:                                                # +1 survey error
+            base = np.concatenate([base, [np.log(max(self.h_s, _LOG_FLOOR))]])
+        return base
 
     @staticmethod
-    def unpack(v: np.ndarray, elb_n: float, n: int = 4) -> "JointParams":
+    def unpack(v: np.ndarray, elb_n: float, n: int = 4,
+               survey: bool = False) -> "JointParams":
         v = np.asarray(v, dtype=float)
+        h_s = float(np.exp(v[3 * n + 3])) if survey else 0.005
         return JointParams(
             kappa=np.exp(v[0:n]), theta=v[n:2 * n].copy(), sigma=np.exp(v[2 * n:3 * n]),
             lambda_=float(np.exp(v[3 * n])), h_n=float(np.exp(v[3 * n + 1])),
-            h_r=float(np.exp(v[3 * n + 2])), elb_n=elb_n)
+            h_r=float(np.exp(v[3 * n + 2])), elb_n=elb_n, h_s=h_s)
 
     @property
     def K(self) -> np.ndarray:
@@ -143,16 +149,28 @@ def _transition(p: JointParams, dt: float):
 
 
 # --------------------------------------------------------------------- filter
-def filter_states(p: JointParams, Yn, Yr, grid_n, grid_r, dt, n_per_year=48):
+def filter_states(p: JointParams, Yn, Yr, grid_n, grid_r, dt, n_per_year=48,
+                  Ysurv=None, grid_surv=None, mr_halflife: float | None = 3.5):
     """EKF over the joint panel. Yn (T,m_n), Yr (T,m_r) may contain NaN (ragged).
-    Returns filtered states xs (T,4), stacked fitted yields (T,m_n+m_r), loglik."""
+    Returns filtered states xs (T,n), stacked fitted yields (T,m_n+m_r), loglik.
+
+    ``Ysurv`` (T,m_s) optionally supplies survey (ATSIX) expected-inflation on
+    ``grid_surv`` (years); those rows are appended to the measurement (with error SD
+    ``p.h_s``) so the P-expected inflation *level* is anchored — identifying the IRP
+    that yields-only cannot. Survey rows are NaN-masked like the yields (ragged OK)."""
     Yn = np.asarray(Yn, float); Yr = np.asarray(Yr, float)
     T, m_n = Yn.shape; m_r = Yr.shape[1]
     n = p.n
+    use_surv = Ysurv is not None
     beta_r = _liq_loading(grid_r) if p.liq else None
     pre_n, pre_r = _precompute(p, grid_n, grid_r, n_per_year)
     A, Q = _transition(p, dt)
     r_diag = np.concatenate([np.full(m_n, p.h_n ** 2), np.full(m_r, p.h_r ** 2)])
+    if use_surv:
+        Ysurv = np.asarray(Ysurv, float)
+        pre_s = _survey_precompute(p, grid_surv, mr_halflife)
+        m_s = Ysurv.shape[1]
+        r_diag = np.concatenate([r_diag, np.full(m_s, p.h_s ** 2)])
     # init at unconditional moments
     x = p.theta.copy()
     try:
@@ -165,9 +183,14 @@ def filter_states(p: JointParams, Yn, Yr, grid_n, grid_r, dt, n_per_year=48):
         xp = p.theta + A @ (x - p.theta)
         Pp = A @ P @ A.T + Q
         # measure (nonlinear) + mask NaN
-        y_row = np.concatenate([Yn[t], Yr[t]])
         y_hat, J = _measure(xp, pre_n, pre_r, m_n, beta_r)
-        fits[t] = y_hat
+        fits[t] = y_hat                                    # yields only (survey excluded)
+        if use_surv:
+            ys, Js = _survey_measure(xp, pre_s)
+            y_hat = np.concatenate([y_hat, ys]); J = np.vstack([J, Js])
+            y_row = np.concatenate([Yn[t], Yr[t], Ysurv[t]])
+        else:
+            y_row = np.concatenate([Yn[t], Yr[t]])
         mask = np.isfinite(y_row)
         if not mask.any():
             x, P = xp, Pp; xs[t] = x; continue
@@ -191,31 +214,40 @@ def _stationary(p: JointParams, dt: float) -> bool:
     return np.max(np.abs(np.linalg.eigvals(A))) < 1.0
 
 
-def negloglik(v, Yn, Yr, grid_n, grid_r, dt, elb_n, n_per_year=48) -> float:
-    n = (len(v) - 3) // 3
-    p = JointParams.unpack(v, elb_n, n)
+def negloglik(v, Yn, Yr, grid_n, grid_r, dt, elb_n, n_per_year=48,
+              Ysurv=None, grid_surv=None, mr_halflife=3.5, survey=False) -> float:
+    extra = 4 if survey else 3
+    n = (len(v) - extra) // 3
+    p = JointParams.unpack(v, elb_n, n, survey=survey)
     if not np.all(np.isfinite(v)) or not _stationary(p, dt):
         return 1e12
     try:
-        _, _, ll = filter_states(p, Yn, Yr, grid_n, grid_r, dt, n_per_year)
+        _, _, ll = filter_states(p, Yn, Yr, grid_n, grid_r, dt, n_per_year,
+                                 Ysurv=Ysurv, grid_surv=grid_surv, mr_halflife=mr_halflife)
     except Exception:                                             # noqa: BLE001
         return 1e12
     return 1e12 if not np.isfinite(ll) else -ll
 
 
 def estimate(Yn, Yr, grid_n, grid_r, dt, elb_n=-0.0035, warm: JointParams | None = None,
-             maxiter=4000, n_per_year=24, liq=False):
+             maxiter=4000, n_per_year=24, liq=False,
+             Ysurv=None, grid_surv=None, mr_halflife=3.5):
     """QML estimate of the joint model (Nelder-Mead). ``liq=True`` adds the TIPS
-    liquidity factor (5-factor). Warm-start from `warm` if given."""
+    liquidity factor (5-factor). ``Ysurv`` (with ``grid_surv``) anchors the model's
+    expected-inflation term structure to survey (ATSIX) observations, identifying the
+    IRP level. Warm-start from `warm` if given."""
+    survey = Ysurv is not None
     if warm is None:
         warm = _default_init(Yn, Yr, liq=liq)
-    v0 = warm.pack()
+    v0 = warm.pack(survey=survey)
     n = warm.n
     res = scipy.optimize.minimize(
-        negloglik, v0, args=(Yn, Yr, grid_n, grid_r, dt, elb_n, n_per_year),
+        negloglik, v0,
+        args=(Yn, Yr, grid_n, grid_r, dt, elb_n, n_per_year,
+              Ysurv, grid_surv, mr_halflife, survey),
         method="Nelder-Mead",
         options={"maxiter": maxiter, "maxfev": maxiter, "xatol": 1e-5, "fatol": 1e-4})
-    p = JointParams.unpack(res.x, elb_n, n)
+    p = JointParams.unpack(res.x, elb_n, n, survey=survey)
     return p, res
 
 
@@ -270,6 +302,66 @@ def _expected_floored_yields(states, K, theta, Sigma, elb, rho, grid, n_per_year
         integ = np.trapz(fu, uu, axis=1)
         out[:, i] = integ / tau
     return out
+
+
+# ------------------------------------------------------------ survey (ATSIX) anchor
+def _survey_precompute(p: JointParams, grid_common, mr_halflife: float | None = 3.5,
+                       n_per_year=24) -> dict:
+    """Precompute the u-grid loadings mapping a state to the model's expected-inflation
+    term structure on ``grid_common`` (the survey/ATSIX horizons, in years), so the
+    per-date survey measurement + its analytic Jacobian are cheap inside the EKF.
+
+    Model expected inflation over [t,t+τ] = E^P[avg floored nominal short] −
+    E^P[avg real short] — the SAME object `decompose` reports, using the same
+    mean-reversion-floored K_exp. The nominal leg is floored (Krippner option, so a
+    smooth nonlinearity in the state); the real leg is plain affine.
+    """
+    n = p.n
+    K_exp = tp.mean_reversion_floor(p.K, np.log(2) / mr_halflife) if mr_halflife else p.K
+    Sig = np.diag(p.sigma)
+    rho_n, rho_r = _rho_n(n), _rho_r(n)
+    grid = np.asarray(grid_common, float)
+    tau_max = float(grid.max())
+    Ku = max(int(np.ceil(tau_max * n_per_year)) + 1, 8)
+    u = np.linspace(0.0, tau_max, Ku)
+    gn = np.empty((Ku, n)); gr = np.empty((Ku, n)); sn = np.empty(Ku)
+    for j, uu in enumerate(u):
+        E = scipy.linalg.expm(-K_exp * uu)
+        gn[j] = E.T @ rho_n                       # ∂μ^N_u/∂x = e^{-K_exp u}'ρ_N
+        gr[j] = E.T @ rho_r
+        sn[j] = 0.0 if uu <= 0 else np.sqrt(
+            max(float(rho_n @ sr.cond_cov(K_exp, Sig, uu) @ rho_n), 0.0))
+    masks = [u <= tau + 1e-12 for tau in grid]
+    return {"u": u, "gn": gn, "gr": gr, "sn": sn, "grid": grid, "masks": masks,
+            "rho_n": rho_n, "rho_r": rho_r, "theta": np.asarray(p.theta, float),
+            "elb_n": p.elb_n, "n": n}
+
+
+def _survey_measure(x, pre_s: dict):
+    """Model expected-inflation term structure at state ``x`` on the survey grid, and
+    its analytic Jacobian wrt the n-factor state. For the floored nominal leg,
+    d E[max(s,ELB)]/dμ = Φ(d) exactly, so the Jacobian is closed-form given the
+    precomputed loadings."""
+    from scipy.stats import norm
+    u = pre_s["u"]; gn = pre_s["gn"]; gr = pre_s["gr"]; sn = pre_s["sn"]
+    theta = pre_s["theta"]; elb = pre_s["elb_n"]; n = pre_s["n"]
+    dev = x - theta
+    mu_n = pre_s["rho_n"] @ theta + gn @ dev
+    mu_r = pre_s["rho_r"] @ theta + gr @ dev
+    small = sn < 1e-12
+    sd = np.where(small, 1.0, sn)
+    d = np.where(small, 0.0, (mu_n - elb) / sd)
+    floored = np.where(small, np.maximum(mu_n, elb),
+                       (mu_n - elb) * norm.cdf(d) + sn * norm.pdf(d) + elb)
+    phi_n = np.where(small, (mu_n >= elb).astype(float), norm.cdf(d))  # d floored/dμ_n
+    grid = pre_s["grid"]; masks = pre_s["masks"]
+    pred = np.empty(len(grid)); J = np.empty((len(grid), n))
+    for i, (tau, m) in enumerate(zip(grid, masks)):
+        uu = u[m]
+        pred[i] = (np.trapz(floored[m], uu) - np.trapz(mu_r[m], uu)) / tau
+        J[i] = (np.trapz(phi_n[m][:, None] * gn[m], uu, axis=0)
+                - np.trapz(gr[m], uu, axis=0)) / tau
+    return pred, J
 
 
 # --------------------------------------------------------------- decomposition

@@ -86,3 +86,23 @@ ACM_PARQUET_PATH = DATA_DIR / "acm_series.parquet"
 KIM_WRIGHT_PARQUET_PATH = DATA_DIR / "kim_wright_series.parquet"
 DKW_RAW_PATH = DATA_DIR / "dkw_updates.csv"
 DKW_PARQUET_PATH = DATA_DIR / "dkw_series.parquet"
+
+# ---------------------------------------------------------------------------
+# ATSIX — Aruoba Term Structure of Inflation Expectations (Philadelphia Fed).
+#   A smooth term structure of *survey-based* expected inflation, 3-120 months
+#   ahead, monthly from 1998-01. Built (Aruoba 2020, JBES) from SPF + Blue Chip +
+#   Michigan + other surveys via a dynamic Nelson-Siegel state-space model — i.e.
+#   the same survey information DKW anchor to (incl. Blue Chip, which is otherwise
+#   paywalled), delivered free as a ready term structure. `infexp{h}` = expected
+#   AVERAGE inflation over the next h months (a horizon-average, matching a
+#   zero-coupon yield convention and our model's expected_inflation(τ) object).
+#   Used to anchor the joint nominal/real model's IRP level (US-only overlay; see
+#   FINDINGS_phase3.md Strand E). The `Real` sheet (expected real short-rate path)
+#   is a free cross-check on the real block.
+# ---------------------------------------------------------------------------
+ATSIX_URL = os.environ.get(
+    "ATSIX_URL",
+    "https://www.philadelphiafed.org/-/media/FRBP/Assets/Surveys-And-Data/atsix/"
+    "ATSIX_Vintages.xlsx?la=en&sc_lang=en&hash=EF53EB526F14CD928F9FCEB7F9A33946")
+ATSIX_RAW_PATH = DATA_DIR / "atsix_vintages.xlsx"
+ATSIX_PARQUET_PATH = DATA_DIR / "atsix_series.parquet"

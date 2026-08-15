@@ -123,3 +123,73 @@ def test_liquidity_decomposition_three_way_identity():
     # DKW 3-way identity: observed breakeven = expected inflation + IRP - liquidity premium
     assert np.allclose(d["breakeven"],
                        d["expected_inflation"] + d["irp"] - d["liquidity_premium"], atol=1e-12)
+
+
+# --------------------------------------------------------------- survey (ATSIX) anchor
+def test_survey_jacobian_matches_finite_difference():
+    p = _params_liq()
+    common = np.array([2., 3., 5., 7., 10.])
+    pre_s = ja._survey_precompute(p, common, mr_halflife=3.5)
+    x = p.theta + np.array([0.01, -0.008, 0.02, 0.03, 0.004])
+    pred, J = ja._survey_measure(x, pre_s)
+    assert pred.shape == (5,) and J.shape == (5, 5)
+    eps = 1e-6
+    Jfd = np.zeros_like(J)
+    for k in range(len(x)):
+        xp = x.copy(); xp[k] += eps
+        xm = x.copy(); xm[k] -= eps
+        Jfd[:, k] = (ja._survey_measure(xp, pre_s)[0]
+                     - ja._survey_measure(xm, pre_s)[0]) / (2 * eps)
+    assert np.max(np.abs(J - Jfd)) < 1e-8
+
+
+def test_survey_prediction_matches_decompose_expected_inflation():
+    """The survey measurement must observe the SAME object decompose reports as
+    expected_inflation (so anchoring is internally consistent)."""
+    p = _params()
+    common = np.array([2., 3., 5., 7., 10.])
+    x = p.theta + np.array([0.012, -0.006, 0.02, 0.03])
+    pre_s = ja._survey_precompute(p, common, mr_halflife=3.5)
+    pred, _ = ja._survey_measure(x, pre_s)
+    d = ja.decompose(p, x[None, :], np.array([1., 2., 3., 5., 7., 10.]), common,
+                     mr_halflife=3.5)
+    assert np.allclose(d["common"], common)
+    assert np.max(np.abs(pred - d["expected_inflation"][0])) < 1e-5
+
+
+def test_survey_anchor_pulls_expected_inflation():
+    """With survey rows the filter tracks a survey path the yields alone don't imply:
+    feed a survey series offset from the model-free E[infl] and confirm the anchored
+    filter's expected inflation moves toward it (identification, not just co-movement)."""
+    p = _params()
+    Yn, Yr, xs, gn, gr = _simulate(p, T=180, seed=3)
+    common = np.array([2., 3., 5., 7., 10.])
+    # baseline (yields only) expected inflation
+    xf0, _, _ = ja.filter_states(p, Yn, Yr, gn, gr, 1 / 12)
+    d0 = ja.decompose(p, xf0, gn, gr, mr_halflife=3.5)
+    ei0 = d0["expected_inflation"].mean(axis=0)
+    # synthetic survey anchored 50bp ABOVE the model's own expected inflation
+    T = Yn.shape[0]
+    Ysurv = d0["expected_inflation"] + 0.005
+    p_hi = ja.JointParams(**{**p.__dict__, "h_s": 0.0005})    # tight survey noise
+    xf1, _, ll = ja.filter_states(p_hi, Yn, Yr, gn, gr, 1 / 12,
+                                  Ysurv=Ysurv, grid_surv=common, mr_halflife=3.5)
+    assert np.isfinite(ll)
+    d1 = ja.decompose(p_hi, xf1, gn, gr, mr_halflife=3.5)
+    ei1 = d1["expected_inflation"].mean(axis=0)
+    # anchored expected inflation is pulled up toward the +50bp survey at every tenor
+    assert np.all(ei1 > ei0 + 1e-4)
+
+
+def test_survey_pack_roundtrip():
+    p = _params()
+    p = ja.JointParams(**{**p.__dict__, "h_s": 0.004})
+    v = p.pack(survey=True)
+    assert v.shape[0] == 3 * p.n + 4
+    q = ja.JointParams.unpack(v, p.elb_n, p.n, survey=True)
+    assert np.isclose(q.h_s, 0.004)
+    # non-survey pack ignores h_s and unpacks to the default
+    v0 = p.pack(survey=False)
+    assert v0.shape[0] == 3 * p.n + 3
+    q0 = ja.JointParams.unpack(v0, p.elb_n, p.n, survey=False)
+    assert np.isclose(q0.h_s, 0.005)

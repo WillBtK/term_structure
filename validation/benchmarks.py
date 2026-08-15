@@ -200,8 +200,72 @@ def load_dkw(refresh: bool = False) -> pd.DataFrame:
     return _cached(cfg.DKW_PARQUET_PATH, refresh, _build_dkw, "DKW")
 
 
+# ------------------------------------------------------------------------- ATSIX
+def parse_atsix_xlsx(content: bytes) -> pd.DataFrame:
+    """Parse the ATSIX_Vintages.xlsx `InfExp` sheet -> tidy (date, maturity in years,
+    expected_inflation) in DECIMAL. Columns are `infexp{h}` for horizons h=3..120
+    months; `infexp{h}` is the expected AVERAGE inflation over the next h months.
+    Pure (no network) for testability."""
+    xl = pd.ExcelFile(io.BytesIO(content))
+    sheet = next((s for s in xl.sheet_names if s.strip().lower() == "infexp"),
+                 xl.sheet_names[0])
+    raw = pd.read_excel(xl, sheet_name=sheet)
+    raw = raw.rename(columns={raw.columns[0]: "date"})
+    raw["date"] = pd.to_datetime(raw["date"], errors="coerce")
+    raw = raw.dropna(subset=["date"])
+    cols = [c for c in raw.columns if str(c).lower().startswith("infexp")]
+    long = raw.melt(id_vars=["date"], value_vars=cols,
+                    var_name="col", value_name="expected_inflation")
+    months = long["col"].str.extract(r"(\d+)").astype(float)[0]
+    long["maturity"] = months / 12.0                      # months -> years
+    long["expected_inflation"] = pd.to_numeric(
+        long["expected_inflation"], errors="coerce") / 100.0   # percent -> decimal
+    long = long.dropna(subset=["expected_inflation"])
+    return long[["date", "maturity", "expected_inflation"]].sort_values(
+        ["date", "maturity"]).reset_index(drop=True)
+
+
+def _build_atsix() -> pd.DataFrame:
+    content = _download_bytes(cfg.ATSIX_URL)
+    cfg.ATSIX_RAW_PATH.write_bytes(content)
+    return parse_atsix_xlsx(content)
+
+
+def load_atsix(refresh: bool = False) -> pd.DataFrame:
+    """ATSIX (Philadelphia Fed) survey-based expected-inflation term structure,
+    horizons 3-120 months, monthly 1998+ (decimal, horizon-average)."""
+    return _cached(cfg.ATSIX_PARQUET_PATH, refresh, _build_atsix, "ATSIX")
+
+
+def atsix_panel(grid_years, dates=None, refresh: bool = False) -> pd.DataFrame:
+    """Wide expected-inflation panel (index=date, columns=grid_years, DECIMAL) for
+    anchoring the joint model. ``grid_years`` are matched to the nearest available
+    ATSIX horizon (they line up exactly for integer years: 2y=infexp24, ...).
+    If ``dates`` is given, reindex to them by month (ATSIX is monthly, dated to the
+    1st; caller's month-end dates map by year-month)."""
+    df = load_atsix(refresh=refresh)
+    grid = np.asarray(grid_years, float)
+    avail = np.sort(df["maturity"].unique())
+    cols = {}
+    for g in grid:
+        near = avail[int(np.argmin(np.abs(avail - g)))]
+        s = df[np.isclose(df["maturity"], near)].set_index("date")["expected_inflation"]
+        cols[g] = s
+    panel = pd.DataFrame(cols).sort_index()
+    panel.columns = grid
+    if dates is not None:
+        dates = pd.DatetimeIndex(dates)
+        by_month = panel.copy()
+        by_month.index = panel.index.to_period("M")
+        out = by_month.reindex(dates.to_period("M"))
+        out.index = dates
+        return out
+    return panel
+
+
 # --------------------------------------------------------------------------- all
-LOADERS = {"acm": load_acm, "kim_wright": load_kim_wright, "dkw": load_dkw}
+LOADERS = {"acm": load_acm, "kim_wright": load_kim_wright, "dkw": load_dkw,
+           "atsix": load_atsix}
 
 
 def refresh_all_us_benchmarks(refresh: bool = True) -> dict:
