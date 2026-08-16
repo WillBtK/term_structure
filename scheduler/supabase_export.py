@@ -167,30 +167,28 @@ def maybe_upload_atlas() -> str | None:
     base = url.rstrip("/")
     endpoint = f"{base}/storage/v1/object/{ATLAS_BUCKET}/{ATLAS_OBJECT}"
     auth = {"Authorization": f"Bearer {key}", "apikey": key}
-    # Supabase Storage keeps an object's ORIGINAL stored mimetype across upsert-updates,
-    # so once index.html was first created as text/plain, later uploads (client or raw
-    # POST) never change what's served and the browser shows source instead of rendering.
-    # DELETE then CREATE fresh: a newly-created object takes its mimetype from the upload's
-    # Content-Type header, making "text/html" deterministic.
+    # Delete first so we CREATE fresh (Supabase keeps an object's stored mimetype across
+    # upsert-updates). DELETE via raw REST (works reliably).
     try:
         with urllib.request.urlopen(
                 urllib.request.Request(endpoint, method="DELETE", headers=auth), timeout=30) as r:
             logger.info("pre-delete of %s -> HTTP %s", ATLAS_OBJECT, r.status)
     except Exception as exc:                                        # noqa: BLE001
         logger.info("pre-delete of %s skipped (%s) — will create fresh", ATLAS_OBJECT, exc)
-    # Upload via the Storage REST API directly (not the Python client, whose file_options
-    # content-type is unreliable). Explicit Content-Type on a fresh create sets the served
-    # mimetype. https://supabase.com/docs/reference (storage object endpoint)
-    req = urllib.request.Request(endpoint, data=data, method="POST", headers={
-        **auth, "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "max-age=300", "x-upsert": "true"})
+    # Upload via the OFFICIAL storage client: it populates the object's metadata.mimetype,
+    # which is the field Supabase's serving layer reads for the response Content-Type. A raw
+    # POST only sets the top-level content_type column (serving ignores it → text/plain, so
+    # the browser shows source). Use a BARE "text/html" (a "; charset" param can defeat the
+    # mime match). The <meta charset> in the doc handles encoding.
     try:
-        with urllib.request.urlopen(req, timeout=90) as r:
-            _ = r.read()
+        from supabase import create_client
+        client = create_client(url, key)
+        client.storage.from_(ATLAS_BUCKET).upload(
+            path=ATLAS_OBJECT, file=data,
+            file_options={"content-type": "text/html", "cache-control": "300", "upsert": "true"})
     except Exception as exc:                                        # noqa: BLE001
-        detail = getattr(exc, "read", lambda: b"")()
-        logger.error("Atlas upload to bucket %r failed (does the PUBLIC bucket exist?): %s %s",
-                     ATLAS_BUCKET, exc, detail[:200])
+        logger.error("Atlas upload to bucket %r failed (does the PUBLIC bucket exist?): %s",
+                     ATLAS_BUCKET, exc)
         return None
     public_url = f"{base}/storage/v1/object/public/{ATLAS_BUCKET}/{ATLAS_OBJECT}"
     logger.info("published Atlas (%d KB) -> %s", len(data) // 1024, public_url)
