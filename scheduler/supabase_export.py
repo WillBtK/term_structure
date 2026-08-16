@@ -198,15 +198,16 @@ def maybe_upload_atlas() -> str | None:
             logger.info("origin info JSON = %s", r.read().decode("utf-8", "replace")[:400])
     except Exception as exc:                                        # noqa: BLE001
         logger.info("origin mimetype verify skipped: %s", exc)
-    # HEAD with a cache-busting query so the CDN can't serve a stale cached Content-Type —
-    # this reveals the true origin-derived type.
+    # Verify what a real GET returns (a browser does GET, not HEAD; Supabase's public
+    # endpoint can report text/plain on HEAD while serving text/html on GET). Fetch one
+    # byte via Range to read the true served Content-Type cheaply.
     bust = os.environ.get("GITHUB_SHA", "v1")[:8]
-    for label, u in (("CDN", public_url), ("origin", f"{public_url}?v={bust}")):
-        try:
-            with urllib.request.urlopen(urllib.request.Request(u, method="HEAD"), timeout=30) as r:
-                logger.info("served (%s) Content-Type = %s", label, r.headers.get("Content-Type"))
-        except Exception as exc:                                    # noqa: BLE001
-            logger.info("Content-Type verify (%s) skipped: %s", label, exc)
+    try:
+        g = urllib.request.Request(f"{public_url}?v={bust}", headers={"Range": "bytes=0-0"})
+        with urllib.request.urlopen(g, timeout=30) as r:
+            logger.info("served (GET) Content-Type = %s", r.headers.get("Content-Type"))
+    except Exception as exc:                                        # noqa: BLE001
+        logger.info("Content-Type verify skipped: %s", exc)
     return public_url
 
 
