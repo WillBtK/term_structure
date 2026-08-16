@@ -1,0 +1,6 @@
+# Supabase project config (used by the CLI). The Atlas function is PUBLIC
+# (no JWT required) so the shareable URL renders for anyone with the link.
+project_id = "term-premium-atlas"
+
+[functions.atlas]
+verify_jwt = false

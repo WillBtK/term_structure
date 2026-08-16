@@ -25,10 +25,24 @@ why Pages was dropped). No Artifact tool and no daily 13 MB git commit needed.
 
 One-time owner setup: enable Actions; add repo secrets `SUPABASE_URL` /
 `SUPABASE_KEY`; in Supabase create a **public** Storage bucket named `atlas` (or set
-the `SUPABASE_ATLAS_BUCKET` secret to your bucket name). The public URL is then
-`<SUPABASE_URL>/storage/v1/object/public/<bucket>/index.html`. Scheduled runs fire
-only from the **default branch**, so it stays dormant until this work merges; use
-"Run workflow" to trigger manually meanwhile.
+the `SUPABASE_ATLAS_BUCKET` secret to your bucket name). Scheduled runs fire only
+from the **default branch**, so it stays dormant until this work merges; use "Run
+workflow" to trigger manually meanwhile.
+
+### Serving the rendering page — an Edge Function (not Storage)
+
+Supabase **Storage serves user-uploaded HTML as `text/plain`** (an anti-abuse
+policy), so the raw Storage URL shows source, not the rendered page. The public,
+rendering URL is instead a tiny **Edge Function** (`supabase/functions/atlas`) that
+reads the latest uploaded page from Storage and re-serves it as real `text/html`:
+
+    <SUPABASE_URL>/functions/v1/atlas
+
+Deploy it **once** via the `Deploy Atlas Edge Function` workflow
+(`.github/workflows/deploy-atlas-fn.yml`) — it reads live from Storage, so every
+nightly data update flows through with no redeploy. One-time setup: add a repo
+secret **`SUPABASE_ACCESS_TOKEN`** (Supabase → Account → Access Tokens); the daily
+job keeps refreshing the Storage object the function serves.
 
 **Why not auto-republish the claude.ai Artifact:** neither a GitHub runner nor a
 Claude Code Remote fired session has the **Artifact tool** (verified — the tool is
