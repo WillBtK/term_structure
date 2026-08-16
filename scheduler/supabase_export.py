@@ -139,6 +139,7 @@ def maybe_upload(exports: dict) -> bool:
 def maybe_upload_atlas() -> str | None:
     """Publish the self-contained Atlas to a PUBLIC Supabase Storage bucket and
     return its public URL. Inert (returns None) without creds / client / artifact."""
+    import urllib.request
     url, key = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY")
     if not (url and key):
         logger.info("SUPABASE_URL/KEY unset — Atlas not published to Storage.")
@@ -146,12 +147,6 @@ def maybe_upload_atlas() -> str | None:
     if not ATLAS_HTML.exists():
         logger.warning("Atlas %s missing — run the daily build first; skipping publish.", ATLAS_HTML)
         return None
-    try:
-        from supabase import create_client
-    except ImportError:
-        logger.warning("supabase client not installed; Atlas publish skipped.")
-        return None
-    client = create_client(url, key)
     # The repo's artifact.html is "content-only" (no <!doctype>/<html>/<head>/<body>) —
     # exactly what the claude.ai Artifact tool expects, since it wraps the file itself at
     # publish time. Served raw, a browser falls into quirks mode and has no charset hint
@@ -162,18 +157,34 @@ def maybe_upload_atlas() -> str | None:
            '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
            + raw + '\n</html>\n')
     data = doc.encode("utf-8")
-    store = client.storage.from_(ATLAS_BUCKET)
-    # upsert so the daily run overwrites yesterday's page; short cache so shared
-    # links pick up the new build quickly.
-    opts = {"content-type": "text/html; charset=utf-8", "upsert": "true", "cache-control": "300"}
+    base = url.rstrip("/")
+    # Upload via the Storage REST API directly (not the Python client): the client's
+    # ``file_options`` content-type is unreliable across versions and Supabase then serves
+    # the object as text/plain, so the browser shows source instead of rendering. A raw
+    # POST with an explicit Content-Type header + x-upsert makes the served mimetype
+    # deterministic. https://supabase.com/docs/reference (storage object endpoint)
+    endpoint = f"{base}/storage/v1/object/{ATLAS_BUCKET}/{ATLAS_OBJECT}"
+    req = urllib.request.Request(endpoint, data=data, method="POST", headers={
+        "Authorization": f"Bearer {key}", "apikey": key,
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "max-age=300", "x-upsert": "true"})
     try:
-        store.upload(path=ATLAS_OBJECT, file=data, file_options=opts)
+        with urllib.request.urlopen(req, timeout=90) as r:
+            _ = r.read()
     except Exception as exc:                                        # noqa: BLE001
-        logger.error("Atlas upload to bucket %r failed (does the PUBLIC bucket exist?): %s",
-                     ATLAS_BUCKET, exc)
+        detail = getattr(exc, "read", lambda: b"")()
+        logger.error("Atlas upload to bucket %r failed (does the PUBLIC bucket exist?): %s %s",
+                     ATLAS_BUCKET, exc, detail[:200])
         return None
-    public_url = store.get_public_url(ATLAS_OBJECT)
+    public_url = f"{base}/storage/v1/object/public/{ATLAS_BUCKET}/{ATLAS_OBJECT}"
     logger.info("published Atlas (%d KB) -> %s", len(data) // 1024, public_url)
+    # Verify what Supabase actually serves — the whole point of this fix.
+    try:
+        head = urllib.request.Request(public_url, method="HEAD")
+        with urllib.request.urlopen(head, timeout=30) as r:
+            logger.info("served Content-Type = %s", r.headers.get("Content-Type"))
+    except Exception as exc:                                        # noqa: BLE001
+        logger.info("Content-Type verify skipped: %s", exc)
     return public_url
 
 
