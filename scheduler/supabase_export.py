@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 from pathlib import Path
@@ -166,8 +167,9 @@ def maybe_upload_atlas() -> str | None:
     # DELETE then CREATE fresh: a newly-created object takes its mimetype from the upload's
     # Content-Type header, making "text/html" deterministic.
     try:
-        urllib.request.urlopen(
-            urllib.request.Request(endpoint, method="DELETE", headers=auth), timeout=30)
+        with urllib.request.urlopen(
+                urllib.request.Request(endpoint, method="DELETE", headers=auth), timeout=30) as r:
+            logger.info("pre-delete of %s -> HTTP %s", ATLAS_OBJECT, r.status)
     except Exception as exc:                                        # noqa: BLE001
         logger.info("pre-delete of %s skipped (%s) — will create fresh", ATLAS_OBJECT, exc)
     # Upload via the Storage REST API directly (not the Python client, whose file_options
@@ -186,11 +188,23 @@ def maybe_upload_atlas() -> str | None:
         return None
     public_url = f"{base}/storage/v1/object/public/{ATLAS_BUCKET}/{ATLAS_OBJECT}"
     logger.info("published Atlas (%d KB) -> %s", len(data) // 1024, public_url)
-    # Verify what Supabase actually serves — the whole point of this fix.
+    # Verify the ORIGIN mimetype (authenticated info endpoint, bypasses the public CDN,
+    # which caches the Content-Type for up to cache-control seconds after a re-upload —
+    # so an immediate public HEAD can read a stale value).
+    try:
+        info = urllib.request.Request(
+            f"{base}/storage/v1/object/info/{ATLAS_BUCKET}/{ATLAS_OBJECT}", headers=auth)
+        with urllib.request.urlopen(info, timeout=30) as r:
+            meta = json.loads(r.read().decode("utf-8", "replace"))
+        mt = (meta.get("metadata") or {}).get("mimetype") or meta.get("contentType") or meta.get("mimetype")
+        logger.info("stored (origin) mimetype = %s", mt)
+    except Exception as exc:                                        # noqa: BLE001
+        logger.info("origin mimetype verify skipped: %s", exc)
+    # Also report what the public CDN serves right now (may be stale until CDN TTL).
     try:
         head = urllib.request.Request(public_url, method="HEAD")
         with urllib.request.urlopen(head, timeout=30) as r:
-            logger.info("served Content-Type = %s", r.headers.get("Content-Type"))
+            logger.info("served (CDN) Content-Type = %s", r.headers.get("Content-Type"))
     except Exception as exc:                                        # noqa: BLE001
         logger.info("Content-Type verify skipped: %s", exc)
     return public_url
