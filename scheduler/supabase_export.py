@@ -158,15 +158,23 @@ def maybe_upload_atlas() -> str | None:
            + raw + '\n</html>\n')
     data = doc.encode("utf-8")
     base = url.rstrip("/")
-    # Upload via the Storage REST API directly (not the Python client): the client's
-    # ``file_options`` content-type is unreliable across versions and Supabase then serves
-    # the object as text/plain, so the browser shows source instead of rendering. A raw
-    # POST with an explicit Content-Type header + x-upsert makes the served mimetype
-    # deterministic. https://supabase.com/docs/reference (storage object endpoint)
     endpoint = f"{base}/storage/v1/object/{ATLAS_BUCKET}/{ATLAS_OBJECT}"
+    auth = {"Authorization": f"Bearer {key}", "apikey": key}
+    # Supabase Storage keeps an object's ORIGINAL stored mimetype across upsert-updates,
+    # so once index.html was first created as text/plain, later uploads (client or raw
+    # POST) never change what's served and the browser shows source instead of rendering.
+    # DELETE then CREATE fresh: a newly-created object takes its mimetype from the upload's
+    # Content-Type header, making "text/html" deterministic.
+    try:
+        urllib.request.urlopen(
+            urllib.request.Request(endpoint, method="DELETE", headers=auth), timeout=30)
+    except Exception as exc:                                        # noqa: BLE001
+        logger.info("pre-delete of %s skipped (%s) — will create fresh", ATLAS_OBJECT, exc)
+    # Upload via the Storage REST API directly (not the Python client, whose file_options
+    # content-type is unreliable). Explicit Content-Type on a fresh create sets the served
+    # mimetype. https://supabase.com/docs/reference (storage object endpoint)
     req = urllib.request.Request(endpoint, data=data, method="POST", headers={
-        "Authorization": f"Bearer {key}", "apikey": key,
-        "Content-Type": "text/html; charset=utf-8",
+        **auth, "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "max-age=300", "x-upsert": "true"})
     try:
         with urllib.request.urlopen(req, timeout=90) as r:
