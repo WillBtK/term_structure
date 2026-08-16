@@ -115,16 +115,25 @@ def maybe_upload(exports: dict) -> bool:
     keys = {TP_TABLE: ["country", "instrument", "date", "tenor"],
             BENCH_TABLE: ["source", "date", "maturity", "metric"],
             GF_TABLE: ["date", "country", "kind", "tenor"]}
+    any_ok = False
     for table, (path, _) in exports.items():
         df = pd.read_csv(path)
         df["date"] = df["date"].astype(str)
-        # chunked upsert (idempotent on the table's primary key)
-        for i in range(0, len(df), 5000):
-            client.table(table).upsert(
-                df.iloc[i:i + 5000].to_dict("records"),
-                on_conflict=",".join(keys[table])).execute()
+        try:
+            # chunked upsert (idempotent on the table's primary key)
+            for i in range(0, len(df), 5000):
+                client.table(table).upsert(
+                    df.iloc[i:i + 5000].to_dict("records"),
+                    on_conflict=",".join(keys[table])).execute()
+        except Exception as exc:                                    # noqa: BLE001
+            # A missing table is fine: the DB tables are optional (the Atlas is
+            # published to Storage independently). Log and keep going.
+            logger.warning("skipping table %r (create it in Supabase to enable): %s",
+                           table, exc)
+            continue
+        any_ok = True
         logger.info("upserted %d rows -> %s", len(df), table)
-    return True
+    return any_ok
 
 
 def maybe_upload_atlas() -> str | None:
