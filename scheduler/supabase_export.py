@@ -154,9 +154,15 @@ def maybe_upload_atlas() -> str | None:
     # (this page uses λ, φ, ≈, — heavily). Wrap it in a minimal standards-mode skeleton so
     # the standalone Supabase page renders IDENTICALLY to the claude.ai Artifact.
     raw = ATLAS_HTML.read_text(encoding="utf-8")
+    # A per-build marker guarantees the bytes (and thus the etag) differ every upload.
+    # Supabase's CDN caches keyed on the etag; identical bytes across re-uploads keep it
+    # serving the ORIGINAL cached response (whose Content-Type was text/plain from the
+    # first-ever storage-client upload), so a stable etag would never pick up text/html.
+    marker = (f"<!-- atlas build {os.environ.get('GITHUB_SHA', 'local')[:8]}"
+              f" run {os.environ.get('GITHUB_RUN_ID', '0')} -->\n")
     doc = ('<!doctype html>\n<html lang="en">\n<meta charset="utf-8">\n'
            '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-           + raw + '\n</html>\n')
+           + raw + '\n</html>\n' + marker)
     data = doc.encode("utf-8")
     base = url.rstrip("/")
     endpoint = f"{base}/storage/v1/object/{ATLAS_BUCKET}/{ATLAS_OBJECT}"
