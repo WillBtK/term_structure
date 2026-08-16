@@ -2,8 +2,10 @@ name: Daily term-premium update
 
 # Robust daily pipeline: refresh all source data (open egress on GitHub runners —
 # no proxy flakiness), recompute term premia via the cached-params filter-forward,
-# publish the Atlas to GitHub Pages (an auto-updating URL — no Artifact tool needed),
-# and upsert the dataset to Supabase when secrets are configured.
+# and — when Supabase secrets are configured — upsert the dataset AND publish the
+# self-contained Atlas (viz/artifact.html) to a PUBLIC Supabase Storage bucket.
+# The bucket serves a stable, auto-updating public URL while this GitHub repo stays
+# PRIVATE (GitHub Pages would require a public repo on the free tier).
 #
 # NOTE: scheduled workflows only run from the repository's DEFAULT branch, so this
 # stays dormant until the work merges to the default branch. Use "Run workflow"
@@ -11,8 +13,9 @@ name: Daily term-premium update
 #
 # One-time setup by the repo owner:
 #   * Settings → Actions → allow workflows (read/write via the built-in GITHUB_TOKEN).
-#   * Settings → Pages → Source: GitHub Actions (enables the Pages deploy).
-#   * (optional) Settings → Secrets → Actions: SUPABASE_URL, SUPABASE_KEY.
+#   * Settings → Secrets → Actions: SUPABASE_URL, SUPABASE_KEY.
+#   * In Supabase: create a PUBLIC Storage bucket (default name "atlas"; override
+#     with the SUPABASE_ATLAS_BUCKET secret) — the daily job uploads index.html to it.
 
 on:
   schedule:
@@ -21,8 +24,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: daily-term-premium
@@ -45,26 +46,10 @@ jobs:
           OMP_NUM_THREADS: "1"
           OPENBLAS_NUM_THREADS: "1"
         run: python -m scheduler.daily_update
-      - name: Export to Supabase (inert without secrets)
+      - name: Export to Supabase + publish Atlas (inert without secrets)
         env:
           PYTHONPATH: ${{ github.workspace }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_ATLAS_BUCKET: ${{ secrets.SUPABASE_ATLAS_BUCKET }}
         run: python -m scheduler.supabase_export
-      - name: Stage the Atlas for Pages
-        run: |
-          mkdir -p _site
-          cp viz/artifact.html _site/index.html
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - id: deploy
-        uses: actions/deploy-pages@v4

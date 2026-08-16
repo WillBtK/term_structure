@@ -10,6 +10,11 @@ Tables (idempotent upsert keys in parens):
   term_premia (country, instrument, date, tenor) — canonical decimal decomposition
   benchmarks  (source, date, maturity, metric)   — external US TP model estimates
 
+It also publishes the self-contained Atlas (``viz/artifact.html``) to a PUBLIC
+Supabase Storage bucket (default ``atlas``, override with ``SUPABASE_ATLAS_BUCKET``)
+as ``index.html`` — a stable, auto-updating public URL while the GitHub repo stays
+private. This too is inert without credentials.
+
 Usage:
     python -m scheduler.supabase_export           # write staging files (+ upload if creds)
 """
@@ -27,6 +32,9 @@ ROOT = Path(__file__).resolve().parent.parent
 CANON = ROOT / "viz" / "data_daily.parquet"
 STAGE = ROOT / "scheduler" / "supabase_stage"       # gitignored; transient upload files
 TP_TABLE, BENCH_TABLE, GF_TABLE = "term_premia", "benchmarks", "global_factor"
+ATLAS_HTML = ROOT / "viz" / "artifact.html"
+ATLAS_BUCKET = os.environ.get("SUPABASE_ATLAS_BUCKET") or "atlas"
+ATLAS_OBJECT = "index.html"
 
 
 def _benchmarks_long() -> pd.DataFrame:
@@ -119,11 +127,44 @@ def maybe_upload(exports: dict) -> bool:
     return True
 
 
+def maybe_upload_atlas() -> str | None:
+    """Publish the self-contained Atlas to a PUBLIC Supabase Storage bucket and
+    return its public URL. Inert (returns None) without creds / client / artifact."""
+    url, key = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY")
+    if not (url and key):
+        logger.info("SUPABASE_URL/KEY unset — Atlas not published to Storage.")
+        return None
+    if not ATLAS_HTML.exists():
+        logger.warning("Atlas %s missing — run the daily build first; skipping publish.", ATLAS_HTML)
+        return None
+    try:
+        from supabase import create_client
+    except ImportError:
+        logger.warning("supabase client not installed; Atlas publish skipped.")
+        return None
+    client = create_client(url, key)
+    data = ATLAS_HTML.read_bytes()
+    store = client.storage.from_(ATLAS_BUCKET)
+    # upsert so the daily run overwrites yesterday's page; short cache so shared
+    # links pick up the new build quickly.
+    opts = {"content-type": "text/html", "upsert": "true", "cache-control": "300"}
+    try:
+        store.upload(path=ATLAS_OBJECT, file=data, file_options=opts)
+    except Exception as exc:                                        # noqa: BLE001
+        logger.error("Atlas upload to bucket %r failed (does the PUBLIC bucket exist?): %s",
+                     ATLAS_BUCKET, exc)
+        return None
+    public_url = store.get_public_url(ATLAS_OBJECT)
+    logger.info("published Atlas (%d KB) -> %s", len(data) // 1024, public_url)
+    return public_url
+
+
 def run() -> dict:
     exports = build_exports()
     uploaded = maybe_upload(exports)
+    atlas_url = maybe_upload_atlas()
     return {"tables": {t: {"path": str(p), "rows": n} for t, (p, n) in exports.items()},
-            "uploaded": uploaded}
+            "uploaded": uploaded, "atlas_url": atlas_url}
 
 
 def _main() -> None:
