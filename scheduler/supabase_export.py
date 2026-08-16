@@ -152,11 +152,20 @@ def maybe_upload_atlas() -> str | None:
         logger.warning("supabase client not installed; Atlas publish skipped.")
         return None
     client = create_client(url, key)
-    data = ATLAS_HTML.read_bytes()
+    # The repo's artifact.html is "content-only" (no <!doctype>/<html>/<head>/<body>) —
+    # exactly what the claude.ai Artifact tool expects, since it wraps the file itself at
+    # publish time. Served raw, a browser falls into quirks mode and has no charset hint
+    # (this page uses λ, φ, ≈, — heavily). Wrap it in a minimal standards-mode skeleton so
+    # the standalone Supabase page renders IDENTICALLY to the claude.ai Artifact.
+    raw = ATLAS_HTML.read_text(encoding="utf-8")
+    doc = ('<!doctype html>\n<html lang="en">\n<meta charset="utf-8">\n'
+           '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+           + raw + '\n</html>\n')
+    data = doc.encode("utf-8")
     store = client.storage.from_(ATLAS_BUCKET)
     # upsert so the daily run overwrites yesterday's page; short cache so shared
     # links pick up the new build quickly.
-    opts = {"content-type": "text/html", "upsert": "true", "cache-control": "300"}
+    opts = {"content-type": "text/html; charset=utf-8", "upsert": "true", "cache-control": "300"}
     try:
         store.upload(path=ATLAS_OBJECT, file=data, file_options=opts)
     except Exception as exc:                                        # noqa: BLE001
