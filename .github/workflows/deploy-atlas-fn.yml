@@ -43,4 +43,10 @@ jobs:
           REF=$(printf '%s' "$SUPABASE_URL" | sed -E 's#https?://([^.]+)\..*#\1#')
           echo "Deploying 'atlas' to project ref: $REF"
           supabase functions deploy atlas --project-ref "$REF" --no-verify-jwt
-          echo "Public URL: ${SUPABASE_URL%/}/functions/v1/atlas"
+          URL="${SUPABASE_URL%/}/functions/v1/atlas"
+          echo "Public URL: $URL"
+          echo "--- verifying served response headers (after short propagation wait) ---"
+          sleep 8
+          curl -sS -o /tmp/atlas_out -D - "$URL" | grep -i -E '^(HTTP/|content-type|x-atlas-fn|content-length)' || true
+          echo "--- first 80 bytes of body ---"
+          head -c 80 /tmp/atlas_out; echo
