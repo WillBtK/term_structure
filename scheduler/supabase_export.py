@@ -195,18 +195,18 @@ def maybe_upload_atlas() -> str | None:
         info = urllib.request.Request(
             f"{base}/storage/v1/object/info/{ATLAS_BUCKET}/{ATLAS_OBJECT}", headers=auth)
         with urllib.request.urlopen(info, timeout=30) as r:
-            meta = json.loads(r.read().decode("utf-8", "replace"))
-        mt = (meta.get("metadata") or {}).get("mimetype") or meta.get("contentType") or meta.get("mimetype")
-        logger.info("stored (origin) mimetype = %s", mt)
+            logger.info("origin info JSON = %s", r.read().decode("utf-8", "replace")[:400])
     except Exception as exc:                                        # noqa: BLE001
         logger.info("origin mimetype verify skipped: %s", exc)
-    # Also report what the public CDN serves right now (may be stale until CDN TTL).
-    try:
-        head = urllib.request.Request(public_url, method="HEAD")
-        with urllib.request.urlopen(head, timeout=30) as r:
-            logger.info("served (CDN) Content-Type = %s", r.headers.get("Content-Type"))
-    except Exception as exc:                                        # noqa: BLE001
-        logger.info("Content-Type verify skipped: %s", exc)
+    # HEAD with a cache-busting query so the CDN can't serve a stale cached Content-Type —
+    # this reveals the true origin-derived type.
+    bust = os.environ.get("GITHUB_SHA", "v1")[:8]
+    for label, u in (("CDN", public_url), ("origin", f"{public_url}?v={bust}")):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(u, method="HEAD"), timeout=30) as r:
+                logger.info("served (%s) Content-Type = %s", label, r.headers.get("Content-Type"))
+        except Exception as exc:                                    # noqa: BLE001
+            logger.info("Content-Type verify (%s) skipped: %s", label, exc)
     return public_url
 
 
