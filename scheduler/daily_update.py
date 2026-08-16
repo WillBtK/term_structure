@@ -43,7 +43,7 @@ def _refreshers():
         ("US GSW (nominal)", lambda: load_gsw_params(refresh=True)),
         ("US TIPS (real)", lambda: load_tips_params(refresh=True)),
         ("Germany (daily)", lambda: de_load(freq="D", refresh=True)),
-        ("Japan (daily)", lambda: jp_load(refresh=True, freq="D")),
+        ("Japan (daily)", lambda: jp_load(refresh=True)),   # MoF JGB is daily-only (no freq arg)
         ("UK nominal (daily)", lambda: uk_load("nominal", refresh=True, freq="D")),
         ("UK real (daily)", lambda: uk_load("real", refresh=True, freq="D")),
         ("Switzerland (daily)", lambda: ch_load(refresh=True, freq="D")),

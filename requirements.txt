@@ -12,6 +12,7 @@ pyarrow>=14,<16          # parquet caches
 requests>=2.31           # GSW / SF Fed downloads (urllib fallback if absent)
 
 # Optional but recommended
+supabase>=2.4            # daily upsert of the dataset + publish the Atlas to Storage (scheduler.supabase_export)
 matplotlib==3.8.2        # validation overlay plots (skipped if absent)
 openpyxl==3.1.2          # read SF Fed .xlsx if that is the published format
 xlrd>=2.0.1              # read the legacy ACM .xls benchmark workbook (NY Fed)

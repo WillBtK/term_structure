@@ -45,6 +45,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
           OMP_NUM_THREADS: "1"
           OPENBLAS_NUM_THREADS: "1"
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}   # optional: enables the TIPS-noise gauge + reliable Kim-Wright
         run: python -m scheduler.daily_update
       - name: Export to Supabase + publish Atlas (inert without secrets)
         env:
