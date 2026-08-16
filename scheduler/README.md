@@ -29,20 +29,23 @@ the `SUPABASE_ATLAS_BUCKET` secret to your bucket name). Scheduled runs fire onl
 from the **default branch**, so it stays dormant until this work merges; use "Run
 workflow" to trigger manually meanwhile.
 
-### Serving the rendering page — an Edge Function (not Storage)
+### Serving the rendering page — a Cloudflare Worker (not Supabase)
 
-Supabase **Storage serves user-uploaded HTML as `text/plain`** (an anti-abuse
-policy), so the raw Storage URL shows source, not the rendered page. The public,
-rendering URL is instead a tiny **Edge Function** (`supabase/functions/atlas`) that
-reads the latest uploaded page from Storage and re-serves it as real `text/html`:
+Supabase serves user-uploaded HTML as `text/plain` on its default `*.supabase.co`
+domains — **both** Storage *and* Edge Functions (an anti-abuse policy) — so a
+browser hitting either shows source, not the rendered page (rendering would need a
+paid Supabase custom domain). The public, rendering URL is instead a tiny
+**Cloudflare Worker** (`cloudflare/atlas-worker.js`) that reads the latest uploaded
+page from the public Supabase Storage object and re-serves it as real `text/html`
+on `*.workers.dev` (free, and HTML is not downgraded there):
 
-    <SUPABASE_URL>/functions/v1/atlas
+    https://term-premium-atlas.<your-subdomain>.workers.dev
 
-Deploy it **once** via the `Deploy Atlas Edge Function` workflow
-(`.github/workflows/deploy-atlas-fn.yml`) — it reads live from Storage, so every
-nightly data update flows through with no redeploy. One-time setup: add a repo
-secret **`SUPABASE_ACCESS_TOKEN`** (Supabase → Account → Access Tokens); the daily
-job keeps refreshing the Storage object the function serves.
+Deploy it **once** by pasting `cloudflare/atlas-worker.js` into a new Worker
+(Cloudflare dashboard → Compute → Workers → Create) — see `cloudflare/README.md`.
+It reads live from Storage, so every nightly data update flows through with no
+redeploy. The Supabase data pipeline (Storage upload + DB tables) is unchanged;
+the Worker is only the render layer.
 
 **Why not auto-republish the claude.ai Artifact:** neither a GitHub runner nor a
 Claude Code Remote fired session has the **Artifact tool** (verified — the tool is
