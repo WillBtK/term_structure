@@ -202,16 +202,28 @@ def maybe_upload_atlas() -> str | None:
             logger.info("origin info JSON = %s", r.read().decode("utf-8", "replace")[:400])
     except Exception as exc:                                        # noqa: BLE001
         logger.info("origin mimetype verify skipped: %s", exc)
-    # Verify what a real GET returns (a browser does GET, not HEAD; Supabase's public
-    # endpoint can report text/plain on HEAD while serving text/html on GET). Fetch one
-    # byte via Range to read the true served Content-Type cheaply.
-    bust = os.environ.get("GITHUB_SHA", "v1")[:8]
+    # Full GET (no Range → a real 200, like a browser) reads the true served Content-Type.
     try:
-        g = urllib.request.Request(f"{public_url}?v={bust}", headers={"Range": "bytes=0-0"})
-        with urllib.request.urlopen(g, timeout=30) as r:
-            logger.info("served (GET) Content-Type = %s", r.headers.get("Content-Type"))
+        with urllib.request.urlopen(urllib.request.Request(public_url), timeout=60) as r:
+            logger.info("served (full GET) Content-Type = %s", r.headers.get("Content-Type"))
     except Exception as exc:                                        # noqa: BLE001
         logger.info("Content-Type verify skipped: %s", exc)
+    # DIAGNOSTIC: upload a brand-new (never-CDN-cached) probe path and full-GET it. If the
+    # probe serves text/html but index.html serves text/plain, the problem is a stale CDN
+    # edge cache on index.html (not Supabase serving html wrong). Probe is deleted after.
+    try:
+        from supabase import create_client as _cc
+        probe = f"probe-{os.environ.get('GITHUB_RUN_ID', 'x')}.html"
+        _cc(url, key).storage.from_(ATLAS_BUCKET).upload(
+            path=probe, file=b"<!doctype html><meta charset=utf-8><title>probe</title><h1>probe</h1>",
+            file_options={"content-type": "text/html", "upsert": "true"})
+        with urllib.request.urlopen(
+                f"{base}/storage/v1/object/public/{ATLAS_BUCKET}/{probe}", timeout=30) as r:
+            logger.info("PROBE fresh-path served Content-Type = %s", r.headers.get("Content-Type"))
+        urllib.request.urlopen(urllib.request.Request(
+            f"{base}/storage/v1/object/{ATLAS_BUCKET}/{probe}", method="DELETE", headers=auth), timeout=30)
+    except Exception as exc:                                        # noqa: BLE001
+        logger.info("probe skipped: %s", exc)
     return public_url
 
 
