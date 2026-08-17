@@ -133,6 +133,12 @@ section.panel{ margin-bottom: 66px; scroll-margin-top: 24px; }
 @media(min-width:980px){ .dual{ grid-template-columns:1fr 1fr; align-items:start; } }
 .dual > .card{ margin:0; }
 /* comparison series-builder rows */
+/* Compare: chart left (narrower), vertical series builder right */
+.cmp-layout{ display:grid; grid-template-columns:1fr; gap:16px; }
+@media(min-width:900px){ .cmp-layout{ grid-template-columns: minmax(0,1.4fr) minmax(250px,0.85fr); align-items:start; } }
+.cmp-build{ display:flex; flex-direction:column; gap:8px; }
+.cmp-build-head{ font-variant-caps:small-caps; letter-spacing:0.06em; font-size:13px; color:var(--muted); }
+.cmp-build .addrow{ align-self:flex-start; }
 .serow{ display:flex; gap:7px; align-items:center; flex-wrap:wrap; margin-bottom:8px; padding:7px 9px; background:var(--surface-2); border:1px solid var(--line); border-radius:6px; }
 .serow .dot{ width:11px; height:11px; border-radius:3px; flex:0 0 auto; }
 .serow select{ font-size:12px; padding:3px 5px; }
@@ -157,6 +163,8 @@ section.panel{ margin-bottom: 66px; scroll-margin-top: 24px; }
 .card + .card{ margin-top:14px; }
 .card-title{ font-size:14px; font-weight:600; margin-bottom:2px; }
 .card-note{ font-size:12.5px; color:var(--muted); margin-bottom:14px; }
+.card-note.eqnote{ min-height:3.1em; }          /* equalise the two side-by-side chart cards */
+.wideslider{ margin:16px 2px 2px; }             /* shared time-range slider under a dual chart pair */
 .grid-2{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
 .grid-3{ display:grid; grid-template-columns: repeat(3,1fr); gap:14px; }
 @media (max-width: 980px){ .grid-2, .grid-3{ grid-template-columns:1fr; } }
@@ -706,9 +714,12 @@ function lastVal(block, measure, tenor){
   function syncStyle(){ gSt.style.display = EX.meas==='contrib'?'flex':'none'; }
 
   const dual=h('div',{class:'dual'});
-  const cTs=h('div',{class:'card'}); const tsTitle=h('div',{class:'card-title'}); cTs.appendChild(tsTitle); const tsNote=h('div',{class:'card-note'}); cTs.appendChild(tsNote); const tsLegend=h('div'); cTs.appendChild(tsLegend); const tsBox=h('div'); cTs.appendChild(tsBox); const sliderMount=h('div'); cTs.appendChild(sliderMount);
-  const cX=h('div',{class:'card'}); const xTitle=h('div',{class:'card-title'}); cX.appendChild(xTitle); const xNote=h('div',{class:'card-note'}); cX.appendChild(xNote); const xLegend=h('div'); cX.appendChild(xLegend); const xBox=h('div'); cX.appendChild(xBox);
+  const cTs=h('div',{class:'card'}); const tsTitle=h('div',{class:'card-title'}); cTs.appendChild(tsTitle); const tsNote=h('div',{class:'card-note eqnote'}); cTs.appendChild(tsNote); const tsLegend=h('div'); cTs.appendChild(tsLegend); const tsBox=h('div'); cTs.appendChild(tsBox);
+  const cX=h('div',{class:'card'}); const xTitle=h('div',{class:'card-title'}); cX.appendChild(xTitle); const xNote=h('div',{class:'card-note eqnote'}); cX.appendChild(xNote); const xLegend=h('div'); cX.appendChild(xLegend); const xBox=h('div'); cX.appendChild(xBox);
   dual.appendChild(cTs); dual.appendChild(cX); s.appendChild(dual);
+  // one time-range slider spanning the full width BELOW both charts, so the two chart
+  // boxes are the same height (the slider no longer inflates the left card).
+  const sliderMount=h('div',{class:'wideslider'}); s.appendChild(sliderMount);
 
   const measColor={obs:'blue',exp:'teal',tp:'orange'};
   const MEASLAB={obs:'Actual yield',exp:'Expected rate',tp:'Term premium'};
@@ -847,13 +858,20 @@ function lastVal(block, measure, tenor){
     return `${sp.cc} ${sp.tenor}y ${inst}${m}`; }
   function rowLabel(row){ return row.type==='spread' ? specLabel(row.A)+' − '+specLabel(row.B) : specLabel(row.A); }
 
-  // control panel (builder) + chart
-  const builder=h('div'); builder.style.marginBottom='14px'; s.appendChild(builder);
-  const addBtn=h('button',{class:'addrow'},'+ Add series'); addBtn.onclick=()=>{ if(CM.rows.length<5){ CM.rows.push({type:'level',A:{cc:'US',inst:'nominal',tenor:'10',meas:'obs'}}); redraw(); } };
-  const addWrap=h('div'); addWrap.style.margin='4px 0 2px'; addWrap.appendChild(addBtn); s.appendChild(addWrap);
+  // two-column layout: chart (narrower) on the left, the series builder stacked
+  // vertically on the right.
+  const layout=h('div',{class:'cmp-layout'});
+  const left=h('div'); const right=h('div',{class:'cmp-build'});
+  layout.appendChild(left); layout.appendChild(right); s.appendChild(layout);
+  // left: chart card + the shared time-range slider below it
   const c=h('div',{class:'card'}); const ct=h('div',{class:'card-title'}); c.appendChild(ct);
   const cn=h('div',{class:'card-note'}); c.appendChild(cn); const lg=h('div'); c.appendChild(lg); const box=h('div'); c.appendChild(box);
-  const sliderMount=h('div'); c.appendChild(sliderMount); s.appendChild(c);
+  left.appendChild(c); const sliderMount=h('div',{class:'wideslider'}); left.appendChild(sliderMount);
+  // right: compact, vertically-stacked series pickers + add button
+  right.appendChild(h('div',{class:'cmp-build-head'},'Series'));
+  const builder=h('div'); right.appendChild(builder);
+  const addBtn=h('button',{class:'addrow'},'+ Add series'); addBtn.onclick=()=>{ if(CM.rows.length<5){ CM.rows.push({type:'level',A:{cc:'US',inst:'nominal',tenor:'10',meas:'obs'}}); redraw(); } };
+  const addWrap=h('div'); addWrap.style.margin='2px 0'; addWrap.appendChild(addBtn); right.appendChild(addWrap);
 
   function sel(opts, val, onch, labels){ const e=h('select',{class:'select-control'});
     opts.forEach(o=> e.appendChild(h('option',{value:o}, labels?labels(o):o))); e.value=val; e.onchange=()=>onch(e.value); return e; }
@@ -887,7 +905,7 @@ function lastVal(block, measure, tenor){
     const series=CM.rows.map((row,i)=>({label:rowLabel(row), color:COL()[PAL[i]],
       pts: rowPts(row).filter(p=>p[0]>=CM.xlo-1e-6&&p[0]<=CM.xhi+1e-6)}));
     lg.innerHTML=''; lg.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
-    box.innerHTML=''; drawLine(box,{height:300, yZero:anyTP, yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtDay, series});
+    box.innerHTML=''; drawLine(box,{height:360, yZero:anyTP, yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtDay, series});
   }
   redraw();
   CHARTS.push(render);
@@ -1151,7 +1169,7 @@ function lastVal(block, measure, tenor){
   const gf=DATA.global_factor; if(!gf || !gf.G || !gf.G.length) return;
   const ladder=gf.pca_ladder||[];
   panel('globalfactor','Global cycle','Each market versus the global term-premium cycle',
-    ['Across four major markets (US, Germany, Japan and the UK — Switzerland is left out, its bond market too thin to belong in a common cycle) the 10-year term premia move largely <b>together</b>: one common factor explains <b>'+(ladder[0]||0).toFixed(0)+'%</b> of the variation. We split each market’s premium into that <b>global cycle</b> plus a <b>local residual</b> — how cheap or rich a curve sits versus the cycle. Pick a market: its observed 10-year premium is shown against the global-cycle-implied fitted; the gap is the residual (daily, back to 1974).']);
+    ['Across four major markets (US, Germany, Japan and the UK — Switzerland is left out, its bond market too thin to belong in a common cycle) the 10-year term premia move largely <b>together</b>: one common factor explains <b>'+(ladder[0]||0).toFixed(0)+'%</b> of the variation. We split each market’s premium into that <b>global cycle</b> plus a <b>local residual</b> — how cheap or rich a curve sits versus the cycle. Pick a market: on the <b>left</b>, its observed 10-year premium against the global-cycle-implied fitted; on the <b>right</b>, the gap between them — the <b>local residual</b>. Both charts share the time slider (daily, back to 1974).']);
   const s=M.lastChild;
   const GF={mkt:'US', xlo:gf.x[0], xhi:gf.x[gf.x.length-1]};
   const barB=h('div',{class:'ctrlbar'});
@@ -1160,25 +1178,40 @@ function lastVal(block, measure, tenor){
   gf.order.forEach(cc=>{ const b=h('button',null,cc); if(cc===GF.mkt)b.classList.add('active');
     b.onclick=()=>{ GF.mkt=cc; [...segB.children].forEach(x=>x.classList.toggle('active',x===b)); render(); };
     segB.appendChild(b); }); gB.appendChild(segB); barB.appendChild(gB); s.appendChild(barB);
-  const cB=h('div',{class:'card'}); const ctB=h('div',{class:'card-title'}); const cnB=h('div',{class:'card-note'});
+  // two matched charts: LEFT = observed 10y TP vs the global-cycle fitted; RIGHT = the
+  // difference (local residual). One shared time-range slider spans below both.
+  const dual=h('div',{class:'dual'});
+  const cB=h('div',{class:'card'}); const ctB=h('div',{class:'card-title'}); const cnB=h('div',{class:'card-note eqnote'});
   cB.appendChild(ctB); cB.appendChild(cnB); const lgB=h('div'); cB.appendChild(lgB); const boxB=h('div'); cB.appendChild(boxB);
-  const sliderMount=h('div'); cB.appendChild(sliderMount); s.appendChild(cB);
-  s.appendChild(h('div',{class:'callout',html:'<b>The local residual is a relative-value signal.</b> A market trading <b>cheap</b> versus the global cycle (observed above the fitted line) has tended to <b>outperform</b> the others over the next month — in the research backtest the residual carries relative-value information beyond a naive term-spread carry signal. A construct-validity diagnostic on synthetic duration-hedged excess returns across the four markets — not a tradeable strategy (no costs, no real hedging). See <i>FINDINGS_global_factor</i>.'}));
+  const cR=h('div',{class:'card'}); const ctR=h('div',{class:'card-title'}); const cnR=h('div',{class:'card-note eqnote'});
+  cR.appendChild(ctR); cR.appendChild(cnR); const lgR=h('div'); cR.appendChild(lgR); const boxR=h('div'); cR.appendChild(boxR);
+  dual.appendChild(cB); dual.appendChild(cR); s.appendChild(dual);
+  const sliderMount=h('div',{class:'wideslider'}); s.appendChild(sliderMount);
+  s.appendChild(h('div',{class:'callout',html:'<b>The local residual is a relative-value signal.</b> A market trading <b>cheap</b> versus the global cycle (observed above the fitted line — a positive residual) has tended to <b>outperform</b> the others over the next month — in the research backtest the residual carries relative-value information beyond a naive term-spread carry signal. A construct-validity diagnostic on synthetic duration-hedged excess returns across the four markets — not a tradeable strategy (no costs, no real hedging). See <i>FINDINGS_global_factor</i>.'}));
   rangeSlider(sliderMount, gf.x, gf.dates, (lo,hi)=>{ GF.xlo=lo; GF.xhi=hi; render(); });
   function render(){
     const CC=COL(), inWin=p=>p[0]>=GF.xlo-1e-6&&p[0]<=GF.xhi+1e-6;
-    const m=gf.markets[GF.mkt];
-    ctB.textContent=`${DATA.countries[GF.mkt].name} — 10y term premium vs the global cycle`;
-    cnB.textContent='Percent, daily. Observed 10y term premium vs the global-cycle-implied fitted (α+β·G); the gap is the local residual (+ = cheap vs the cycle). Drag the handles below to zoom.';
+    const m=gf.markets[GF.mkt]; const mcol=CC[CCOL[GF.mkt]]||CC.blue;
     let x0=gf.x[gf.x.length-1];
     for(let i=0;i<m.observed.length;i++){ if(m.observed[i]!=null){ x0=gf.x[i]; break; } }
     const obs=gf.x.map((x,i)=>[x,m.observed[i]]).filter(p=>p[1]!=null&&inWin(p));
     const fit=gf.x.map((x,i)=>[x,m.fitted[i]]).filter(p=>p[1]!=null&&inWin(p)&&p[0]>=x0-1e-6);
-    lgB.innerHTML=''; lgB.appendChild(legend([{label:'Observed 10y TP',color:CC[CCOL[GF.mkt]]||CC.blue},
+    const resid=gf.x.map((x,i)=>[x,(m.observed[i]!=null&&m.fitted[i]!=null)?m.observed[i]-m.fitted[i]:null])
+                    .filter(p=>p[1]!=null&&inWin(p)&&p[0]>=x0-1e-6);
+    // LEFT: observed vs fitted
+    ctB.textContent=`${DATA.countries[GF.mkt].name} — 10y term premium vs the global cycle`;
+    cnB.textContent='Percent, daily. Observed 10y term premium vs the global-cycle-implied fitted (α+β·G). Drag the handles below to zoom.';
+    lgB.innerHTML=''; lgB.appendChild(legend([{label:'Observed 10y TP',color:mcol},
       {label:'Global-cycle fitted (α+β·G)',color:CC.faint,dash:true}]));
-    boxB.innerHTML=''; drawLine(boxB,{height:280,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,
-      series:[{label:'Observed',color:CC[CCOL[GF.mkt]]||CC.blue,width:2.2,pts:obs},
+    boxB.innerHTML=''; drawLine(boxB,{height:300,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,
+      series:[{label:'Observed',color:mcol,width:2.2,pts:obs},
               {label:'Fitted',color:CC.faint,dash:'5 4',pts:fit}]});
+    // RIGHT: the difference = local residual
+    ctR.textContent=`${DATA.countries[GF.mkt].name} — local residual (observed − fitted)`;
+    cnR.textContent='Percent, daily. The gap between the two lines on the left: positive = the market is cheap versus the global cycle, negative = rich. Same time window.';
+    lgR.innerHTML=''; lgR.appendChild(legend([{label:'Local residual (obs − fitted)',color:mcol}]));
+    boxR.innerHTML=''; drawLine(boxR,{height:300,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,
+      series:[{label:'Residual',color:mcol,width:2,pts:resid}]});
   }
   render(); CHARTS.push(render);
 })();

@@ -34,9 +34,21 @@ logger = logging.getLogger(__name__)
 
 _TIPS_CATEGORY = 82                       # FRED "Treasury Inflation-Indexed Securities"
 _NS_LAMBDA = 0.7                          # fixed Nelson-Siegel decay (Diebold-Li) -> linear fit
-_MIN_RESID_MAT = 1.5                      # drop near-maturity TIPS (yields blow up)
+_MIN_RESID_MAT = 1.5                      # weight -> 0 below here (near-maturity TIPS blow up)
+_TAPER_HI = 2.5                           # weight -> 1 above here; smooth taper across [1.5, 2.5]
 _MAX_RESID_MAT = 25.0
 _MIN_BONDS = 5                            # need > n_params(=3) bonds for a meaningful RMS
+_MIN_EFF_BONDS = 4.0                      # min effective (weighted) bond count for a fit
+
+
+def _bond_weight(tau: np.ndarray) -> np.ndarray:
+    """Smooth taper on residual maturity so a near-maturity outlier TIPS crossing the
+    exclusion floor fades out CONTINUOUSLY instead of dropping the basket by one bond
+    (which stepped the gauge on 2026-01-14). Hermite smoothstep 0->1 across
+    [_MIN_RESID_MAT, _TAPER_HI]; flat 1 in the interior; 0 at/above _MAX_RESID_MAT."""
+    u = np.clip((tau - _MIN_RESID_MAT) / (_TAPER_HI - _MIN_RESID_MAT), 0.0, 1.0)
+    w = u * u * (3.0 - 2.0 * u)
+    return np.where(tau >= _MAX_RESID_MAT, 0.0, w)
 
 
 # --------------------------------------------------------------------------- io
@@ -107,15 +119,23 @@ def _ns_design(tau: np.ndarray, lam: float = _NS_LAMBDA) -> np.ndarray:
     return np.column_stack([np.ones_like(tau), s, c])
 
 
-def _rms_residual(tau: np.ndarray, y: np.ndarray) -> float:
-    """RMS residual of a fixed-λ Nelson-Siegel OLS fit to (tau, y) — the cross-sectional
-    'noise'. NaN if too few bonds."""
+def _rms_residual(tau: np.ndarray, y: np.ndarray, w: np.ndarray | None = None) -> float:
+    """Weighted RMS residual of a fixed-λ Nelson-Siegel WLS fit to (tau, y) — the
+    cross-sectional 'noise'. Weights ``w`` (default from ``_bond_weight``) taper
+    near-maturity bonds smoothly, so basket-composition changes don't step the series;
+    the fit and the RMS use the SAME weights so a down-weighted outlier distorts neither.
+    NaN if too few (effective) bonds."""
     if tau.size < _MIN_BONDS:
         return np.nan
+    if w is None:
+        w = _bond_weight(tau)
+    if w.sum() < _MIN_EFF_BONDS:
+        return np.nan
     X = _ns_design(tau)
-    beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+    sw = np.sqrt(w)
+    beta, *_ = np.linalg.lstsq(X * sw[:, None], y * sw, rcond=None)   # WLS
     resid = y - X @ beta
-    return float(np.sqrt(np.mean(resid ** 2)))
+    return float(np.sqrt(np.sum(w * resid ** 2) / w.sum()))
 
 
 def build_noise(refresh: bool = False, freq: str = "M") -> pd.DataFrame:
@@ -135,10 +155,14 @@ def build_noise(refresh: bool = False, freq: str = "M") -> pd.DataFrame:
         tau = resid_mat[keep]; y = g["yield"].to_numpy()[keep]
         if tau.size < _MIN_BONDS:
             continue
-        recs.append({"date": dt, "noise": _rms_residual(tau, y), "n_bonds": int(tau.size)})
+        w = _bond_weight(tau)
+        # effective (weighted) bond count — an integer n_bonds would step whenever a
+        # tapering bond crosses the floor; the effective count moves continuously.
+        recs.append({"date": dt, "noise": _rms_residual(tau, y, w),
+                     "n_bonds": round(float(w.sum()), 2)})
     daily = pd.DataFrame(recs).dropna().sort_values("date").reset_index(drop=True)
     daily.to_parquet(path)
-    logger.info("TIPS noise: %d daily obs %s..%s, latest %.1f bp (%d bonds)",
+    logger.info("TIPS noise: %d daily obs %s..%s, latest %.1f bp (%.1f eff. bonds)",
                 len(daily), daily["date"].min().date(), daily["date"].max().date(),
                 daily["noise"].iloc[-1] * 1e4, daily["n_bonds"].iloc[-1])
     return daily if freq == "D" else _to_monthly(daily)
