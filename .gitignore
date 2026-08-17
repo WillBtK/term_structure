@@ -30,6 +30,7 @@ validation/data/*
 scratchpad/
 uk/data/*
 switzerland/data/*
+canada/data/*
 viz/data_daily.parquet
 viz/data.json
 viz/global_factor_meta.json
