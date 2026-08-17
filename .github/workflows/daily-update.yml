@@ -32,6 +32,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45          # whole-job backstop so a hung run can't block for hours
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -41,6 +42,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Refresh data + rebuild atlas (fast filter-forward path)
+        timeout-minutes: 25       # fetch + filter-forward rebuild normally ~4-5 min
         env:
           PYTHONPATH: ${{ github.workspace }}
           OMP_NUM_THREADS: "1"
@@ -48,6 +50,7 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}   # optional: enables the TIPS-noise gauge + reliable Kim-Wright
         run: python -m scheduler.daily_update
       - name: Export to Supabase + publish Atlas (inert without secrets)
+        timeout-minutes: 15       # Supabase upsert + upload normally ~3-4 min; fail fast if it hangs
         env:
           PYTHONPATH: ${{ github.workspace }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
