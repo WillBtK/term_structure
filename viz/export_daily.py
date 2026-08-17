@@ -80,6 +80,12 @@ def _panel_daily(kind: str) -> pd.DataFrame:
         full = load_yields(freq="D")                     # all available daily maturities
         full = full[full.index >= pd.Timestamp(sw.SAMPLE_START)].dropna(how="all")
         return _interp_to_grid(full, sw.COMMON_GRID)
+    if kind == "ca_nominal":
+        from canada.fetch_boc import build_yield_panel
+        from canada import config as ca
+        # BoC ZC curve carries every grid tenor directly (0.25..30y) — no interp.
+        return build_yield_panel(grid=ca.COMMON_GRID, freq="D",
+                                 start=None).dropna(how="all")   # 1986+ (30y from 1991)
     raise ValueError(kind)
 
 
@@ -125,10 +131,12 @@ SPECS = [
      {"label": "Japanese JGBs (nominal)", "sample": "1974+", "est_start": "1986-07-05", "elb": -0.17}),
     ("CH", "nominal", "ch_prod.json", "ch_nominal", None,
      {"label": "Swiss Confederation (nominal)", "sample": "1988+", "est_start": "1988-01-01", "elb": -0.75}),
+    ("CA", "nominal", "ca_prod.json", "ca_nominal", None,
+     {"label": "Canada (nominal)", "sample": "1986+", "est_start": "1991-01-01", "elb": 0.0}),
 ]
 NAMES = {"US": "United States", "UK": "United Kingdom", "DE": "Germany",
-         "JP": "Japan", "CH": "Switzerland"}
-ORDER = ["US", "UK", "DE", "JP", "CH"]
+         "JP": "Japan", "CH": "Switzerland", "CA": "Canada"}
+ORDER = ["US", "UK", "DE", "JP", "CH", "CA"]
 
 
 def build_canonical() -> pd.DataFrame:

@@ -3,10 +3,10 @@
 ## Objective
 
 Estimate government bond term premia consistently across the United States,
-Germany, Japan, the United Kingdom, and Switzerland, using a single model
-specification across all five markets, while correctly handling periods of zero or
+Germany, Japan, the United Kingdom, Switzerland, and Canada, using a single model
+specification across all six markets, while correctly handling periods of zero or
 negative short-term rates (Japan since the mid-1990s; Germany/euro area since 2014;
-Switzerland since 2015).
+Switzerland since 2015; Canada grazed its ~0.25% lower bound in 2009–10 and 2020–21).
 
 ## Model
 
@@ -154,6 +154,7 @@ so no third regime needed). See `validation/FINDINGS_kim_validation.md`,
 | UK | Bank of England | VRP spline, non-parametric | Full published yield curve grid (nominal + real), daily since 1979 (real 1985), out to 20y+ |
 | Japan | MOF / BoJ | Spline-based (per BIS Papers no. 25) | MoF JGB spot yields, ragged panel 1986+ |
 | Switzerland | SNB | `rendoblim` Svensson spot curve | Daily CHF spot rates, 1988+ (ragged long end from 1997-12) |
+| Canada | Bank of Canada | Fitted zero-coupon curve (`lookup_yield_curve.php` CSV) | Daily CAD zero-coupon yields 0.25–30y, 1986+ (30y from 1991) |
 
 US real (TIPS, GSW feds200805, 2004+) and UK real (index-linked gilts, 1985+) are
 also pulled for the inflation-linked leg. US benchmark/survey series (ACM,
@@ -267,6 +268,11 @@ and `viz/artifact.html`, and republishes the Atlas. See `scheduler/README.md`.
    direct spot rates, 1988+, ragged long end from 1997-12), fixed ELB −0.75%
    (the revealed SNB floor). 10y term premium the **lowest of the five** (deepest
    safe-haven, currently negative). Added as the 5th market in the atlas.
+6. **Canada** — DONE. Bank of Canada fitted **zero-coupon** curve (`/canada`,
+   `lookup_yield_curve.php` CSV, direct spot yields 0.25–30y, 1986+, 30y from 1991),
+   shadow-rate + BRW on the 1991+ inflation-targeting sample; ELB calibrated near 0%
+   and ML-refined (weakly identified — Canada only grazed the bound). 6th market in
+   the atlas, and included in the global-cycle factor (a deep, liquid G7 market).
 
 ### Inflation-linked extension (US + UK real curves)
 **Real** term premia (US TIPS `us/tips.py`, GSW feds200805, 2004+; UK
@@ -340,6 +346,7 @@ are the **mean-reversion-floor** numbers — see the note below.
 /japan
 /uk
 /switzerland    # SNB CHF spot curve (5th market)
+/canada         # Bank of Canada fitted zero-coupon curve (6th market)
 /validation     # benchmarks (SF Fed / ACM / Kim-Wright / DKW), ATSIX survey anchor,
                 #   TIPS liquidity gauge (tips_liquidity.py), FRED API helper (fred_api.py)
 /scheduler      # cadence: weekly/monthly re-estimation, daily filter-forward, Supabase export

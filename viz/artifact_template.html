@@ -20,6 +20,7 @@
   --teal-soft: #DCEDE6;
   --purple:  #7A5FA0;
   --crimson: #A23440;
+  --gold:    #9C7A22;
   --focus:   #2E6B9E;
   --shadow:  0 1px 2px rgba(35,32,26,0.06), 0 4px 16px rgba(35,32,26,0.05);
 }
@@ -42,6 +43,7 @@
     --teal:    #2FA080;
     --teal-soft: #1D3630;
     --purple:  #8C6BC0;
+    --gold:    #CDA23F;
     --focus:   #5B93CC;
     --shadow:  0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
   }
@@ -65,6 +67,7 @@
   --teal-soft: #1D3630;
   --purple:  #8C6BC0;
   --crimson: #CE6B72;
+  --gold:    #CDA23F;
   --focus:   #5B93CC;
   --shadow:  0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
 }
@@ -377,7 +380,7 @@ function h(tag, attrs, kids){
   if(kids) (Array.isArray(kids)?kids:[kids]).forEach(c=> c!=null && e.appendChild(typeof c==='string'?document.createTextNode(c):c));
   return e;
 }
-const COL = ()=>({blue:cssVar('--blue'),orange:cssVar('--orange'),teal:cssVar('--teal'),purple:cssVar('--purple'),crimson:cssVar('--crimson'),orangeSoft:cssVar('--orange-soft'),ink:cssVar('--ink'),muted:cssVar('--muted'),faint:cssVar('--faint'),line:cssVar('--line'),line2:cssVar('--line-2'),surface:cssVar('--surface')});
+const COL = ()=>({blue:cssVar('--blue'),orange:cssVar('--orange'),teal:cssVar('--teal'),purple:cssVar('--purple'),crimson:cssVar('--crimson'),gold:cssVar('--gold'),orangeSoft:cssVar('--orange-soft'),ink:cssVar('--ink'),muted:cssVar('--muted'),faint:cssVar('--faint'),line:cssVar('--line'),line2:cssVar('--line-2'),surface:cssVar('--surface')});
 
 /* ============================================== LINE CHART (crosshair) */
 // opts: {series:[{label,color,dash,pts:[[x,y]]}], yZero, yFmt, xFmt, xTipFmt, height, hideXaxis,
@@ -607,7 +610,7 @@ const MON3=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','D
 const xYear=v=>String(Math.round(v));
 function xFmtMonth(v){ const y=Math.floor(v+1e-6); const mo=Math.round((v-y)*12); return MON3[(mo%12+12)%12]+'-'+String(y).slice(-2); }
 function xFmtDay(v){ const y=Math.floor(v+1e-9); const doy=Math.round((v-y)*365.25); const dt=new Date(Date.UTC(y,0,1)); dt.setUTCDate(dt.getUTCDate()+doy); return MON3[dt.getUTCMonth()]+' '+dt.getUTCDate()+', '+y; }
-const CCOL={US:'blue',UK:'orange',JP:'teal',DE:'purple',CH:'crimson'};
+const CCOL={US:'blue',UK:'orange',JP:'teal',DE:'purple',CH:'crimson',CA:'gold'};
 const SERIES={obs:'Actual yield',exp:'Expected rate',tp:'Term premium'};
 const ym=(y,m)=>y+(m-1)/12;
 // Curated policy episodes (shaded) + structural breakpoints (dashed). Applies per
@@ -1184,7 +1187,7 @@ function lastVal(block, measure, tenor){
   const gf=DATA.global_factor; if(!gf || !gf.G || !gf.G.length) return;
   const ladder=gf.pca_ladder||[];
   panel('globalfactor','Global cycle','Each market versus the global term-premium cycle',
-    ['Across four major markets (US, Germany, Japan and the UK — Switzerland is left out, its bond market too thin to belong in a common cycle) the 10-year term premia move largely <b>together</b>: one common factor explains <b>'+(ladder[0]||0).toFixed(0)+'%</b> of the variation. We split each market’s premium into that <b>global cycle</b> plus a <b>local residual</b> — how cheap or rich a curve sits versus the cycle. Pick a market: on the <b>left</b>, its observed 10-year premium against the global-cycle-implied fitted; on the <b>right</b>, the gap between them — the <b>local residual</b>. Both charts share the time slider (daily, back to 1974).']);
+    ['Across five major markets (US, Germany, Japan, the UK and Canada — Switzerland is left out, its bond market too thin to belong in a common cycle) the 10-year term premia move largely <b>together</b>: one common factor explains <b>'+(ladder[0]||0).toFixed(0)+'%</b> of the variation. We split each market’s premium into that <b>global cycle</b> plus a <b>local residual</b> — how cheap or rich a curve sits versus the cycle. Pick a market: on the <b>left</b>, its observed 10-year premium against the global-cycle-implied fitted; on the <b>right</b>, the gap between them — the <b>local residual</b>. Both charts share the time slider (daily, back to 1974).']);
   const s=M.lastChild;
   const GF={mkt:'US', xlo:gf.x[0], xhi:gf.x[gf.x.length-1]};
   const barB=h('div',{class:'ctrlbar'});
@@ -1202,7 +1205,7 @@ function lastVal(block, measure, tenor){
   cR.appendChild(ctR); cR.appendChild(cnR); const lgR=h('div'); cR.appendChild(lgR); const boxR=h('div'); cR.appendChild(boxR);
   dual.appendChild(cB); dual.appendChild(cR); s.appendChild(dual);
   const sliderMount=h('div',{class:'wideslider'}); s.appendChild(sliderMount);
-  s.appendChild(h('div',{class:'callout',html:'<b>The local residual is a relative-value signal.</b> A market trading <b>cheap</b> versus the global cycle (observed above the fitted line — a positive residual) has tended to <b>outperform</b> the others over the next month — in the research backtest the residual carries relative-value information beyond a naive term-spread carry signal. A construct-validity diagnostic on synthetic duration-hedged excess returns across the four markets — not a tradeable strategy (no costs, no real hedging). See <i>FINDINGS_global_factor</i>.'}));
+  s.appendChild(h('div',{class:'callout',html:'<b>The local residual is a relative-value signal.</b> A market trading <b>cheap</b> versus the global cycle (observed above the fitted line — a positive residual) has tended to <b>outperform</b> the others over the next month — in the research backtest the residual carries relative-value information beyond a naive term-spread carry signal. A construct-validity diagnostic on synthetic duration-hedged excess returns across the five markets — not a tradeable strategy (no costs, no real hedging). See <i>FINDINGS_global_factor</i>.'}));
   rangeSlider(sliderMount, gf.x, gf.dates, (lo,hi)=>{ GF.xlo=lo; GF.xhi=hi; render(); });
   function render(){
     const CC=COL(), inWin=p=>p[0]>=GF.xlo-1e-6&&p[0]<=GF.xhi+1e-6;

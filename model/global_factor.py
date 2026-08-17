@@ -230,10 +230,12 @@ def variance_decomposition(p: DFMParams) -> dict:
 
 
 # --------------------------------------------------------------------------- driver
-# Global-factor market set: Switzerland is EXCLUDED — its government-bond market
-# liquidity is negligible next to the other four, so its 10y term premium is a noisy
-# member of a common cyclical factor. Order is the display order.
-GF_ORDER = ["US", "DE", "JP", "UK"]
+# Global-factor market set. Switzerland is EXCLUDED — its government-bond market
+# liquidity is negligible next to the majors, so its 10y term premium is a noisy
+# member of a common cyclical factor. Canada IS included: a deep, liquid G7 market
+# whose 10y premium belongs in the common cycle (its data joins in 1991). Order is
+# the display order.
+GF_ORDER = ["US", "DE", "JP", "UK", "CA"]
 
 
 def _month_end(s):

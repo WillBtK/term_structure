@@ -33,6 +33,7 @@ SPECS = {
     "uk_nom":     ("uk.production_tp", "run_uk_nominal"),
     "uk_real":    ("uk.production_tp", "run_uk_real"),
     "ch_prod":    ("switzerland.production_tp", "run_switzerland_production"),
+    "ca_prod":    ("canada.production_tp", "run_canada_production"),
 }
 
 
