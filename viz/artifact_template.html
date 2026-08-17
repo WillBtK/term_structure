@@ -1040,17 +1040,25 @@ function lastVal(block, measure, tenor){
   const gf=DATA.global_factor; if(!gf || !gf.G || !gf.G.length) return;
   const ladder=gf.pca_ladder||[];
   panel('globalfactor','Global cycle','A common term-premium cycle across bond markets',
-    ['Across the five markets the 10-year term premia move largely <b>together</b>: a single common factor (the first principal component) explains <b>'+(ladder[0]||0).toFixed(0)+'%</b> of the variation'+(ladder[1]?' — the second explains only '+ladder[1].toFixed(0)+'%, so one global factor suffices':'')+'. We extract that factor with a dynamic factor model on the term-premium series and read each market as <b>global cycle + a local residual</b>. The residual — how cheap or rich a curve sits <b>versus the global cycle</b> — is a relative-value signal (see note).']);
+    ['Across four major markets (US, Germany, Japan and the UK — Switzerland is left out, its government-bond market too thin to belong in a common cycle) the 10-year term premia move largely <b>together</b>: a single common factor (the first principal component) explains <b>'+(ladder[0]||0).toFixed(0)+'%</b> of the variation'+(ladder[1]?' — the second explains only '+ladder[1].toFixed(0)+'%, so one global factor suffices':'')+'. We extract that factor with a dynamic factor model on the monthly term-premium series back to <b>1974</b> (Germany reaches 1972 and Japan 1974 via the historical splices) and read each market as <b>global cycle + a local residual</b>. The residual — how cheap or rich a curve sits <b>versus the global cycle</b> — is a relative-value signal (see note).']);
   const s=M.lastChild;
   const CC0=COL();
   // variance-share readout
   const shr=gf.order.map(cc=>cc+' '+gf.markets[cc].share.toFixed(0)+'%').join('  ·  ');
-  s.appendChild(h('div',{class:'callout teal',html:'<b>How global is each market?</b> Share of each 10y term premium explained by the common factor — '+shr+'. The factor correlates <b>+0.96</b> with the US 10-year term premium and <b>−0.60</b> with the broad dollar (a rates/dollar cycle, not equity vol).'}));
+  // correlation of the factor with the US 10y TP, computed from the payload
+  const corr=(a,b)=>{ if(!a||!b) return null; const xs=[],ys=[];
+    for(let i=0;i<a.length;i++){ if(a[i]!=null&&b[i]!=null){xs.push(a[i]);ys.push(b[i]);} }
+    const n=xs.length; if(n<3) return null;
+    const mx=xs.reduce((s,v)=>s+v,0)/n, my=ys.reduce((s,v)=>s+v,0)/n;
+    let sxy=0,sx=0,sy=0; for(let i=0;i<n;i++){const dx=xs[i]-mx,dy=ys[i]-my; sxy+=dx*dy; sx+=dx*dx; sy+=dy*dy;}
+    return (sx>0&&sy>0)? sxy/Math.sqrt(sx*sy):null; };
+  const usCorr=corr(gf.G, gf.markets.US&&gf.markets.US.observed);
+  s.appendChild(h('div',{class:'callout teal',html:'<b>How global is each market?</b> Share of each 10y term premium explained by the common factor — '+shr+'.'+(usCorr!=null?' The factor tracks the <b>US 10-year term premium</b> at r='+(usCorr<0?'−':'+')+Math.abs(usCorr).toFixed(2)+' — a rates cycle centred on the US.':'')}));
   const GF={mkt:'US', xlo:gf.x[0], xhi:gf.x[gf.x.length-1]};
   // Card A — the global factor
   const cA=h('div',{class:'card'});
   cA.appendChild(h('div',{class:'card-title'},'The global term-premium factor (PC1, standardized)'));
-  cA.appendChild(h('div',{class:'card-note'},'Common cycle across US/UK/DE/JP/CH 10y term premia. Unitless (standardized); read the shape, not the level. Drag the handles below to zoom.'));
+  cA.appendChild(h('div',{class:'card-note'},'Common cycle across US, Germany, Japan and the UK 10y term premia (monthly, from 1974). Unitless (standardized); read the shape, not the level. Drag the handles below to zoom.'));
   const boxA=h('div'); cA.appendChild(boxA); s.appendChild(cA);
   // Card B — a market vs the global cycle
   const barB=h('div',{class:'ctrlbar'});
@@ -1062,7 +1070,7 @@ function lastVal(block, measure, tenor){
   const cB=h('div',{class:'card'}); const ctB=h('div',{class:'card-title'}); const cnB=h('div',{class:'card-note'});
   cB.appendChild(ctB); cB.appendChild(cnB); const lgB=h('div'); cB.appendChild(lgB); const boxB=h('div'); cB.appendChild(boxB);
   const sliderMount=h('div'); cB.appendChild(sliderMount); s.appendChild(cB);
-  s.appendChild(h('div',{class:'callout',html:'<b>The local residual is a relative-value signal.</b> A market trading <b>cheap</b> versus the global cycle (observed above the fitted line) has tended to <b>outperform</b> the others over the next month. On the balanced 1997+ cross-section this beats a naive term-spread carry signal (information ratio <b>0.59 vs 0.28</b>) and <b>subsumes</b> it in a joint regression (t≈+3.6 vs +0.3). A construct-validity diagnostic on synthetic duration-hedged excess returns — not a tradeable strategy (no costs, no real hedging, 5-name cross-section). See <i>FINDINGS_global_factor</i>.'}));
+  s.appendChild(h('div',{class:'callout',html:'<b>The local residual is a relative-value signal.</b> A market trading <b>cheap</b> versus the global cycle (observed above the fitted line) has tended to <b>outperform</b> the others over the next month — in the research backtest the residual carries relative-value information beyond a naive term-spread carry signal. A construct-validity diagnostic on synthetic duration-hedged excess returns across the four markets — not a tradeable strategy (no costs, no real hedging). See <i>FINDINGS_global_factor</i>.'}));
   rangeSlider(sliderMount, gf.x, gf.dates, (lo,hi)=>{ GF.xlo=lo; GF.xhi=hi; render(); });
   function render(){
     const CC=COL(), inWin=p=>p[0]>=GF.xlo-1e-6&&p[0]<=GF.xhi+1e-6;

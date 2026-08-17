@@ -28,7 +28,11 @@ OUT_PARQUET = HERE / "global_factor.parquet"
 OUT_META = HERE / "global_factor_meta.json"
 PARAMS = HERE / "params" / "global_factor.json"
 TENOR = 10.0
-ORDER = ["US", "UK", "DE", "JP", "CH"]
+# Markets in the global factor (Switzerland excluded — negligible market liquidity).
+# The actual order/set comes from model.global_factor.load_tp_panel (GF_ORDER); this
+# mirror is kept only for reference. The panel is month-end and backfilled (DE→1972,
+# JP 9y→10y→1974), clipped to ≥3 markets (≥1974).
+ORDER = ["US", "DE", "JP", "UK"]
 
 
 def _pca_ladder(Y: np.ndarray) -> list:

@@ -230,20 +230,94 @@ def variance_decomposition(p: DFMParams) -> dict:
 
 
 # --------------------------------------------------------------------------- driver
-def load_tp_panel(tenor: float = 10.0, canon_path=None):
-    """Wide (date × market) 10y nominal term-premium panel (decimal) from the canonical
-    dataset, in the canonical market order US,UK,DE,JP,CH."""
+# Global-factor market set: Switzerland is EXCLUDED — its government-bond market
+# liquidity is negligible next to the other four, so its 10y term premium is a noisy
+# member of a common cyclical factor. Order is the display order.
+GF_ORDER = ["US", "DE", "JP", "UK"]
+
+
+def _month_end(s):
+    """Last observation per calendar month, indexed at the month-end timestamp."""
+    import pandas as pd
+    s = s.dropna().sort_index()
+    if s.empty:
+        return s
+    m = s.groupby(s.index.to_period("M")).tail(1)
+    m.index = m.index.to_period("M").to_timestamp("M")
+    return m
+
+
+def splice_backfill(prod, hist):
+    """Extend a modern month-end series ``prod`` backwards with ``hist`` via a ONE-TIME
+    level match at the earliest overlap month: ``offset = prod[t0] - hist[t0]`` where
+    ``t0`` is the first month both are present; the returned series is ``prod`` where it
+    exists and ``hist + offset`` before that. Both inputs month-end, same units (decimal).
+    Returns ``prod`` unchanged if there is no overlap."""
+    import pandas as pd
+    prod, hist = _month_end(prod), _month_end(hist)
+    if prod.empty or hist.empty:
+        return prod
+    common = prod.index.intersection(hist.index)
+    if len(common) == 0:
+        return prod
+    t0 = common.min()
+    offset = float(prod.loc[t0] - hist.loc[t0])
+    pre = hist[hist.index < prod.index.min()] + offset
+    return pd.concat([pre, prod]).sort_index()
+
+
+def _load_hist_tp(fname, tenor_key):
+    """Read a monthly historical-overlay JSON (viz/history) as a month-end DECIMAL series
+    for one tenor; returns None if absent/unreadable."""
+    import json, pandas as pd
+    from pathlib import Path
+    f = Path(__file__).resolve().parent.parent / "viz" / "history" / fname
+    if not f.exists():
+        return None
+    try:
+        d = json.loads(f.read_text())
+        vals = d["tenors"][tenor_key]                       # percent
+        s = pd.Series([None if v is None else float(v) / 100.0 for v in vals],
+                      index=pd.to_datetime(d["dates"]), dtype=float).dropna()
+        return _month_end(s)
+    except Exception:                                       # noqa: BLE001
+        return None
+
+
+def load_tp_panel(tenor: float = 10.0, canon_path=None, extend: bool = True,
+                  min_markets: int = 3, min_start: str = "1974-01-01"):
+    """Wide (month-end × market) 10y nominal term-premium panel (decimal), markets
+    US,DE,JP,UK (Switzerland excluded — negligible liquidity).
+
+    With ``extend`` (default), two markets are backfilled before their modern daily
+    curve begins, via a one-time level splice (:func:`splice_backfill`):
+      * DE 10y ← the 1972+ monthly historical overlay (germany_hist_tp.json).
+      * JP 10y ← the 1974+ **9y** monthly overlay (japan_hist_tp.json); MoF's 10y
+        starts only 1986-07, so the 9y premium (back to 1974) is spliced onto the 10y.
+    The panel is clipped to the first month with at least ``min_markets`` markets present
+    (and to ``min_start`` — pre-1974 only US+DE exist, which is too thin for a common
+    factor)."""
     import pandas as pd
     from pathlib import Path
     canon_path = canon_path or (Path(__file__).resolve().parent.parent / "viz" / "data_daily.parquet")
     df = pd.read_parquet(canon_path)
     df["date"] = pd.to_datetime(df["date"])
-    order = ["US", "UK", "DE", "JP", "CH"]
     cols = {}
-    for cc in order:
+    for cc in GF_ORDER:
         s = df[(df.country == cc) & (df.instrument == "nominal") & (np.isclose(df.tenor, tenor))]
-        cols[cc] = s.set_index("date")["term_premium"].sort_index()
+        cols[cc] = _month_end(s.set_index("date")["term_premium"])
+    if extend:
+        de_hist = _load_hist_tp("germany_hist_tp.json", "%g" % tenor)     # DE 10y history
+        if de_hist is not None:
+            cols["DE"] = splice_backfill(cols["DE"], de_hist)
+        jp_hist = _load_hist_tp("japan_hist_tp.json", "9")                # JP 9y -> 10y splice
+        if jp_hist is not None:
+            cols["JP"] = splice_backfill(cols["JP"], jp_hist)
     panel = pd.DataFrame(cols).sort_index()
+    ok = panel.notna().sum(axis=1) >= min_markets
+    if ok.any():
+        start = max(panel.index[ok].min(), pd.Timestamp(min_start))
+        panel = panel[panel.index >= start]
     return panel
 
 
