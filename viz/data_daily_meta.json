@@ -109,8 +109,8 @@
     "JP:nominal": {
       "label": "Japanese JGBs (nominal)",
       "sample": "1974+",
-      "est_start": "1986-07-05",
-      "elb": -0.17,
+      "est_start": "2000-05-01",
+      "elb": -0.2,
       "tenors": [
         1.0,
         2.0,

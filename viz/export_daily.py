@@ -128,7 +128,7 @@ SPECS = [
     ("DE", "nominal", "de_prod.json", "de_nominal", None,
      {"label": "German Bunds (nominal)", "sample": "1997+", "est_start": "1999-01-01", "elb": -0.80}),
     ("JP", "nominal", "japan_prod.json", "jp_nominal", "ycc",
-     {"label": "Japanese JGBs (nominal)", "sample": "1974+", "est_start": "1986-07-05", "elb": -0.17}),
+     {"label": "Japanese JGBs (nominal)", "sample": "1974+", "est_start": "2000-05-01", "elb": -0.20}),
     ("CH", "nominal", "ch_prod.json", "ch_nominal", None,
      {"label": "Swiss Confederation (nominal)", "sample": "1988+", "est_start": "1988-01-01", "elb": -0.75}),
     ("CA", "nominal", "ca_prod.json", "ca_nominal", None,

@@ -97,6 +97,7 @@ def build() -> dict:
     res = "daily, full history" if full else f"daily (last {DAILY_YEARS:g}y) + weekly history"
     _extend_nominal_tp_history(countries, canon)
     _attach_us_regime_overlay(countries)
+    _attach_japan_regime_overlay(countries)
     _attach_germany_history(countries)
     _attach_us_benchmarks(countries)
     _attach_us_tips_noise(countries)
@@ -121,6 +122,27 @@ def _attach_us_regime_overlay(countries: dict) -> None:
     s = (t[10.0] * 100).dropna()
     idx = pd.DatetimeIndex(s.index)
     countries["US"]["instruments"]["nominal"]["regime10"] = {
+        "x": _xdec(idx), "dates": [str(d.date()) for d in idx],
+        "tp": [round(float(v), 4) for v in s.values],
+        "note": "2-regime Kim-filter model (per-era θ); illustrative in the extrapolated era."}
+
+
+def _attach_japan_regime_overlay(countries: dict) -> None:
+    """Attach the Japan 2-regime (per-era θ) 10y TP series to JP:nominal as a
+    deep-past cross-check for the 1974+ high-inflation era, if the run is present.
+    Mirrors the US regime overlay: a separate 2-regime Kim-filter fit whose
+    regime-mixed 10y premium is compared against the modern single-regime line
+    extrapolated back to 1974 (see the Atlas 'Great Inflation' panel)."""
+    f = HERE.parent / "scratchpad" / "regime_jp_tp.parquet"
+    if "JP" not in countries or not f.exists():
+        return
+    t = pd.read_parquet(f)
+    col = 10.0 if 10.0 in t.columns else (9.0 if 9.0 in t.columns else None)
+    if col is None:
+        return
+    s = (t[col] * 100).dropna()
+    idx = pd.DatetimeIndex(s.index)
+    countries["JP"]["instruments"]["nominal"]["regime10"] = {
         "x": _xdec(idx), "dates": [str(d.date()) for d in idx],
         "tp": [round(float(v), 4) for v in s.values],
         "note": "2-regime Kim-filter model (per-era θ); illustrative in the extrapolated era."}

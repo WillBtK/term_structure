@@ -1,11 +1,16 @@
 # Japan (JGB) term premium — findings
 
-> **⚠ Superseded numbers.** Term-premium levels here predate the
-> **mean-reversion floor** fix. Under the floor Japan's latest 10y premium is
-> **+1.65%** (highest of the five markets, reflecting a low sample-mean θ against
-> risen JGB yields — a θ-anchoring caveat is flagged in the corrected doc). See
-> **`FINDINGS_mean_reversion.md`**, which supersedes the persistence treatment.
-> The QQE/YCC narrative, ELB, and YCC-downweight methodology below still stand.
+> **⚠ Superseded sample & numbers.** This doc describes the original **1986-07**
+> production sample. Japan's production sample now starts **2000-05** — the
+> regime-clean modern sample dated by a 2-regime Kim filter on the full 1974+
+> curve (permanent level-regime break at May 2000; 1986 sat 14 years *inside* the
+> old high-level regime). Under the 2000+ fit the latest 10y premium is **+2.15%**
+> (a lower deflation-era θ anchor lifts it vs the old sample — read the level as
+> anchor-sensitive given the 2024+ BoJ exit). The 1974–2000 high-inflation era is
+> now a **separate labelled exhibit** (10y TP ~+3.4% mean / +4.9% peak). See
+> **`FINDINGS_japan_regimes.md`** (regime dating + the 2000 decision) and
+> **`FINDINGS_mean_reversion.md`** (θ-anchoring). The QQE/YCC narrative, ELB, and
+> YCC-downweight methodology below still stand.
 
 Third country. Same engine as the US/Germany (`/model` unforked); the data layer
 (`japan/`) and two Japan-specific handling steps (ML-estimated ELB, YCC

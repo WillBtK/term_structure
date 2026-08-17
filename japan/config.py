@@ -47,9 +47,19 @@ TENOR_START = {
 # out as redundant/thin. Sub-1y (T-bills) is a documented refinement.
 COMMON_GRID = np.array([1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 20.0, 30.0], dtype=float)
 
-# Sample start: 1986-07 (10y available) covers the 1989-90 bubble peak/collapse
-# and the 1998 Trust Fund Bureau (VaR) shock. Extensible to 1974 using <=9y.
-SAMPLE_START = "1986-07-05"
+# Sample start: 2000-05 — the REGIME-CLEAN modern sample. A 2-regime Kim-filter
+# fit on the full 1974+ monthly curve dates a permanent level-regime break at
+# 2000-05 (high-level regime 1974-2000, P~=1.0; low-level 2000+, P~=0.0), placing
+# it squarely in the ZIRP->deflation transition (BoJ ran ZIRP Feb-1999, lifted it
+# Aug-2000, QE Mar-2001). The prior 1986-07 start (chosen only because MoF's 10y
+# begins there) sat 14 years INSIDE the old high-level regime, so it mixed two
+# regimes and biased today's expected-rate path up / today's premium down. Starting
+# at the break gives Japan the same regime-clean modern sample as the other markets
+# (US 1987, UK 1992, DE 1999, CA 1991). The 1974-2000 high-inflation era is a
+# separate labelled historical exhibit (see japan.run_history_overlay + the Atlas
+# "Great Inflation" cross-check), never joined to the production line.
+SAMPLE_START = "2000-05-01"
+HIST_START = "1974-09-24"     # full history (historical / stagflation exhibit; <=9y from 1974)
 
 # ---------------------------------------------------------------------------
 # Effective lower bound (decimal). NIRP policy rate was -0.10%; short JGB yields

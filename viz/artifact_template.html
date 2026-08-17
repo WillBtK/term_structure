@@ -572,7 +572,7 @@ const M = document.getElementById('main');
 const NAV = document.getElementById('jumpNav');
 // Display order (CSS `order`) so panels render in this sequence regardless of the
 // code order of their IIFEs. Unlisted ids fall to the end.
-const PANEL_ORDER={explorer:10, compare:20, globalfactor:30, benchmarks:40, stagflation:50, liquidity:60, data:70};
+const PANEL_ORDER={explorer:10, compare:20, globalfactor:30, benchmarks:40, stagflation:50, stagflationjp:51, liquidity:60, data:70};
 function panel(id, eyebrow, title, paras){
   const s=h('section',{class:'panel',id});
   const ord=PANEL_ORDER[id]!=null?PANEL_ORDER[id]:90; s.style.order=ord;
@@ -956,6 +956,34 @@ function lastVal(block, measure, tenor){
       {label:'2-regime (per-era θ)',color:CC.teal,dash:'5 4',pts:regime}]});
   const call=h('div',{class:'callout teal'});
   call.innerHTML='Both methods put the Great-Inflation 10-year premium at a high, positive average (~+2.6% across the 1970s, peaking <b>~+6–7%</b> in 1981–84), converging to <b>+1.2%</b> by the 1990s — a reassuring cross-check that the extended single-regime series <b>holds up</b> in the deep past rather than being extrapolation noise (the mean-reversion floor keeps the expected-rate path anchored even at 15–19% short rates). The one deep-negative US reading in the entire 1961–2026 history is <b>2020 COVID (−1.6%)</b>, a genuine flight-to-safety. Shared caveat: both anchor to a low modern θ, so if 1970s inflation expectations were higher, both overstate the level.';
+  s.appendChild(call);
+})();
+
+/* ------------------------------------------------ 3b-JP. JAPAN — THE LONG VIEW / GREAT INFLATION (1974+) */
+(function(){
+  const b=DATA.countries.JP && DATA.countries.JP.instruments.nominal;
+  if(!b || !b.regime10) return;   // only when the Japan regime overlay is present
+  panel('stagflationjp','Historical lens','Japan before the deflation era — a cross-check',
+    ['Japan’s production premium is fit on its <b>regime-clean modern sample (2000+)</b>: a 2-regime Kim-filter model on the full 1974+ curve dates a permanent <b>level-regime break at May 2000</b> (the ZIRP→deflation transition), so the earlier 1986 start we used before sat 14 years inside the <i>old</i> high-level regime. Pushing the single-regime model back to <b>1974</b> therefore <b>extrapolates</b> its parameters into a world it was not fit on. To test whether that deep-past decomposition holds up, we cross-check it against the separate <b>2-regime</b> model that gives the high-inflation era its own mean-reversion. Both say Japan’s 10-year term premium ran <b>high and positive</b> through the 1970s–80s — the regime the modern sample never sees — before collapsing toward zero and negative in the deflation/ZIRP era. Before 1986 (no published 10y JGB) the atlas line is the 9-year premium spliced up to the 10-year; read the deep-past <b>level</b> as indicative.']);
+  const s=M.lastChild;
+  const c=h('div',{class:'card'});
+  c.appendChild(h('div',{class:'card-title'},'Japan 10-year term premium, 1974–2005 — single-regime (extrapolated) vs 2-regime (per-era θ)'));
+  c.appendChild(h('div',{class:'card-note'},'Percent. Shaded = 1974–75 oil shock and 1979–81 monetary tightening; the dashed marker is the May-2000 regime break (production sample starts here).'));
+  const CC=COL();
+  c.appendChild(legend([{label:'Single-regime (atlas, extrapolated <2000)',color:CC.orange},{label:'2-regime model (per-era θ)',color:CC.teal,dash:true}]));
+  const box=h('div'); c.appendChild(box); s.appendChild(c);
+  const HI=2005;
+  const single=ptsFor(b,'tp','10').filter(p=>p[0]<=HI);
+  const regime=b.regime10.x.map((x,i)=>[x,b.regime10.tp[i]]).filter(p=>p[1]!=null&&p[0]<=HI);
+  lineChart(box,{height:280, yZero:true, yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtDay,
+    bands:[{x0:ym(1974,1),x1:ym(1976,1),fill:CC.orange,opacity:0.11,label:'oil shock'},
+           {x0:ym(1979,1),x1:ym(1982,1),fill:CC.orange,opacity:0.13,label:'tightening'},
+           {x0:ym(2000,4),x1:ym(2000,6),fill:CC.teal,opacity:0.30,label:'2000 break'}],
+    series:[
+      {label:'Single-regime (extrapolated)',color:CC.orange,pts:single},
+      {label:'2-regime (per-era θ)',color:CC.teal,dash:'5 4',pts:regime}]});
+  const call=h('div',{class:'callout teal'});
+  call.innerHTML='The single-regime model pushed back to 1974 puts Japan’s 10-year term premium at roughly <b>+3%</b> on average through the 1970s–80s, peaking near <b>+5%</b> in the 1979–81 tightening — high and positive, like the US and Germany in the same era, and the regime the modern (2000+) sample never sees. The separate 2-regime model agrees the deep-past premium was <b>large and positive</b>. It then collapses through the deflation/ZIRP decades (negative under QQE/YCC) before normalising toward <b>+2%</b> as the BoJ exits in 2024+. Shared caveat: both anchor the expected-rate path to a <b>low modern θ</b>, so the absolute deep-past and current levels are anchor-sensitive — read the <b>sign and the changes</b> as robust, the level as indicative.';
   s.appendChild(call);
 })();
 

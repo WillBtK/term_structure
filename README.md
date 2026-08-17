@@ -152,7 +152,7 @@ so no third regime needed). See `validation/FINDINGS_kim_validation.md`,
 | US | Federal Reserve Board (GSW) | Svensson, parametric | Daily parameters (beta0-3, tau1-2); reconstruct yield grid on demand |
 | Germany | Bundesbank | Svensson, parametric | Daily parameters since Aug 1997 (monthly since Sept 1972) |
 | UK | Bank of England | VRP spline, non-parametric | Full published yield curve grid (nominal + real), daily since 1979 (real 1985), out to 20y+ |
-| Japan | MOF / BoJ | Spline-based (per BIS Papers no. 25) | MoF JGB spot yields, ragged panel 1986+ |
+| Japan | MOF / BoJ | Spline-based (per BIS Papers no. 25) | MoF JGB spot yields, ragged panel 1974+ (10y from 1986); production est. on regime-clean 2000+ |
 | Switzerland | SNB | `rendoblim` Svensson spot curve | Daily CHF spot rates, 1988+ (ragged long end from 1997-12) |
 | Canada | Bank of Canada | Fitted zero-coupon curve (`lookup_yield_curve.php` CSV) | Daily CAD zero-coupon yields 0.25–30y, 1986+ (30y from 1991) |
 
@@ -252,11 +252,17 @@ and `viz/artifact.html`, and republishes the Atlas. See `scheduler/README.md`.
    < 0.6 bp vs published spots; euro-era (1999+) production TP; the ELB is well
    identified and validates the −1.0% (Praet) calibration. See
    `validation/FINDINGS_germany.md`.
-3. **Japan** — DONE. MoF JGB spot yields (`/japan`), ragged 1986+ panel; ML ELB
-   −0.17% (validates the NIRP anchor); YCC measurement-downweight on the pegged
-   10y/7y. The **realised 10y term premium is negative through QQE/YCC** (min
-   −0.44% in 2020) and normalises post-YCC (now the highest of the five markets
-   under the mean-reversion floor — see the correction note below). This leg
+3. **Japan** — DONE. MoF JGB spot yields (`/japan`), ragged panel; ML ELB
+   −0.20% (validates the NIRP anchor); YCC measurement-downweight on the pegged
+   10y/7y. Production is fit on the **regime-clean 2000-05+ sample** — a 2-regime
+   Kim filter on the full 1974+ curve dates a permanent level-regime break at
+   **May 2000** (1986, the first published-10y month, sat 14 years *inside* the old
+   high-level regime), so Japan now gets the same modern-sample discipline as the
+   other markets; the 1974–2000 high-inflation era is a separate labelled exhibit
+   (~+3.4% mean / +4.9% peak 10y TP). See `validation/FINDINGS_japan_regimes.md`.
+   The **realised 10y term premium is negative through QQE/YCC** (min
+   −0.44% in 2020) and normalises post-YCC (latest ~+2.15% on the 2000+ fit —
+   anchor-sensitive given the 2024+ BoJ exit; see the correction note below). This leg
    surfaced decomposition fixes applied pipeline-wide (diagonal K^P +
    sample-mean θ for the expectations leg). See `validation/FINDINGS_japan.md`
    and `validation/FINDINGS_mean_reversion.md`.
