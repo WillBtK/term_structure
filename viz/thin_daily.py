@@ -138,18 +138,21 @@ def _attach_germany_history(countries: dict) -> None:
     if not dates or not tenors:
         return
     idx = pd.DatetimeIndex(pd.to_datetime(dates))
-    # Level-align splice: the historical uses a full-sample theta (1972+), which the
-    # 1970s-80s high rates drag up, biasing its expected-rate path high and its TP low
-    # vs the modern-sample production series by a large-but-stable offset (~+1.9% at
-    # 10y). Shift the historical up by the overlap-mean gap (per tenor) so a single
-    # continuous line reads sensibly: production where it exists, level-aligned history
-    # before. Preserves the 1970s SHAPE; removes the theta-contamination LEVEL offset.
+    # Level-align splice (single-point, month-end): the historical uses a full-sample
+    # theta (1972+) that the 1970s-80s high rates drag up, biasing its expected-rate
+    # path high and its TP low vs the modern-sample production series. Rather than an
+    # overlap-mean shift, join the two AT THE EARLIEST OVERLAP MONTH with a one-time
+    # per-tenor level adjustment so the spliced line is continuous at the seam. The
+    # historical monthly series follows a month-END convention (verified: 10y month-end
+    # first-difference corr 0.75 vs 0.56 for month-average), so we match production's
+    # month-END value at that month. Preserves the 1970s SHAPE; removes the level bias.
     prod = countries["DE"]["instruments"].get("nominal") or {}
     prod_dates = pd.to_datetime(prod.get("dates") or [])
     prod_tp = prod.get("tp") or {}
     hist_per = idx.to_period("M")
     offsets: dict = {}
     aligned: dict = {}
+    seam_month = None
     for t, hvals in tenors.items():
         hs = pd.Series([np.nan if v is None else float(v) for v in hvals], index=hist_per)
         pv = prod_tp.get(t)
@@ -159,11 +162,15 @@ def _attach_germany_history(countries: dict) -> None:
                        index=prod_dates).dropna()
         if ps.empty:
             continue
-        psm = ps.groupby(ps.index.to_period("M")).mean()
-        common = hs.dropna().index.intersection(psm.index)
-        if len(common) < 12:                                       # need a real overlap
+        # production month-END per calendar month (last observation)
+        pend = ps.groupby(ps.index.to_period("M")).tail(1)
+        pend.index = pend.index.to_period("M")
+        common = hs.dropna().index.intersection(pend.index)
+        if len(common) < 1:
             continue
-        off = float((psm.reindex(common) - hs.reindex(common)).mean())
+        first = common.min()                                       # earliest overlap month
+        seam_month = first if seam_month is None else min(seam_month, first)
+        off = float(pend[first] - hs[first])                       # one-time level adjustment
         offsets[t] = round(off, 4)
         aligned[t] = [None if v is None else round(float(v) + off, 4) for v in hvals]
     seam = str(prod_dates.min().date()) if len(prod_dates) else None
@@ -172,12 +179,13 @@ def _attach_germany_history(countries: dict) -> None:
         "tp": {t: tenors[t] for t in tenors},
         "note": d.get("method", "monthly historical exhibit (full-sample fit)")}
     if offsets:
-        hist_block["tp_aligned"] = aligned          # historical + per-tenor overlap-mean gap
-        hist_block["align_offset"] = offsets        # percent, prod - hist (per tenor)
+        hist_block["tp_aligned"] = aligned          # historical + one-time per-tenor offset
+        hist_block["align_offset"] = offsets        # percent, prod(month-end) - hist at seam
+        hist_block["align_month"] = str(seam_month) if seam_month is not None else None
         hist_block["seam"] = seam                   # production start = splice join date
     countries["DE"]["instruments"]["nominal"]["history"] = hist_block
     if offsets:
-        print("DE history level-align offsets (pct): "
+        print(f"DE history single-point level-align at {seam_month} (month-end), offsets (pct): "
               + ", ".join(f"{t}y +{offsets[t]:.2f}" for t in sorted(offsets, key=float)))
 
 

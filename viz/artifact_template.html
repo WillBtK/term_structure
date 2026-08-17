@@ -818,7 +818,7 @@ function lastVal(block, measure, tenor){
   const H=b.history, tenors=Object.keys(H.tp||{}); if(!tenors.length) return;
   const hasSplice=!!(H.tp_aligned && H.align_offset);
   panel('degermanyhist','Historical lens','Germany — the long view (1972+)',
-    ['The daily Bund term premium in this atlas starts in <b>1997</b>, where Bundesbank’s daily curve begins — but their <b>monthly</b> curve runs back to <b>1972</b>. We push the same decomposition (with the mean-reversion floor) back over the full Deutsche-Mark-and-euro history. The historical fit uses a <b>full-sample long-run mean</b> that the 15–19% rates of the 1970s–80s drag upward, biasing its <i>level</i> below the modern series by a large-but-stable offset — so by default we <b>level-align</b> it to the production line over their overlap and show one continuous series (the 1970s <i>shape</i> is preserved; only the level is shifted). Toggle to the raw as-estimated exhibit to see the gap.']);
+    ['The daily Bund term premium in this atlas starts in <b>1997</b>, where Bundesbank’s daily curve begins — but their <b>monthly</b> curve runs back to <b>1972</b>. We push the same decomposition (with the mean-reversion floor) back over the full Deutsche-Mark-and-euro history. The historical fit uses a <b>full-sample long-run mean</b> that the 15–19% rates of the 1970s–80s drag upward, biasing its <i>level</i> below the modern series — so by default we <b>join</b> it to the production line with a one-time level match at the seam (matched on a month-end basis, the historical series’ convention) and show one continuous series (the 1970s <i>shape</i> is preserved; only the level is shifted). Toggle to the raw as-estimated exhibit to see the gap.']);
   const s=M.lastChild;
   const DH={view: hasSplice?'splice':'raw'};
   const bar=h('div',{class:'ctrlbar'});
@@ -857,9 +857,9 @@ function lastVal(block, measure, tenor){
       const al=H.tp_aligned[t]||[], off=(H.align_offset[t]!=null?H.align_offset[t]:0);
       const pre=H.x.map((x,i)=>[x, al[i]]).filter(p=>p[1]!=null && p[0]<seamX && inWin(p));
       ct.textContent=`Germany ${t}-year term premium — 1972+ spliced with the daily production series`;
-      cn.textContent='Percent. One continuous series: daily production (1997+) joined to the 1972+ monthly history shifted up by its overlap-mean gap. Drag the handles below to zoom.';
+      cn.textContent='Percent. One continuous series: daily production (1997+) joined to the 1972+ monthly history, shifted by a one-time level match at the seam (month-end). Drag the handles below to zoom.';
       series=[
-        {label:`Historical 1972–97 (level-aligned +${fmt(off,2)}%)`,color:CC.orange,width:2.2,pts:pre},
+        {label:`Historical 1972–97 (level-matched +${fmt(off,2)}%)`,color:CC.orange,width:2.2,pts:pre},
         {label:'Daily production (1997+)',color:CC.blue,width:2.0,pts:modern}];
       lg.innerHTML=''; lg.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
       box.innerHTML=''; drawLine(box,{height:300,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,
@@ -867,7 +867,7 @@ function lastVal(block, measure, tenor){
         series});
       const st=stats(t, al);
       if(st.avg!=null)
-        call.innerHTML=`Level-aligned to the production line by <b>+${fmt(off,2)}%</b> (its mean gap over the 1997–2026 overlap). On this basis the German ${t}-year premium averaged <b>${fmt(st.avg,2)}%</b> across the <b>1973–85</b> high-inflation era, peaking near <b>${fmt(st.peak,2)}%</b> (${st.peakDate?st.peakDate.slice(0,7):''}) — broadly in line with the US in the same era. The splice shifts only the <b>level</b> (a constant per tenor); the 1970s <b>shape</b> is the raw historical fit. Overlap residual is ~±0.55%, so read the deep-past level as indicative.`;
+        call.innerHTML=`Joined to the production line by a <b>one-time +${fmt(off,2)}%</b> level match at the seam (${H.align_month||'the earliest overlap month'}, month-end). On this basis the German ${t}-year premium averaged <b>${fmt(st.avg,2)}%</b> across the <b>1973–85</b> high-inflation era, peaking near <b>${fmt(st.peak,2)}%</b> (${st.peakDate?st.peakDate.slice(0,7):''}) — broadly in line with the US in the same era. The splice shifts only the <b>level</b> (a single per-tenor constant); the 1970s <b>shape</b> is the raw historical fit. Read the deep-past level as indicative.`;
     } else {
       const hist=H.x.map((x,i)=>[x, H.tp[t]?H.tp[t][i]:null]).filter(p=>p[1]!=null&&inWin(p));
       ct.textContent=`Germany ${t}-year term premium — 1972+ monthly historical exhibit vs the daily production series`;
@@ -1000,6 +1000,7 @@ function lastVal(block, measure, tenor){
 
 /* ------------------------------------------------ 3f. GERMAN BUND LIQUIDITY GAUGE (noise) */
 (function(){
+  return;   // HIDDEN from the front-end for now (data pipeline retained; non-binding issues to resolve)
   const de=DATA.countries.DE; const nz=de&&de.bund_noise; if(!nz) return;
   panel('liquidityde','Market quality','German Bund liquidity — curve-fitting “noise”',
     ['The same Hu–Pan–Wang “noise” gauge applied to the German Bund cross-section: per day, fit a smooth curve to the yields of every outstanding Bund/Bobl/Schatz (Bundesbank per-security reference prices) and take the <b>RMS deviation</b>. Low when the market is liquid and every issue sits on the curve; higher when individual bonds scatter. A free daily illiquidity read on the euro-area benchmark, built only from public security-level data — the DE analogue of the US TIPS gauge above.']);
