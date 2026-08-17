@@ -31,6 +31,18 @@ def test_recovers_known_factor_and_loadings():
     assert abs(p.phi - 0.98) < 0.03, p.phi
 
 
+def test_idiosyncratic_floor_prevents_heywood_collapse():
+    """A near-noiseless, highly-correlated series must NOT collapse the factor onto
+    itself (communality -> 1, ~zero residual) — the Canada/global-cycle pathology."""
+    # market 0 is almost a scaled copy of the factor (tiny idiosyncratic noise)
+    Z, G, lam, r = _simulate(r=[1e-4, 0.4, 0.4, 0.4, 0.4], seed=7)
+    p, _ = gf.estimate_dfm(Z, list("ABCDE"), overlap_mask=np.ones(len(Z), bool))
+    # the floor caps communality below 1 (no Heywood collapse) for every market
+    assert np.all(p.communality < 0.99), p.communality.tolist()
+    # and the near-degenerate market's uniqueness is held at (or above) the floor
+    assert p.r[0] >= gf._R_FLOOR - 1e-9, (p.r[0], gf._R_FLOOR)
+
+
 def test_variance_shares_in_unit_interval():
     Z, *_ = _simulate(seed=2)
     p, _ = gf.estimate_dfm(Z, list("ABCDE"), overlap_mask=np.ones(len(Z), bool))
