@@ -91,6 +91,7 @@ def build() -> dict:
     _attach_germany_history(countries)
     _attach_us_benchmarks(countries)
     _attach_us_tips_noise(countries)
+    _attach_germany_bund_noise(countries)
     result = {"meta": {"asof": str(asof.date()), "units": "percent",
                        "resolution": res,
                        "note": "Term premium = observed yield - expected avg short rate (realised)."},
@@ -238,6 +239,27 @@ def _attach_us_tips_noise(countries: dict) -> None:
         "noise": [round(float(v) * 1e4, 2) for v in m["noise"]]}       # decimal -> bp
     print(f"US TIPS noise gauge: {len(dates)} months, latest "
           f"{countries['US']['tips_noise']['noise'][-1]:.1f} bp")
+
+
+def _attach_germany_bund_noise(countries: dict) -> None:
+    """German Bund market-liquidity gauge — the curve-fitting 'noise' (RMS deviation of
+    individual Bund yields from a smooth fit), month-end in bp. Optional/guarded."""
+    from validation import config as vcfg
+    if "DE" not in countries or not vcfg.BUND_NOISE_PARQUET.exists():
+        return
+    try:
+        from validation.bund_liquidity import build_noise
+        m = build_noise(refresh=False, freq="M").dropna(subset=["noise"])
+    except Exception:                                              # noqa: BLE001
+        return
+    if m.empty:
+        return
+    dates = pd.DatetimeIndex(m["date"])
+    countries["DE"]["bund_noise"] = {
+        "x": _xdec(dates), "dates": [str(d.date()) for d in dates],
+        "noise": [round(float(v) * 1e4, 2) for v in m["noise"]]}       # decimal -> bp
+    print(f"DE Bund noise gauge: {len(dates)} months, latest "
+          f"{countries['DE']['bund_noise']['noise'][-1]:.1f} bp")
 
 
 def main() -> None:

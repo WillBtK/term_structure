@@ -73,6 +73,16 @@ def _benchmarks_long() -> pd.DataFrame:
             frames.append(nz[["source", "date", "maturity", "metric", "value"]])
         except Exception:                                          # noqa: BLE001
             pass
+    # German Bund liquidity "noise" gauge — same schema (curve-wide, decimal).
+    if vcfg.BUND_NOISE_PARQUET.exists():
+        try:
+            from validation.bund_liquidity import build_noise as _bund_noise
+            bz = _bund_noise(refresh=False, freq="D")[["date", "noise"]].dropna()
+            bz = bz.rename(columns={"noise": "value"})
+            bz["source"] = "bund_noise"; bz["maturity"] = 0.0; bz["metric"] = "rmse"
+            frames.append(bz[["source", "date", "maturity", "metric", "value"]])
+        except Exception:                                          # noqa: BLE001
+            pass
     return (pd.concat(frames, ignore_index=True) if frames
             else pd.DataFrame(columns=["source", "date", "maturity", "metric", "value"]))
 

@@ -39,6 +39,7 @@ def _refreshers():
     from validation import benchmarks as bench
     from validation.sf_fed import load_sf_fed_series
     from validation.tips_liquidity import build_noise
+    from validation.bund_liquidity import build_noise as build_bund_noise
     return [
         ("US GSW (nominal)", lambda: load_gsw_params(refresh=True)),
         ("US TIPS (real)", lambda: load_tips_params(refresh=True)),
@@ -53,6 +54,9 @@ def _refreshers():
         # "noise" / liquidity gauge — a free substitute for the vendor RMSE series.
         # Needs FRED_API_KEY; guarded like every other source (cache fallback).
         ("TIPS noise (liquidity gauge)", lambda: build_noise(refresh=True, freq="D")),
+        # German Bund analogue: RMS deviation of individual Bund yields from a smooth
+        # curve (Bundesbank per-ISIN monthly workbooks). Guarded; cache fallback.
+        ("Bund noise (liquidity gauge)", lambda: build_bund_noise(refresh=True, freq="D")),
     ]
 
 

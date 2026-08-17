@@ -21,7 +21,7 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
-      - name: Probe Bundesbank per-ISIN workbooks
+      - name: Build Bund liquidity noise (real fetch)
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: python -m germany.fetch_bund_prices --probe
+        run: python -m validation.bund_liquidity --refresh

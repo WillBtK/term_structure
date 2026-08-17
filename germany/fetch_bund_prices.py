@@ -75,11 +75,11 @@ def discover_workbook_urls(limit: int | None = None) -> list[str]:
     return ordered if limit is None else ordered[:limit]
 
 
-# Column-keyword detection (English + German headers).
+# Column-keyword detection (English + German headers). The trading DATE is not a
+# column — each sheet is one trading day, named "DD.MM.YYYY" (see parse_workbook).
 _ISIN_KEYS = ("isin",)
 _YIELD_KEYS = ("yield", "rendite")
 _MAT_KEYS = ("maturity", "redemption", "fälligkeit", "faelligkeit")
-_DATE_KEYS = ("date", "datum", "trading day", "day")
 
 
 def _find_col(cols, keys):
@@ -93,11 +93,19 @@ def _find_col(cols, keys):
 def parse_workbook(content: bytes) -> pd.DataFrame:
     """Parse one monthly workbook to tidy ``(date, isin, maturity, yield)`` (yield decimal).
 
+    Layout (confirmed via --probe): one sheet per trading day, named ``DD.MM.YYYY``;
+    each sheet has a title row, then a header row (``ISIN | Coupon | Description |
+    Maturity | Residual life | Issue volume | Price | Yield in % | Dirty price``), then
+    one row per outstanding security. The trading date is the SHEET NAME, not a column.
     Header row and columns are found by keyword so minor layout drift is tolerated.
-    Returns an empty frame (logged) if the expected columns are absent."""
+    Returns an empty frame (logged) if no sheet yields the expected columns."""
     xls = pd.ExcelFile(io.BytesIO(content))
     frames = []
     for sheet in xls.sheet_names:
+        # The sheet name is the trading day; skip non-date sheets (notes/cover).
+        sheet_date = pd.to_datetime(str(sheet).strip(), format="%d.%m.%Y", errors="coerce")
+        if pd.isna(sheet_date):
+            continue
         raw = xls.parse(sheet, header=None, dtype=object)
         # find the header row: the first row mentioning ISIN
         hdr = None
@@ -112,18 +120,17 @@ def parse_workbook(content: bytes) -> pd.DataFrame:
         c_isin = _find_col(df.columns, _ISIN_KEYS)
         c_yield = _find_col(df.columns, _YIELD_KEYS)
         c_mat = _find_col(df.columns, _MAT_KEYS)
-        c_date = _find_col(df.columns, _DATE_KEYS)
-        if not (c_isin and c_yield and c_mat and c_date):
-            logger.warning("sheet %r missing cols (isin=%s yield=%s mat=%s date=%s)",
-                           sheet, c_isin, c_yield, c_mat, c_date)
+        if not (c_isin and c_yield and c_mat):
+            logger.warning("sheet %r missing cols (isin=%s yield=%s mat=%s)",
+                           sheet, c_isin, c_yield, c_mat)
             continue
-        sub = df[[c_date, c_isin, c_mat, c_yield]].copy()
-        sub.columns = ["date", "isin", "maturity", "yield"]
+        sub = df[[c_isin, c_mat, c_yield]].copy()
+        sub.columns = ["isin", "maturity", "yield"]
+        sub.insert(0, "date", sheet_date)
         frames.append(sub)
     if not frames:
         return pd.DataFrame(columns=["date", "isin", "maturity", "yield"])
     out = pd.concat(frames, ignore_index=True)
-    out["date"] = pd.to_datetime(out["date"], errors="coerce", dayfirst=True)
     out["maturity"] = pd.to_datetime(out["maturity"], errors="coerce", dayfirst=True)
     out["yield"] = pd.to_numeric(out["yield"], errors="coerce")
     # Bundesbank yields are in PERCENT -> decimal. Guard against already-decimal.

@@ -970,6 +970,42 @@ function lastVal(block, measure, tenor){
   s.appendChild(call);
 })();
 
+/* ------------------------------------------------ 3f. GERMAN BUND LIQUIDITY GAUGE (noise) */
+(function(){
+  const de=DATA.countries.DE; const nz=de&&de.bund_noise; if(!nz) return;
+  panel('liquidityde','Market quality','German Bund liquidity — curve-fitting “noise”',
+    ['The same Hu–Pan–Wang “noise” gauge applied to the German Bund cross-section: per day, fit a smooth curve to the yields of every outstanding Bund/Bobl/Schatz (Bundesbank per-security reference prices) and take the <b>RMS deviation</b>. Low when the market is liquid and every issue sits on the curve; higher when individual bonds scatter. A free daily illiquidity read on the euro-area benchmark, built only from public security-level data — the DE analogue of the US TIPS gauge above.']);
+  const s=M.lastChild;
+  const c=h('div',{class:'card'});
+  c.appendChild(h('div',{class:'card-title'},'German Bund cross-sectional fitting noise'));
+  c.appendChild(h('div',{class:'card-note'},'Basis points, monthly. Higher = individual Bunds priced further from a smooth curve (less liquid). Drag the handles below to zoom.'));
+  const box=h('div'); c.appendChild(box);
+  const sliderMount=h('div'); c.appendChild(sliderMount); s.appendChild(c);
+  const allPts=nz.x.map((x,i)=>[x,nz.noise[i]]).filter(p=>p[1]!=null);
+  const NZ={xlo:nz.x[0], xhi:nz.x[nz.x.length-1]};
+  function render(){
+    const CC=COL();
+    box.innerHTML=''; drawLine(box,{height:260,yZero:true,yFmt:v=>fmt(v,0)+' bp',xFmt:xYear,xTipFmt:xFmtDay,
+      series:[{label:'Bund noise',color:CC.purple,pts:allPts.filter(p=>p[0]>=NZ.xlo-1e-6&&p[0]<=NZ.xhi+1e-6)}]});
+  }
+  render(); CHARTS.push(render);
+  rangeSlider(sliderMount, nz.x, nz.dates, (lo,hi)=>{ NZ.xlo=lo; NZ.xhi=hi; render(); });
+  // JS-computed callout: latest, mean, and the peak with its date.
+  const call=h('div',{class:'callout'});
+  const vals=allPts.map(p=>p[1]);
+  if(vals.length){
+    const latest=vals[vals.length-1];
+    const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
+    let pk=allPts[0]; allPts.forEach(p=>{ if(p[1]>pk[1]) pk=p; });
+    const pkDate=nz.dates[nz.x.indexOf(pk[0])]||'';
+    const pkYM=pkDate?pkDate.slice(0,7):'';
+    call.innerHTML='Bund noise averages <b>'+fmt(mean,1)+' bp</b> over the sample, peaking at <b>'+fmt(pk[1],1)+' bp</b> ('+pkYM+') and sitting near <b>'+fmt(latest,1)+' bp</b> today. Bunds are among the most liquid government bonds in the world, so the level stays low; spikes flag genuine market stress independent of any term-premium model.';
+  } else {
+    call.innerHTML='The gauge is independent of any term-premium model, so it doubles as a data-quality check on the Bund curve.';
+  }
+  s.appendChild(call);
+})();
+
 /* ------------------------------------------------ 3g. GLOBAL TERM-PREMIUM FACTOR */
 (function(){
   const gf=DATA.global_factor; if(!gf || !gf.G || !gf.G.length) return;
