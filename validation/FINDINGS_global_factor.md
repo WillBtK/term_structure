@@ -108,3 +108,31 @@ Research validated (GO) and productionized:
 
 Future extension (not built): a curve-wide global **level/slope** (the DFM run at 2y/5y/
 30y), and a rolling re-fit so the production RV signal has zero loadings look-ahead.
+
+## Update — 4-market monthly factor with deep-history backfill (1974+)
+
+The production global factor was revised (user request) to make the deep-history common
+cycle meaningful:
+
+- **Switzerland excluded.** CH government-bond market liquidity is negligible next to
+  the other four, so its 10y term premium is a noisy member of a common cyclical factor.
+  The factor is now **PC1 over US, DE, JP, UK** (`GF_ORDER` in `model.global_factor`).
+  Dropping CH lifts the first-PC share from ~86% to **94.6%** (ladder 94.6 / 2.6 / 1.7 /
+  1.2), with DFM-vs-PCA agreement `pca_corr` 0.975 and communality shares US 78% · DE
+  100% · JP 83% · UK 85%.
+- **Month-end resolution.** The factor is a slow common cycle; the panel is resampled to
+  month-end (the build previously ran daily), which also lets the monthly deep-history
+  backfills merge cleanly.
+- **Deep-history backfill via one-time level splices** (`splice_backfill`): DE 10y is
+  extended to 1972 with the 1972+ monthly historical overlay, and JP 10y to 1974 with the
+  1974+ **9y** overlay (`japan.run_history_overlay`) — MoF's 10y starts only 1986-07, so
+  the 9y premium (back to 1974) is spliced onto the 10y at the earliest overlap month
+  (1986-07) with a one-time level adjustment. US already reaches 1971; UK 1979.
+- **Clipped to 1974+.** The panel starts at the first month with ≥3 markets (1974-09,
+  when Japan joins). Pre-1974 only US and DE exist — too thin for a common factor — so
+  the factor is not shown before 1974.
+
+The panel now spans **1974-09 → present, 624 months, 4 markets**. Caveat: the pre-1986
+JP and pre-1997 DE members are level-matched historical splices (shape, not basis-point),
+and only US+DE+JP inform the factor before the UK joins in 1979 — read the deep-past
+factor as indicative of the common direction, not a precise cross-section.

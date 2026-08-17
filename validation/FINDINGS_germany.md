@@ -95,20 +95,24 @@ full-sample fit with the expected-rate path anchored to a modern long-run mean, 
 the deep-past *level* is approximate — read the shape and the cross-country contrast,
 not the basis point.
 
-**Level-align splice (default view).** The historical fit uses a full-sample θ that
+**Level-match splice (default view).** The historical fit uses a full-sample θ that
 the 1970s–80s 15–19% rates drag upward, so its expected-rate path is biased high and
-its term premium biased **low** vs the modern-sample production series — by a large but
-stable offset (overlap-mean gap **+1.89% at 10y, +0.67% at 2y**; std ~0.55% at 10y over
-the 1997–2026 overlap). Rather than show the raw gap, the Atlas by default **level-aligns**
-the historical series to the production line by that per-tenor overlap-mean offset and
-draws one continuous series: production 1997+, level-aligned history before (seam
-1997-08). This preserves the 1970s *shape* (the raw fit) and removes only the *level*
-bias; on this basis the 1973–85 10y premium averages higher and peaks near **+5.9%**,
-broadly in line with the US in the same era. A "Raw exhibit" toggle still shows the
-as-estimated series and the gap. The offset is computed in `viz/thin_daily`
-(`_attach_germany_history`) from the actual overlap each build (`tp_aligned` /
-`align_offset` / `seam`), not hard-coded. Caveat: a constant per-tenor shift; the ~±0.55%
-overlap residual means the deep-past level stays indicative, not basis-point.
+its term premium biased **low** vs the modern-sample production series. Rather than show
+the raw gap, the Atlas by default **joins** the historical to the production line with a
+**one-time, per-tenor level match at the earliest overlap month** (1997-08, where the
+Bundesbank daily curve begins) and draws one continuous series: production 1997+,
+level-matched history before. The match is done on a **month-END** basis — the
+historical monthly series' verified convention (10y month-end first-difference
+correlation with the daily production is **0.75 vs 0.56** for month-average) — so we
+compare like with like. Offsets: **+2.85% at 10y, +2.25% at 2y** (production month-end
+minus historical at 1997-08). This makes the spliced line continuous at the seam,
+preserves the 1970s *shape* (the raw fit) and removes only the *level* bias; on this
+basis the 1973–85 10y premium averages ~**+5.3%** and peaks near **+6.9%**, broadly in
+line with the US in the same era. A "Raw exhibit" toggle still shows the as-estimated
+series and the gap. The offset is computed in `viz/thin_daily`
+(`_attach_germany_history`) from the actual seam month each build (`tp_aligned` /
+`align_offset` / `align_month` / `seam`), not hard-coded. Caveat: a single per-tenor
+constant matched at one month, so the deep-past level stays indicative, not basis-point.
 
 ## Validation summary
 No German SF-Fed-equivalent term-premium benchmark exists, so validation rests on:
