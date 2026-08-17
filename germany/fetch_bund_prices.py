@@ -176,12 +176,37 @@ def _probe() -> None:
         if u not in seen:
             seen.add(u); month_pages.append(u)
     print(f"=== index {vcfg.BUND_PRICES_INDEX}")
+    print(f"    html length: {len(index_html)}")
     print(f"    monthly landing pages found: {len(month_pages)}")
     for u in month_pages[:5]:
         print("   ", u)
     if not month_pages:
-        print("!! no landing pages — dumping index sample for regex tuning:")
-        print(index_html[:2000])
+        # RECON: this is a JS-rendered download-search page. Learn the real
+        # mechanism — the backing AJAX/JSON endpoint and any file URLs anywhere
+        # in the markup (scripts/data-attrs included), not just <a href>.
+        print("!! no landing pages — RECON dump of the index page:")
+        for tok in (".xlsx", ".xls", ".csv", ".pdf", "/resource/blob",
+                    "/resource/crblob", "dynamicpp", "StatisticDownload",
+                    "download", ".json", "data-search", "apiUrl", "restUrl",
+                    "endpoint", "tsId", "list?", "search?"):
+            print(f"    token {tok!r}: {index_html.lower().count(tok.lower())}")
+        # Print every URL-ish token that looks like a data file or an API call.
+        url_re = re.compile(
+            r'(?:href|src|data-[\w-]+|content)=["\']([^"\']*'
+            r'(?:resource/(?:cr)?blob|dynamicpp|StatisticDownload|\.xlsx|\.xls|'
+            r'\.csv|\.pdf|download|/api/|\.json)[^"\']*)["\']', re.I)
+        hits, seen2 = [], set()
+        for m in url_re.finditer(index_html):
+            u = m.group(1)
+            if u not in seen2:
+                seen2.add(u); hits.append(u)
+        print(f"\n    URL-ish hits: {len(hits)}")
+        for u in hits[:60]:
+            print("     ", u)
+        # Dump inline JSON/script config that usually holds the search endpoint.
+        for m in re.finditer(r'data-[\w-]*(?:config|search|url|endpoint|api)[\w-]*='
+                             r'["\']([^"\']{4,400})["\']', index_html, re.I):
+            print("    data-attr:", m.group(1)[:400])
         return
     # Show ALL file links (any extension) on the newest landing page.
     lp = month_pages[0]
