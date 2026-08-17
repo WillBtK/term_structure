@@ -29,8 +29,9 @@ from validation import config as vcfg
 
 logger = logging.getLogger(__name__)
 
-_BLOB_RE = re.compile(r'href="(/resource/blob/[^"]+?\.(?:xlsx|csv))"', re.I)
-_MONTH_LINK_RE = re.compile(r'href="(/en/service/federal-securities/prices-and-yields/[^"]+?-\d{6,})"', re.I)
+_BLOB_ANY_RE = re.compile(r'href="(/resource/blob/[^"]+?\.(?:xlsx|xls|csv|pdf))"', re.I)
+_BLOB_DATA_RE = re.compile(r'href="(/resource/blob/[^"]+?\.(?:xlsx|xls|csv))"', re.I)  # parseable only
+_MONTH_LINK_RE = re.compile(r'href="(/en/service/federal-securities/prices-and-yields/[^"]+?-\d{5,})"', re.I)
 _HOST = "https://www.bundesbank.de"
 
 
@@ -69,7 +70,7 @@ def discover_workbook_urls(limit: int | None = None) -> list[str]:
         except Exception as exc:                                    # noqa: BLE001
             logger.warning("landing page failed %s: %s", page, exc)
             continue
-        blobs = [_abs(b.group(1)) for b in _BLOB_RE.finditer(html)]
+        blobs = [_abs(b.group(1)) for b in _BLOB_DATA_RE.finditer(html)]
         if blobs:
             files.append(blobs[0])                                 # one data file per month
     logger.info("discovered %d workbook files", len(files))
@@ -167,14 +168,35 @@ def load_bund_yields(refresh: bool = True, limit: int | None = None) -> pd.DataF
 
 def _probe() -> None:
     """Diagnostic: dump discovered URLs + one workbook's structure (run on a runner)."""
+    index_html = _get(vcfg.BUND_PRICES_INDEX).decode("utf-8", "replace")
+    month_pages = []
+    seen = set()
+    for m in _MONTH_LINK_RE.finditer(index_html):
+        u = _abs(m.group(1))
+        if u not in seen:
+            seen.add(u); month_pages.append(u)
+    print(f"=== index {vcfg.BUND_PRICES_INDEX}")
+    print(f"    monthly landing pages found: {len(month_pages)}")
+    for u in month_pages[:5]:
+        print("   ", u)
+    if not month_pages:
+        print("!! no landing pages — dumping index sample for regex tuning:")
+        print(index_html[:2000])
+        return
+    # Show ALL file links (any extension) on the newest landing page.
+    lp = month_pages[0]
+    lp_html = _get(lp).decode("utf-8", "replace")
+    all_files = [_abs(b.group(1)) for b in _BLOB_ANY_RE.finditer(lp_html)]
+    print(f"\n=== landing page {lp}")
+    print(f"    file links (any ext): {len(all_files)}")
+    for u in all_files:
+        print("   ", u)
     urls = discover_workbook_urls(limit=3)
-    print("=== discovered workbook URLs (newest 3 landing pages) ===")
+    print(f"\n=== parseable (xlsx/csv) workbook URLs: {len(urls)} ===")
     for u in urls:
         print(" ", u)
     if not urls:
-        print("!! no workbook URLs found — index/landing HTML structure differs; dumping index sample")
-        html = _get(vcfg.BUND_PRICES_INDEX).decode("utf-8", "replace")
-        print(html[:1500])
+        print("!! no XLSX/CSV — files are likely PDF-only (would need pdf parsing).")
         return
     content = _get(urls[0])
     print(f"\n=== workbook {urls[0]} ({len(content)} bytes) ===")

@@ -123,6 +123,7 @@ TIPS_NOISE_PARQUET = DATA_DIR / "tips_noise_daily.parquet"
 # ---------------------------------------------------------------------------
 BUND_PRICES_INDEX = os.environ.get(
     "BUND_PRICES_INDEX",
-    "https://www.bundesbank.de/en/service/federal-securities/prices-and-yields")
+    "https://www.bundesbank.de/dynamic/action/en/service/federal-securities/"
+    "prices-and-yields/810710/prices-and-yields-of-listed-federal-securities")
 BUND_PRICES_RAW_PARQUET = DATA_DIR / "bund_individual_yields.parquet"
 BUND_NOISE_PARQUET = DATA_DIR / "bund_noise_daily.parquet"
