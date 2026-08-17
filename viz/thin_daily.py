@@ -138,10 +138,47 @@ def _attach_germany_history(countries: dict) -> None:
     if not dates or not tenors:
         return
     idx = pd.DatetimeIndex(pd.to_datetime(dates))
-    countries["DE"]["instruments"]["nominal"]["history"] = {
+    # Level-align splice: the historical uses a full-sample theta (1972+), which the
+    # 1970s-80s high rates drag up, biasing its expected-rate path high and its TP low
+    # vs the modern-sample production series by a large-but-stable offset (~+1.9% at
+    # 10y). Shift the historical up by the overlap-mean gap (per tenor) so a single
+    # continuous line reads sensibly: production where it exists, level-aligned history
+    # before. Preserves the 1970s SHAPE; removes the theta-contamination LEVEL offset.
+    prod = countries["DE"]["instruments"].get("nominal") or {}
+    prod_dates = pd.to_datetime(prod.get("dates") or [])
+    prod_tp = prod.get("tp") or {}
+    hist_per = idx.to_period("M")
+    offsets: dict = {}
+    aligned: dict = {}
+    for t, hvals in tenors.items():
+        hs = pd.Series([np.nan if v is None else float(v) for v in hvals], index=hist_per)
+        pv = prod_tp.get(t)
+        if pv is None or len(pv) != len(prod_dates) or not len(prod_dates):
+            continue
+        ps = pd.Series([np.nan if v is None else float(v) for v in pv],
+                       index=prod_dates).dropna()
+        if ps.empty:
+            continue
+        psm = ps.groupby(ps.index.to_period("M")).mean()
+        common = hs.dropna().index.intersection(psm.index)
+        if len(common) < 12:                                       # need a real overlap
+            continue
+        off = float((psm.reindex(common) - hs.reindex(common)).mean())
+        offsets[t] = round(off, 4)
+        aligned[t] = [None if v is None else round(float(v) + off, 4) for v in hvals]
+    seam = str(prod_dates.min().date()) if len(prod_dates) else None
+    hist_block = {
         "x": _xdec(idx), "dates": [str(x.date()) for x in idx],
         "tp": {t: tenors[t] for t in tenors},
         "note": d.get("method", "monthly historical exhibit (full-sample fit)")}
+    if offsets:
+        hist_block["tp_aligned"] = aligned          # historical + per-tenor overlap-mean gap
+        hist_block["align_offset"] = offsets        # percent, prod - hist (per tenor)
+        hist_block["seam"] = seam                   # production start = splice join date
+    countries["DE"]["instruments"]["nominal"]["history"] = hist_block
+    if offsets:
+        print("DE history level-align offsets (pct): "
+              + ", ".join(f"{t}y +{offsets[t]:.2f}" for t in sorted(offsets, key=float)))
 
 
 # External US TP benchmarks for side-by-side plotting. (label, loader) — C&R via
