@@ -87,6 +87,7 @@ def build() -> dict:
               f"({block['dates'][0]}..{block['dates'][-1]})")
     full = cutoff <= canon["date"].min()
     res = "daily, full history" if full else f"daily (last {DAILY_YEARS:g}y) + weekly history"
+    _extend_nominal_tp_history(countries, canon)
     _attach_us_regime_overlay(countries)
     _attach_germany_history(countries)
     _attach_us_benchmarks(countries)
@@ -115,6 +116,68 @@ def _attach_us_regime_overlay(countries: dict) -> None:
         "x": _xdec(idx), "dates": [str(d.date()) for d in idx],
         "tp": [round(float(v), 4) for v in s.values],
         "note": "2-regime Kim-filter model (per-era θ); illustrative in the extrapolated era."}
+
+
+def _extend_nominal_tp_history(countries: dict, canon: pd.DataFrame) -> None:
+    """Extend the MAIN term-structure explorer's nominal term-premium line back into the
+    deep past for the markets with a historical splice, so selecting (e.g.) Japan 10y
+    shows 1974+ rather than 1986+. Uses the SAME one-time level-match splice as the
+    global factor (`model.global_factor.splice_backfill`): DE 10y/2y ← 1972+ history,
+    JP 10y ← the 1974+ 9y overlay. Only the term-premium measure is extended (there is
+    no observed/expected path before the modern curve), and only the backfilled tenors;
+    the pre-seam rows are monthly and carry None for other tenors and for obs/exp."""
+    from model.global_factor import splice_backfill, _load_hist_tp, _month_end
+    # (market, overlay json, {block_tenor: hist_tenor})
+    specs = [("DE", "germany_hist_tp.json", {"10": "10", "2": "2"}),
+             ("JP", "japan_hist_tp.json", {"10": "9"})]
+    for cc, fname, tmap in specs:
+        block = countries.get(cc, {}).get("instruments", {}).get("nominal")
+        if not block:
+            continue
+        cc_tp = canon[(canon["country"] == cc) & (canon["instrument"] == "nominal")]
+        block_first = pd.Timestamp(block["dates"][0])
+        pre_periods = {}                                           # block_tenor -> {Period: pct}
+        for bt, ht in tmap.items():
+            if bt not in block.get("tenors", []):
+                continue
+            hist = _load_hist_tp(fname, ht)                        # decimal, month-end
+            if hist is None:
+                continue
+            prod = _month_end(cc_tp[np.isclose(cc_tp["tenor"], float(bt))]
+                              .set_index("date")["term_premium"])
+            if prod.empty:
+                continue
+            spliced = splice_backfill(prod, hist)                  # decimal, continuous
+            pre = spliced[spliced.index < prod.index.min()]        # deep-past only (< prod start)
+            if len(pre):
+                pre_periods[bt] = {d.to_period("M"): round(float(v) * 100, 4)
+                                   for d, v in pre.items()}
+        if not pre_periods:
+            continue
+        # (A) FILL existing pre-production rows already in the block (e.g. JP has ≤9y
+        # observed back to 1974, so 1974-1986 rows exist with a None 10y term premium).
+        filled = 0
+        for i, ds in enumerate(block["dates"]):
+            per = pd.Timestamp(ds).to_period("M")
+            for bt, mp in pre_periods.items():
+                if block["tp"][bt][i] is None and per in mp:
+                    block["tp"][bt][i] = mp[per]; filled += 1
+        # (B) PREPEND months entirely before the block's first date (e.g. DE's daily
+        # curve starts only 1997-08, so 1972-1997 are new monthly rows).
+        pre_months = sorted({p for mp in pre_periods.values() for p in mp
+                             if p.to_timestamp("M") < block_first})
+        if pre_months:
+            idx = pd.DatetimeIndex([p.to_timestamp("M") for p in pre_months])
+            block["x"] = _xdec(idx) + block["x"]
+            block["dates"] = [str(d.date()) for d in idx] + block["dates"]
+            for tk in block["tenors"]:
+                lead = [pre_periods.get(tk, {}).get(p) for p in pre_months]
+                block["tp"][tk] = lead + block["tp"][tk]
+                block["obs"][tk] = [None] * len(idx) + block["obs"][tk]
+                block["exp"][tk] = [None] * len(idx) + block["exp"][tk]
+        if filled or pre_months:
+            print(f"{cc} nominal: TP history extended for {sorted(pre_periods)} "
+                  f"(filled {filled} rows, prepended {len(pre_months)} months)")
 
 
 def _attach_germany_history(countries: dict) -> None:
