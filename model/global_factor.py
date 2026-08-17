@@ -151,8 +151,17 @@ def pca_first_factor(Z_bal: np.ndarray):
 
 
 # --------------------------------------------------------------------------- EM
+# Lower bound on the idiosyncratic (uniqueness) variance in STANDARDIZED space, where
+# each series has unit variance. Without a meaningful floor the EM can drive one
+# series' idiosyncratic variance to ~0 (a Heywood case): the common factor then
+# collapses onto that single series, giving it communality ≈ 1 and a ~zero local
+# residual while distorting the factor for everyone else. 0.05 caps communality at
+# ~0.95 and leaves the well-behaved markets (uniqueness ≈ 0.06–0.09) untouched.
+_R_FLOOR = 0.05
+
+
 def estimate_dfm(Y: np.ndarray, names, overlap_mask=None, *, max_iter=500, tol=1e-7,
-                 warm: DFMParams | None = None) -> tuple:
+                 warm: DFMParams | None = None, r_floor: float = _R_FLOOR) -> tuple:
     """EM estimate of the 1-factor DFM on the raw TP panel Y (T,N). Standardizes
     internally (over ``overlap_mask``), warm-starts from PCA (or ``warm``), iterates
     Kalman+RTS+closed-form M-step to loglik convergence, and sign-anchors λ[0]>0.
@@ -185,7 +194,7 @@ def estimate_dfm(Y: np.ndarray, names, overlap_mask=None, *, max_iter=500, tol=1
             denom = g2.sum()
             lam[i] = (zi * g).sum() / denom if denom > 0 else 0.0
             resid2 = (zi ** 2 - 2 * lam[i] * zi * g + lam[i] ** 2 * g2).sum()
-            r[i] = max(resid2 / max(obs.sum(), 1), 1e-4)
+            r[i] = max(resid2 / max(obs.sum(), 1), r_floor)
         # M-step: AR(1) coefficient (then re-pin q = 1-φ² for unit factor variance)
         num = EGG[1:].sum(); den = EG2[:-1].sum()
         phi = float(np.clip(num / den if den > 0 else 0.0, -_PHI_MAX, _PHI_MAX))
