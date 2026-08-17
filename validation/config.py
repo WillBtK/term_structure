@@ -115,3 +115,14 @@ ATSIX_PARQUET_PATH = DATA_DIR / "atsix_series.parquet"
 # ---------------------------------------------------------------------------
 TIPS_NOISE_RAW_PARQUET = DATA_DIR / "tips_individual_yields.parquet"
 TIPS_NOISE_PARQUET = DATA_DIR / "tips_noise_daily.parquet"
+
+# ---------------------------------------------------------------------------
+# German Bund liquidity "noise" gauge (validation/bund_liquidity.py) from the
+# Bundesbank per-ISIN "Prices and yields of listed Federal securities" monthly
+# workbooks (germany/fetch_bund_prices.py). Bundesbank index URL overridable.
+# ---------------------------------------------------------------------------
+BUND_PRICES_INDEX = os.environ.get(
+    "BUND_PRICES_INDEX",
+    "https://www.bundesbank.de/en/service/federal-securities/prices-and-yields")
+BUND_PRICES_RAW_PARQUET = DATA_DIR / "bund_individual_yields.parquet"
+BUND_NOISE_PARQUET = DATA_DIR / "bund_noise_daily.parquet"

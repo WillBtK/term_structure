@@ -1,0 +1,27 @@
+name: Probe Bund per-ISIN workbooks
+
+# TEMPORARY diagnostic: Bundesbank is blocked from the dev sandbox, so run the
+# per-ISIN prices/yields fetcher's --probe on a GitHub runner (open egress) to
+# dump the discovered file URLs and one workbook's structure. Used to pin the
+# column mapping in germany/fetch_bund_prices.py, then this workflow is removed.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Probe Bundesbank per-ISIN workbooks
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m germany.fetch_bund_prices --probe
