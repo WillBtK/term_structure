@@ -523,7 +523,7 @@ function drawStacked(mount, o){
   rect.addEventListener('mousemove',ev=>{ const bb=svg.getBoundingClientRect(); const px=(ev.clientX-bb.left)*(W/bb.width);
     let bi=0,bd=1e9; xs.forEach((x,i)=>{const dd=Math.abs(sx(x)-px); if(dd<bd){bd=dd;bi=i;}});
     cross.setAttribute('x1',sx(xs[bi])); cross.setAttribute('x2',sx(xs[bi])); cross.setAttribute('opacity',0.5);
-    let rows=''; o.areas.forEach(a=>{ if(a.y1[bi]!=null&&a.y0[bi]!=null) rows+=`<div class="tt-row"><span class="l">${a.label}</span><span>${tipFmt(a.y1[bi]-a.y0[bi])}</span></div>`; });
+    let rows=''; o.areas.forEach(a=>{ if(a.noTip) return; if(a.y1[bi]!=null&&a.y0[bi]!=null){ const val=a.tip?a.tip[bi]:(a.y1[bi]-a.y0[bi]); if(val!=null) rows+=`<div class="tt-row"><span class="l">${a.label}</span><span>${tipFmt(val)}</span></div>`; } });
     (o.lines||[]).forEach(ln=>{ if(ln.y[bi]!=null) rows+=`<div class="tt-row"><span class="l">${ln.label}</span><span>${tipFmt(ln.y[bi])}</span></div>`; });
     if(o.line&&o.line.y[bi]!=null) rows+=`<div class="tt-row"><span class="l">${o.line.label}</span><span>${tipFmt(o.line.y[bi])}</span></div>`;
     const xTip=o.xTipFmt||o.xFmt; showTip(ev,`<div class="tt-title">${xTip?xTip(xs[bi]):Math.round(xs[bi])}</div>${rows}`);
@@ -693,7 +693,7 @@ function lastVal(block, measure, tenor){
 /* ------------------------------------------------ 2. EXPLORER (side-by-side TS + curve) */
 (function(){
   panel('explorer','Explore','Curve explorer — a tenor through time and the whole curve, side by side',
-    ['Pick a market, instrument, tenor and measure. The <b>left</b> chart is that tenor through time; the <b>right</b> chart is the entire term structure on whatever date you hover (latest by default). Both respond to the measure: the <b>actual yield</b>, the <b>expected-rate path</b>, the <b>term premium</b>, or the <b>contribution</b> view — the term premium as a signed area from zero (positive above, negative below) with the expected rate and actual yield as lines, so a negative premium is unmistakable. Daily throughout; drag the range handles to zoom. The <b>orange region</b> flags dates before the model’s estimation sample (extrapolated parameters).']);
+    ['Pick a market, instrument, tenor and measure. The <b>left</b> chart is that tenor through time; the <b>right</b> chart is the entire term structure on whatever date you hover (latest by default). Both respond to the measure: the <b>actual yield</b>, the <b>expected-rate path</b>, the <b>term premium</b>, or the <b>contribution</b> view — a stacked decomposition where the expected rate (bottom) and term premium sum to the actual yield, the premium stacking above when positive and dropping below zero when negative. Daily throughout; drag the range handles to zoom. The <b>orange region</b> flags dates before the model’s estimation sample (extrapolated parameters).']);
   const s=M.lastChild;
   const EX={cc:'US', inst:'nominal', tenor:'10', meas:'tp', style:'stack', lo:0, hi:0, hoverX:null, annot:true};
   function block(){ return DATA.countries[EX.cc].instruments[EX.inst]; }
@@ -750,7 +750,7 @@ function lastVal(block, measure, tenor){
     const label = EX.meas==='contrib' ? 'expected rate + term premium' : MEASLAB[EX.meas];
     tsTitle.textContent=`${DATA.countries[EX.cc].name}${EX.inst==='real'?' (real)':''} · ${EX.tenor}y · ${label}`;
     tsNote.textContent = EX.meas==='contrib'
-      ? (EX.style==='stack'?'Percent. Term premium as a signed area from zero — positive above, negative below; expected rate and actual yield as lines, their gap = the premium. Drag to zoom.':'Expected rate, term premium and actual yield as separate lines, percent. Drag to zoom.')
+      ? (EX.style==='stack'?'Percent. Stacked: expected rate (bottom) + term premium = actual yield. The premium stacks above when positive and drops below zero when negative. Drag to zoom.':'Expected rate, term premium and actual yield as separate lines, percent. Drag to zoom.')
       : 'Daily, percent. Orange = pre-estimation-sample (extrapolated); grey = policy episodes; dashed = structural breaks. Drag the handles below to zoom.';
     const bands=EX.annot?contextBands(EX.cc,EX.inst,b).concat(bandsFor(EX.cc)).filter(bd=>bd.x1>=xlo&&bd.x0<=xhi):[];
     const breaks=EX.annot?breaksFor(EX.cc,EX.inst).filter(bk=>bk.x>=xlo&&bk.x<=xhi):[];
@@ -760,14 +760,16 @@ function lastVal(block, measure, tenor){
       const exp=arr('exp',EX.tenor), tp=arr('tp',EX.tenor), obs=arr('obs',EX.tenor);
       const idxs=[]; for(let i=0;i<xArr.length;i++) if(inW(i)&&exp[i]!=null&&tp[i]!=null) idxs.push(i);
       const X=idxs.map(i=>xArr[i]);
-      tsLegend.appendChild(legend([{label:'Term premium',color:COL().orange},{label:'Expected rate',color:COL().teal,line:true},{label:'Actual yield',color:COL().blue,line:true}]));
-      // Term premium as a SIGNED area from zero: positive fills above zero, negative fills
-      // below zero — so a negative premium is unmistakable. Expected rate and actual yield
-      // are reference lines; their gap equals the term premium.
+      const E=idxs.map(i=>exp[i]), P=idxs.map(i=>tp[i]), O=idxs.map(i=>obs[i]!=null?obs[i]:exp[i]+tp[i]);
+      tsLegend.appendChild(legend([{label:'Expected rate',color:COL().teal},{label:'Term premium',color:COL().orange},{label:'Actual yield',color:COL().blue,line:true}]));
+      // Excel-style stacked decomposition: expected rate (bottom) + term premium = actual
+      // yield. Term premium stacks ABOVE expected when positive, drops BELOW zero when
+      // negative (two gapless bands, same colour). Solid blocks; actual yield = the net.
       drawStacked(tsBox,{height:290,x:X,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,bands,breaks,
-        areas:[{y0:idxs.map(()=>0),y1:idxs.map(i=>tp[i]),color:COL().orange,opacity:0.9,label:'Term premium'}],
-        lines:[{y:idxs.map(i=>exp[i]),color:COL().teal,width:2,label:'Expected rate'}],
-        line:{y:idxs.map(i=>obs[i]!=null?obs[i]:exp[i]+tp[i]),color:COL().blue,width:2.2,label:'Actual yield'}, onHover:hoverCb, onLeave:()=>{}});
+        areas:[{y0:X.map(()=>0),y1:E,color:COL().teal,opacity:1,label:'Expected rate'},
+               {y0:E,y1:E.map((e,j)=>e+Math.max(P[j],0)),color:COL().orange,opacity:1,label:'Term premium',tip:P},
+               {y0:P.map(v=>Math.min(v,0)),y1:X.map(()=>0),color:COL().orange,opacity:1,noTip:true}],
+        line:{y:O,color:COL().blue,width:2.2,label:'Actual yield'}, onHover:hoverCb, onLeave:()=>{}});
     } else {
       let series;
       if(EX.meas==='contrib') series=[
@@ -791,10 +793,11 @@ function lastVal(block, measure, tenor){
       const X=keep.map(i=>ten[i]);
       const E=keep.map(i=>b.exp[b.tenors[i]][idx]), P=keep.map(i=>b.tp[b.tenors[i]][idx]);
       const O=keep.map(i=>{ const o=b.obs[b.tenors[i]]; return o&&o[idx]!=null?o[idx]:b.exp[b.tenors[i]][idx]+b.tp[b.tenors[i]][idx]; });
-      xLegend.appendChild(legend([{label:'Term premium',color:COL().orange},{label:'Expected rate',color:COL().teal,line:true},{label:'Actual yield',color:COL().blue,line:true}]));
+      xLegend.appendChild(legend([{label:'Expected rate',color:COL().teal},{label:'Term premium',color:COL().orange},{label:'Actual yield',color:COL().blue,line:true}]));
       drawStacked(xBox,{height:290,x:X,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:v=>v+'y',xTipFmt:v=>v+'y',
-        areas:[{y0:X.map(()=>0),y1:P,color:COL().orange,opacity:0.9,label:'Term premium'}],
-        lines:[{y:E,color:COL().teal,width:2,label:'Expected rate'}],
+        areas:[{y0:X.map(()=>0),y1:E,color:COL().teal,opacity:1,label:'Expected rate'},
+               {y0:E,y1:E.map((e,j)=>e+Math.max(P[j],0)),color:COL().orange,opacity:1,label:'Term premium',tip:P},
+               {y0:P.map(v=>Math.min(v,0)),y1:X.map(()=>0),color:COL().orange,opacity:1,noTip:true}],
         line:{y:O,color:COL().blue,width:2.2,label:'Actual yield'}});
     } else {
       function curve(meas){ return ten.map((t,i)=>[t, b[meas][b.tenors[i]]?b[meas][b.tenors[i]][idx]:null]).filter(p=>p[1]!=null); }
