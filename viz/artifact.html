@@ -126,8 +126,22 @@ a { color: var(--blue); }
   padding: 5px 9px; border-radius:5px; display:block;
 }
 .rail-nav a:hover{ color:var(--ink); background:var(--surface-2); }
-.main{ flex:1; min-width:0; padding: 40px 48px 120px; max-width: 1180px; }
+.main{ flex:1; min-width:0; padding: 40px 48px 120px; max-width: 1180px; display:flex; flex-direction:column; }
 section.panel{ margin-bottom: 66px; scroll-margin-top: 24px; }
+/* side-by-side explorer cards; stack below 980px */
+.dual{ display:grid; grid-template-columns:1fr; gap:14px; }
+@media(min-width:980px){ .dual{ grid-template-columns:1fr 1fr; align-items:start; } }
+.dual > .card{ margin:0; }
+/* comparison series-builder rows */
+.serow{ display:flex; gap:7px; align-items:center; flex-wrap:wrap; margin-bottom:8px; padding:7px 9px; background:var(--surface-2); border:1px solid var(--line); border-radius:6px; }
+.serow .dot{ width:11px; height:11px; border-radius:3px; flex:0 0 auto; }
+.serow select{ font-size:12px; padding:3px 5px; }
+.serow .op{ color:var(--muted); font-size:12px; padding:0 2px; }
+.serow .rm{ margin-left:auto; cursor:pointer; color:var(--muted); border:none; background:none; font-size:15px; line-height:1; padding:2px 4px; }
+.serow .rm:hover{ color:var(--crimson); }
+.addrow{ font-size:12.5px; padding:5px 12px; border:1px dashed var(--line); border-radius:6px; background:none; color:var(--ink-2); cursor:pointer; }
+.addrow:hover:not(:disabled){ border-color:var(--blue); color:var(--blue); }
+.addrow:disabled{ opacity:.5; cursor:default; }
 .panel-head{ margin-bottom: 18px; max-width: 780px; }
 .panel-head .eyebrow{ margin-bottom:6px; display:block; }
 .panel-head h2{ font-size: 23px; margin-bottom: 10px; }
@@ -451,6 +465,54 @@ function drawLine(mount, o){
   rect.addEventListener('mouseleave',()=>{ cross.setAttribute('opacity',0); dots.forEach(d=>d.setAttribute('opacity',0)); hideTip(); if(o.onLeave) o.onLeave(); });
   mount.appendChild(svg);
 }
+/* ============================================== STACKED-AREA CHART (contribution)
+   o.x: sorted x array; o.areas:[{y0:[],y1:[],color,label}] filled between y0..y1 per x;
+   o.line:{y:[],color,label} optional overlay; axes/bands/breaks like drawLine. */
+function drawStacked(mount, o){
+  const C=COL();
+  const W=mount.clientWidth||560, m={t:16,r:16,b:24,l:38}, H=o.height||230;
+  const plotW=W-m.l-m.r, plotH=H-m.t-m.b;
+  const xs=o.x; const vals=[];
+  o.areas.forEach(a=>{ a.y0.forEach(v=>v!=null&&vals.push(v)); a.y1.forEach(v=>v!=null&&vals.push(v)); });
+  if(o.line) o.line.y.forEach(v=>v!=null&&vals.push(v));
+  let ymin=Math.min(...vals), ymax=Math.max(...vals);
+  if(o.yZero){ ymin=Math.min(ymin,0); ymax=Math.max(ymax,0); }
+  const pad=(ymax-ymin)*0.08||1; ymin-=pad; ymax+=pad;
+  const xmin=Math.min(...xs), xmax=Math.max(...xs);
+  const sx=scaleLinear([xmin,xmax],[m.l,m.l+plotW]), sy=scaleLinear([ymin,ymax],[m.t+plotH,m.t]);
+  const svg=el('svg',{width:'100%',height:H,viewBox:`0 0 ${W} ${H}`,preserveAspectRatio:'none'});
+  (o.bands||[]).forEach(bd=>{ const a=Math.max(bd.x0,xmin), b=Math.min(bd.x1,xmax); if(b<=a) return;
+    svg.appendChild(el('rect',{x:sx(a),y:m.t,width:Math.max(1,sx(b)-sx(a)),height:plotH,fill:bd.fill||C.line2,opacity:bd.opacity!=null?bd.opacity:0.55})); });
+  const yt=niceTicks(ymin,ymax,4); const stepA=yt.length>1?Math.abs(yt[1]-yt[0]):1; const dec=stepA<0.1?2:stepA<1?1:0;
+  yt.forEach(t=>{ const y=sy(t); svg.appendChild(el('line',{x1:m.l,x2:m.l+plotW,y1:y,y2:y,stroke:C.line2,'stroke-width':1}));
+    const tx=el('text',{x:m.l-6,y:y+3,'text-anchor':'end'}); tx.textContent=(Math.abs(t)<1e-9?'0':t.toFixed(dec)); svg.appendChild(tx); });
+  if(ymin<0&&ymax>0){ const y0=sy(0); svg.appendChild(el('line',{x1:m.l,x2:m.l+plotW,y1:y0,y2:y0,stroke:C.faint,'stroke-width':1.2})); }
+  (o.breaks||[]).forEach(b=>{ if(b.x<xmin||b.x>xmax) return; const x=sx(b.x);
+    svg.appendChild(el('line',{x1:x,x2:x,y1:m.t,y2:m.t+plotH,stroke:C.faint,'stroke-width':1,'stroke-dasharray':'3 3',opacity:0.7})); });
+  if(!o.hideXaxis) niceTicks(xmin,xmax,Math.min(6,Math.round(plotW/90))).forEach(t=>{ if(t<xmin-0.5||t>xmax+0.5) return;
+    const x=sx(t); const tx=el('text',{x:x,y:H-8,'text-anchor':'middle'}); tx.textContent=(o.xFmt?o.xFmt(t):Math.round(t)); svg.appendChild(tx); });
+  // filled areas: forward along y1, back along y0
+  o.areas.forEach(a=>{ let d='',started=false;
+    for(let i=0;i<xs.length;i++){ if(a.y1[i]==null||a.y0[i]==null){started=false;continue;} d+=(started?'L':'M')+sx(xs[i]).toFixed(1)+' '+sy(a.y1[i]).toFixed(1)+' '; started=true; }
+    for(let i=xs.length-1;i>=0;i--){ if(a.y1[i]==null||a.y0[i]==null) continue; d+='L'+sx(xs[i]).toFixed(1)+' '+sy(a.y0[i]).toFixed(1)+' '; }
+    if(d) svg.appendChild(el('path',{d:d+'Z',fill:a.color,opacity:a.opacity!=null?a.opacity:0.62,stroke:'none'})); });
+  if(o.line){ let d='',started=false; const ly=o.line.y;
+    for(let i=0;i<xs.length;i++){ if(ly[i]==null){started=false;continue;} d+=(started?'L':'M')+sx(xs[i]).toFixed(1)+' '+sy(ly[i]).toFixed(1)+' '; started=true; }
+    if(d) svg.appendChild(el('path',{d,fill:'none',stroke:o.line.color,'stroke-width':o.line.width||2,'stroke-linejoin':'round'})); }
+  // crosshair + tooltip
+  const cross=el('line',{x1:0,x2:0,y1:m.t,y2:m.t+plotH,stroke:C.faint,'stroke-width':1,opacity:0}); svg.appendChild(cross);
+  const rect=el('rect',{x:m.l,y:m.t,width:plotW,height:plotH,fill:'transparent'}); svg.appendChild(rect);
+  const tipFmt=o.yFmt||(v=>fmt(v,2));
+  rect.addEventListener('mousemove',ev=>{ const bb=svg.getBoundingClientRect(); const px=(ev.clientX-bb.left)*(W/bb.width);
+    let bi=0,bd=1e9; xs.forEach((x,i)=>{const dd=Math.abs(sx(x)-px); if(dd<bd){bd=dd;bi=i;}});
+    cross.setAttribute('x1',sx(xs[bi])); cross.setAttribute('x2',sx(xs[bi])); cross.setAttribute('opacity',0.5);
+    let rows=''; o.areas.forEach(a=>{ if(a.y1[bi]!=null&&a.y0[bi]!=null) rows+=`<div class="tt-row"><span class="l">${a.label}</span><span>${tipFmt(a.y1[bi]-a.y0[bi])}</span></div>`; });
+    if(o.line&&o.line.y[bi]!=null) rows+=`<div class="tt-row"><span class="l">${o.line.label}</span><span>${tipFmt(o.line.y[bi])}</span></div>`;
+    const xTip=o.xTipFmt||o.xFmt; showTip(ev,`<div class="tt-title">${xTip?xTip(xs[bi]):Math.round(xs[bi])}</div>${rows}`);
+    if(o.onHover) o.onHover(xs[bi]); });
+  rect.addEventListener('mouseleave',()=>{ cross.setAttribute('opacity',0); hideTip(); if(o.onLeave) o.onLeave(); });
+  mount.appendChild(svg);
+}
 function legend(items){
   const wrap=h('div',{class:'legend'});
   items.forEach(it=>{
@@ -489,14 +551,18 @@ function rangeSlider(mount, xArr, dates, onRange){
 /* ============================================== PAGE BUILD */
 const M = document.getElementById('main');
 const NAV = document.getElementById('jumpNav');
+// Display order (CSS `order`) so panels render in this sequence regardless of the
+// code order of their IIFEs. Unlisted ids fall to the end.
+const PANEL_ORDER={explorer:10, compare:20, globalfactor:30, benchmarks:40, stagflation:50, liquidity:60, data:70};
 function panel(id, eyebrow, title, paras){
   const s=h('section',{class:'panel',id});
+  const ord=PANEL_ORDER[id]!=null?PANEL_ORDER[id]:90; s.style.order=ord;
   const head=h('div',{class:'panel-head'});
   head.appendChild(h('span',{class:'eyebrow'},eyebrow));
   head.appendChild(h('h2',null,title));
   (paras||[]).forEach(p=> head.appendChild(h('p',{html:p})));
   s.appendChild(head); M.appendChild(s);
-  NAV.appendChild(h('a',{href:'#'+id},title.length>32?title.slice(0,30)+'…':title));
+  const a=h('a',{href:'#'+id},title.length>32?title.slice(0,30)+'…':title); a.style.order=ord; NAV.appendChild(a);
   return s;
 }
 document.getElementById('footCredit').textContent = 'Model: AFNS + Christensen–Rudebusch shadow rate, ~3.5y mean-reversion floor. As of '+DATA.meta.asof+'.';
@@ -576,8 +642,9 @@ function lastVal(block, measure, tenor){
   return null;
 }
 
-/* ------------------------------------------------ 1. OVERVIEW */
+/* ------------------------------------------------ 1. OVERVIEW (dropped) */
 (function(){
+  return;   // "The big picture" removed — the curve explorer now leads.
   panel('overview','The big picture','Five markets, one decomposition',
     ['Every government yield splits into what the market expects short rates to average over the bond’s life (the <b>expected-rate path</b>) and the extra compensation for holding duration (the <b>term premium</b>). Below, the 10-year term premium today and its full history — estimated on each market’s modern, regime-clean sample with a shadow-rate model that respects each country’s effective lower bound.']);
   const s=M.lastChild;
@@ -604,120 +671,116 @@ function lastVal(block, measure, tenor){
   s.appendChild(call);
 })();
 
-/* ------------------------------------------------ 2. EXPLORER (linked time-series + curve) */
+/* ------------------------------------------------ 2. EXPLORER (side-by-side TS + curve) */
 (function(){
-  panel('explorer','Explore','Curve explorer — a tenor through time, the whole curve on hover',
-    ['Pick a market, instrument and tenor. The top chart is that tenor’s history; the bottom chart is the <b>entire term structure on whatever date you hover</b>. Switch either chart between the actual yield, the expected-rate path, the term premium, or the two stacked (expected rate + premium = yield). Daily throughout — drag the range handles to zoom into any window. The <b>orange region</b> marks dates before the model’s estimation sample, where the term-premium decomposition uses extrapolated parameters (see Method) — cross-checked against a separate 2-regime model in the “Great Inflation” section, which agrees closely.']);
+  panel('explorer','Explore','Curve explorer — a tenor through time and the whole curve, side by side',
+    ['Pick a market, instrument, tenor and measure. The <b>left</b> chart is that tenor through time; the <b>right</b> chart is the entire term structure on whatever date you hover (latest by default). Both respond to the measure: the <b>actual yield</b>, the <b>expected-rate path</b>, the <b>term premium</b>, or the <b>contribution</b> view — expected rate + term premium summing to the yield, shown as stacked bands under the yield line or as separate lines. Daily throughout; drag the range handles to zoom. The <b>orange region</b> flags dates before the model’s estimation sample (extrapolated parameters).']);
   const s=M.lastChild;
-  const EX={cc:'US', inst:'nominal', tenor:'10', tsM:'tp', xM:'obs', lo:0, hi:0, hoverX:null, annot:true};
+  const EX={cc:'US', inst:'nominal', tenor:'10', meas:'tp', style:'stack', lo:0, hi:0, hoverX:null, annot:true};
   function block(){ return DATA.countries[EX.cc].instruments[EX.inst]; }
   function tenors(){ return block().tenors; }
 
-  // ---- control bar
   const bar=h('div',{class:'ctrlbar'});
   const gCc=h('div',{class:'grp'}); gCc.appendChild(h('span',{class:'eyebrow'},'Market'));
   const segCc=h('div',{class:'seg'});
   DATA.order.forEach(cc=>{ const btn=h('button',null,cc); if(cc===EX.cc)btn.classList.add('active');
     btn.onclick=()=>{ EX.cc=cc; if(!DATA.countries[cc].instruments[EX.inst]) EX.inst='nominal';
       if(!block().tenors.includes(EX.tenor)) EX.tenor=block().tenors.includes('10')?'10':block().tenors[Math.floor(block().tenors.length/2)];
-      syncControls(); full(); };
+      [...segCc.children].forEach(x=>x.classList.toggle('active',x.textContent===cc)); syncControls(); full(); };
     segCc.appendChild(btn); }); gCc.appendChild(segCc); bar.appendChild(gCc);
-
-  const gIn=h('div',{class:'grp'}); gIn.appendChild(h('span',{class:'eyebrow'},'Instrument'));
-  const segIn=h('div',{class:'seg'}); gIn.appendChild(segIn); bar.appendChild(gIn);
-
+  const gIn=h('div',{class:'grp'}); gIn.appendChild(h('span',{class:'eyebrow'},'Instrument')); const segIn=h('div',{class:'seg'}); gIn.appendChild(segIn); bar.appendChild(gIn);
   const gTen=h('div',{class:'grp'}); gTen.appendChild(h('span',{class:'eyebrow'},'Tenor'));
-  const selTen=h('select',{class:'select-control'}); selTen.style.minWidth='120px';
-  selTen.onchange=()=>{ EX.tenor=selTen.value; full(); }; gTen.appendChild(selTen); bar.appendChild(gTen);
+  const selTen=h('select',{class:'select-control'}); selTen.style.minWidth='90px'; selTen.onchange=()=>{ EX.tenor=selTen.value; render(); }; gTen.appendChild(selTen); bar.appendChild(gTen);
+  const gM=h('div',{class:'grp'}); gM.appendChild(h('span',{class:'eyebrow'},'Measure')); const segM=h('div',{class:'seg'});
+  [['obs','Actual'],['exp','Expected'],['tp','Term premium'],['contrib','Contribution']].forEach(([k,lab])=>{
+    const btn=h('button',null,lab); if(k===EX.meas)btn.classList.add('active');
+    btn.onclick=()=>{ EX.meas=k; [...segM.children].forEach(c=>c.classList.toggle('active',c===btn)); syncStyle(); render(); };
+    segM.appendChild(btn); }); gM.appendChild(segM); bar.appendChild(gM);
+  const gSt=h('div',{class:'grp'}); gSt.appendChild(h('span',{class:'eyebrow'},'Style')); const segSt=h('div',{class:'seg'});
+  [['stack','Stacked'],['lines','Lines']].forEach(([k,lab])=>{ const btn=h('button',null,lab); if(k===EX.style)btn.classList.add('active');
+    btn.onclick=()=>{ EX.style=k; [...segSt.children].forEach(c=>c.classList.toggle('active',c===btn)); render(); }; segSt.appendChild(btn); });
+  gSt.appendChild(segSt); bar.appendChild(gSt);
+  const gAn=h('div',{class:'grp'}); gAn.appendChild(h('span',{class:'eyebrow'},'Annotations')); const segAn=h('div',{class:'seg'});
+  const anBtn=h('button',null,'On'); anBtn.classList.add('active'); anBtn.onclick=()=>{ EX.annot=!EX.annot; anBtn.classList.toggle('active',EX.annot); anBtn.textContent=EX.annot?'On':'Off'; renderTs(); }; segAn.appendChild(anBtn); gAn.appendChild(segAn); bar.appendChild(gAn);
   s.appendChild(bar);
+  function syncStyle(){ gSt.style.display = EX.meas==='contrib'?'flex':'none'; }
 
-  function syncControls(){
-    // instrument seg (nominal + real where present)
-    segIn.innerHTML='';
-    const insts=Object.keys(DATA.countries[EX.cc].instruments);
-    insts.forEach(k=>{ const btn=h('button',null,k==='real'?'Inflation-linked':'Nominal'); if(k===EX.inst)btn.classList.add('active');
-      btn.onclick=()=>{ EX.inst=k; if(!block().tenors.includes(EX.tenor)) EX.tenor=block().tenors.includes('10')?'10':block().tenors[block().tenors.length-2]; syncControls(); full(); };
-      segIn.appendChild(btn); });
-    // tenor dropdown
-    selTen.innerHTML='';
-    tenors().forEach(t=> selTen.appendChild(h('option',{value:t}, t+'y')));
-    selTen.value=EX.tenor;
-  }
-
-  // ---- time-series card
-  const cTs=h('div',{class:'card'});
-  const tsTitle=h('div',{class:'card-title'}); cTs.appendChild(tsTitle);
-  const tsNote=h('div',{class:'card-note'}); cTs.appendChild(tsNote);
-  const segTs=h('div',{class:'seg'}); segTs.style.marginBottom='12px';
-  [['obs','Actual yield'],['exp','Expected rate'],['tp','Term premium'],['stack','Stacked']].forEach(([k,lab],i)=>{
-    const btn=h('button',null,lab); if(k===EX.tsM)btn.classList.add('active');
-    btn.onclick=()=>{ EX.tsM=k; [...segTs.children].forEach(c=>c.classList.toggle('active',c===btn)); renderTs(); };
-    segTs.appendChild(btn); });
-  const segAnnot=h('div',{class:'seg'}); segAnnot.style.marginLeft='14px';
-  const annotBtn=h('button',null,'Annotations'); annotBtn.classList.add('active');
-  annotBtn.onclick=()=>{ EX.annot=!EX.annot; annotBtn.classList.toggle('active',EX.annot); renderTs(); };
-  segAnnot.appendChild(annotBtn);
-  const segRow=h('div'); segRow.style.cssText='display:flex;align-items:center;flex-wrap:wrap;margin-bottom:12px;'; segRow.appendChild(segTs); segRow.appendChild(segAnnot);
-  cTs.appendChild(segRow);
-  const tsLegend=h('div'); cTs.appendChild(tsLegend);
-  const tsBox=h('div'); cTs.appendChild(tsBox);
-  const sliderMount=h('div'); cTs.appendChild(sliderMount);
-  s.appendChild(cTs);
-
-  // ---- cross-section card
-  const cX=h('div',{class:'card'});
-  const xTitle=h('div',{class:'card-title'}); cX.appendChild(xTitle);
-  const xNote=h('div',{class:'card-note'}); cX.appendChild(xNote);
-  const segX=h('div',{class:'seg'}); segX.style.marginBottom='12px';
-  [['obs','Actual curve'],['exp','Expected-rate curve'],['tp','Term-premium curve'],['stack','Stacked']].forEach(([k,lab])=>{
-    const btn=h('button',null,lab); if(k===EX.xM)btn.classList.add('active');
-    btn.onclick=()=>{ EX.xM=k; [...segX.children].forEach(c=>c.classList.toggle('active',c===btn)); renderX(); };
-    segX.appendChild(btn); });
-  cX.appendChild(segX);
-  const xLegend=h('div'); cX.appendChild(xLegend);
-  const xBox=h('div'); cX.appendChild(xBox);
-  s.appendChild(cX);
+  const dual=h('div',{class:'dual'});
+  const cTs=h('div',{class:'card'}); const tsTitle=h('div',{class:'card-title'}); cTs.appendChild(tsTitle); const tsNote=h('div',{class:'card-note'}); cTs.appendChild(tsNote); const tsLegend=h('div'); cTs.appendChild(tsLegend); const tsBox=h('div'); cTs.appendChild(tsBox); const sliderMount=h('div'); cTs.appendChild(sliderMount);
+  const cX=h('div',{class:'card'}); const xTitle=h('div',{class:'card-title'}); cX.appendChild(xTitle); const xNote=h('div',{class:'card-note'}); cX.appendChild(xNote); const xLegend=h('div'); cX.appendChild(xLegend); const xBox=h('div'); cX.appendChild(xBox);
+  dual.appendChild(cTs); dual.appendChild(cX); s.appendChild(dual);
 
   const measColor={obs:'blue',exp:'teal',tp:'orange'};
-  function seriesForMeasure(meas, tenor){
-    const b=block();
-    if(meas==='stack') return [
-      {label:'Expected rate',color:COL().teal,pts:ptsFor(b,'exp',tenor)},
-      {label:'Actual yield',color:COL().blue,pts:ptsFor(b,'obs',tenor)}];
-    return [{label:SERIES[meas],color:COL()[measColor[meas]],pts:ptsFor(b,meas,tenor)}];
+  const MEASLAB={obs:'Actual yield',exp:'Expected rate',tp:'Term premium'};
+  function syncControls(){
+    segIn.innerHTML='';
+    Object.keys(DATA.countries[EX.cc].instruments).forEach(k=>{ const btn=h('button',null,k==='real'?'Inflation-linked':'Nominal'); if(k===EX.inst)btn.classList.add('active');
+      btn.onclick=()=>{ EX.inst=k; if(!block().tenors.includes(EX.tenor)) EX.tenor=block().tenors.includes('10')?'10':block().tenors[block().tenors.length-2]; syncControls(); full(); };
+      segIn.appendChild(btn); });
+    selTen.innerHTML=''; tenors().forEach(t=> selTen.appendChild(h('option',{value:t}, t+'y'))); selTen.value=EX.tenor;
+    syncStyle();
   }
+  function arr(meas,tenor){ return block()[meas][tenor]||[]; }
+
   function renderTs(){
-    const b=block();
-    tsTitle.textContent=`${DATA.countries[EX.cc].name} ${EX.inst==='real'?'(real)':''} · ${EX.tenor}y · ${EX.tsM==='stack'?'expected rate + term premium':SERIES[EX.tsM]}`;
-    tsNote.textContent=EX.tsM==='stack'?'Two lines: the gap between the expected-rate path and the actual yield is the term premium (negative where the expected-rate path sits above the yield — e.g. an inverted curve).':'Daily, percent. Orange = pre-estimation-sample (extrapolated params); grey = policy episodes; dashed = structural breaks. Drag the handles below to zoom.';
-    const full=seriesForMeasure(EX.tsM, EX.tenor);
-    // window filter
-    const xArr=b.x, xlo=xArr[EX.lo], xhi=xArr[EX.hi];
-    const series=full.map(sr=>({...sr,pts:sr.pts.filter(p=>p[0]>=xlo-1e-6&&p[0]<=xhi+1e-6)}));
-    tsLegend.innerHTML=''; if(series.length>1) tsLegend.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
-    tsBox.innerHTML='';
-    drawLine(tsBox,{height:230, yZero:EX.tsM==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtDay,
-      bands:EX.annot?contextBands(EX.cc,EX.inst,b).concat(bandsFor(EX.cc)).filter(bd=>bd.x1>=xlo&&bd.x0<=xhi):[],
-      breaks:EX.annot?breaksFor(EX.cc,EX.inst).filter(bk=>bk.x>=xlo&&bk.x<=xhi):[],
-      series,
-      onHover:xv=>{ let bi=0,bd=1e9; xArr.forEach((x,i)=>{const d=Math.abs(x-xv); if(d<bd&&x>=xlo-1e-6&&x<=xhi+1e-6){bd=d;bi=i;}}); EX.hoverX=bi; renderX(); },
-      onLeave:()=>{}});
+    const b=block(); const xArr=b.x, xlo=xArr[EX.lo], xhi=xArr[EX.hi];
+    const inW=i=> xArr[i]>=xlo-1e-6 && xArr[i]<=xhi+1e-6;
+    const label = EX.meas==='contrib' ? 'expected rate + term premium' : MEASLAB[EX.meas];
+    tsTitle.textContent=`${DATA.countries[EX.cc].name}${EX.inst==='real'?' (real)':''} · ${EX.tenor}y · ${label}`;
+    tsNote.textContent = EX.meas==='contrib'
+      ? (EX.style==='stack'?'Stacked bands (expected rate + term premium) under the actual-yield line, percent. Where the premium is negative the band sits below the expected-rate path. Drag to zoom.':'Expected rate, term premium and actual yield as separate lines, percent. Drag to zoom.')
+      : 'Daily, percent. Orange = pre-estimation-sample (extrapolated); grey = policy episodes; dashed = structural breaks. Drag the handles below to zoom.';
+    const bands=EX.annot?contextBands(EX.cc,EX.inst,b).concat(bandsFor(EX.cc)).filter(bd=>bd.x1>=xlo&&bd.x0<=xhi):[];
+    const breaks=EX.annot?breaksFor(EX.cc,EX.inst).filter(bk=>bk.x>=xlo&&bk.x<=xhi):[];
+    tsLegend.innerHTML=''; tsBox.innerHTML='';
+    const hoverCb = xv=>{ let bi=0,bd=1e9; xArr.forEach((x,i)=>{const d=Math.abs(x-xv); if(d<bd&&inW(i)){bd=d;bi=i;}}); EX.hoverX=bi; renderX(); };
+    if(EX.meas==='contrib' && EX.style==='stack'){
+      const exp=arr('exp',EX.tenor), tp=arr('tp',EX.tenor), obs=arr('obs',EX.tenor);
+      const idxs=[]; for(let i=0;i<xArr.length;i++) if(inW(i)&&exp[i]!=null&&tp[i]!=null) idxs.push(i);
+      const X=idxs.map(i=>xArr[i]);
+      tsLegend.appendChild(legend([{label:'Expected rate',color:COL().teal},{label:'Term premium',color:COL().orange},{label:'Actual yield',color:COL().blue}]));
+      drawStacked(tsBox,{height:250,x:X,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,bands,breaks,
+        areas:[{y0:idxs.map(()=>0),y1:idxs.map(i=>exp[i]),color:COL().teal,label:'Expected rate'},
+               {y0:idxs.map(i=>exp[i]),y1:idxs.map(i=>exp[i]+tp[i]),color:COL().orange,label:'Term premium'}],
+        line:{y:idxs.map(i=>obs[i]!=null?obs[i]:exp[i]+tp[i]),color:COL().blue,width:2,label:'Actual yield'}, onHover:hoverCb, onLeave:()=>{}});
+    } else {
+      let series;
+      if(EX.meas==='contrib') series=[
+        {label:'Expected rate',color:COL().teal,pts:ptsFor(b,'exp',EX.tenor)},
+        {label:'Term premium',color:COL().orange,pts:ptsFor(b,'tp',EX.tenor)},
+        {label:'Actual yield',color:COL().blue,pts:ptsFor(b,'obs',EX.tenor)}];
+      else series=[{label:MEASLAB[EX.meas],color:COL()[measColor[EX.meas]],pts:ptsFor(b,EX.meas,EX.tenor)}];
+      series=series.map(sr=>({...sr,pts:sr.pts.filter(p=>p[0]>=xlo-1e-6&&p[0]<=xhi+1e-6)}));
+      if(series.length>1) tsLegend.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
+      drawLine(tsBox,{height:250, yZero:EX.meas==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtDay, bands, breaks, series, onHover:hoverCb, onLeave:()=>{}});
+    }
   }
   function renderX(){
-    const b=block(); const idx=(EX.hoverX==null)?b.x.length-1:EX.hoverX;
-    const dstr=b.dates[idx];
-    xTitle.textContent=`${DATA.countries[EX.cc].name} ${EX.inst==='real'?'(real)':''} term structure · ${dstr}`;
-    xNote.textContent='Across maturities on the hovered date. Hover the top chart to move this date.';
+    const b=block(); const idx=(EX.hoverX==null)?b.x.length-1:EX.hoverX; const dstr=b.dates[idx];
+    xTitle.textContent=`${DATA.countries[EX.cc].name}${EX.inst==='real'?' (real)':''} term structure · ${dstr}`;
+    xNote.textContent='Across maturities on the hovered date (hover the left chart to move the date). Percent.';
     const ten=b.tenors.map(Number);
-    function curve(meas){ return b.tenors.map((t,i)=>[Number(t), b[meas][t] ? b[meas][t][idx] : null]).filter(p=>p[1]!=null); }
-    let series;
-    if(EX.xM==='stack') series=[{label:'Expected rate',color:COL().teal,pts:curve('exp')},{label:'Actual yield',color:COL().blue,pts:curve('obs')}];
-    else series=[{label:{obs:'Actual curve',exp:'Expected-rate curve',tp:'Term-premium curve'}[EX.xM],color:COL()[measColor[EX.xM]],pts:curve(EX.xM)}];
-    xLegend.innerHTML=''; if(series.length>1) xLegend.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
-    xBox.innerHTML='';
-    drawLine(xBox,{height:210, yZero:EX.xM==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:v=>v+'y', xTipFmt:v=>v+'y',
-      series});
+    xLegend.innerHTML=''; xBox.innerHTML='';
+    if(EX.meas==='contrib' && EX.style==='stack'){
+      const keep=[]; ten.forEach((t,i)=>{ const e=b.exp[b.tenors[i]], p=b.tp[b.tenors[i]]; if(e&&p&&e[idx]!=null&&p[idx]!=null) keep.push(i); });
+      const X=keep.map(i=>ten[i]);
+      const E=keep.map(i=>b.exp[b.tenors[i]][idx]), P=keep.map(i=>b.tp[b.tenors[i]][idx]);
+      const O=keep.map(i=>{ const o=b.obs[b.tenors[i]]; return o&&o[idx]!=null?o[idx]:b.exp[b.tenors[i]][idx]+b.tp[b.tenors[i]][idx]; });
+      xLegend.appendChild(legend([{label:'Expected rate',color:COL().teal},{label:'Term premium',color:COL().orange},{label:'Actual yield',color:COL().blue}]));
+      drawStacked(xBox,{height:230,x:X,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:v=>v+'y',xTipFmt:v=>v+'y',
+        areas:[{y0:X.map(()=>0),y1:E,color:COL().teal,label:'Expected rate'},
+               {y0:E,y1:E.map((e,j)=>e+P[j]),color:COL().orange,label:'Term premium'}],
+        line:{y:O,color:COL().blue,width:2,label:'Actual yield'}});
+    } else {
+      function curve(meas){ return ten.map((t,i)=>[t, b[meas][b.tenors[i]]?b[meas][b.tenors[i]][idx]:null]).filter(p=>p[1]!=null); }
+      let series;
+      if(EX.meas==='contrib') series=[{label:'Expected rate',color:COL().teal,pts:curve('exp')},{label:'Term premium',color:COL().orange,pts:curve('tp')},{label:'Actual yield',color:COL().blue,pts:curve('obs')}];
+      else series=[{label:MEASLAB[EX.meas]+' curve',color:COL()[measColor[EX.meas]],pts:curve(EX.meas)}];
+      if(series.length>1) xLegend.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
+      drawLine(xBox,{height:230, yZero:EX.meas==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:v=>v+'y', xTipFmt:v=>v+'y', series});
+    }
   }
+  function render(){ renderTs(); renderX(); }
   function buildSlider(){
     const b=block(); const N=b.x.length; EX.lo=0; EX.hi=N-1;
     sliderMount.innerHTML='';
@@ -734,54 +797,100 @@ function lastVal(block, measure, tenor){
     hiIn.addEventListener('input',()=>{ EX.hi=Math.max(+hiIn.value,EX.lo+1); hiIn.value=EX.hi; upd(); renderTs(); });
     upd();
   }
-  function full(){ buildSlider(); EX.hoverX=null; renderTs(); renderX(); }
+  function full(){ buildSlider(); EX.hoverX=null; render(); }
   syncControls(); full();
   CHARTS.push(renderTs); CHARTS.push(renderX);
 })();
 
-/* ------------------------------------------------ 3. CROSS-COUNTRY */
+/* ------------------------------------------------ 3. COMPARISON BUILDER (up to 5 series + spreads) */
 (function(){
-  panel('compare','Compare','Same tenor, many markets',
-    ['Line up two or more markets at the same maturity, and switch between the actual yield, the expected-rate path, and the term premium. Only nominal curves are compared here.']);
+  panel('compare','Compare','Build a comparison — any series, any spread',
+    ['Add up to <b>five</b> lines and mix them freely: pick a market, instrument (nominal, inflation-linked, or breakeven = nominal − real), tenor and measure (actual yield, expected rate, or term premium). Each line can instead be a <b>spread</b> — the difference of two picks, e.g. <i>10y US expected − 10y Germany expected</i> or <i>10y − 2y US term premium</i>. Daily; drag the handles to zoom.']);
   const s=M.lastChild;
-  const CM={tenor:'10', measure:'tp', ccs:{US:true,UK:true,DE:true,JP:true}};
-  const commonTenors=DATA.order.map(cc=>DATA.countries[cc].instruments.nominal.tenors).reduce((a,b)=>a.filter(t=>b.includes(t)));
-  const bar=h('div',{class:'ctrlbar'});
-  const gT=h('div',{class:'grp'}); gT.appendChild(h('span',{class:'eyebrow'},'Tenor'));
-  const selT=h('select',{class:'select-control'}); selT.style.minWidth='120px';
-  commonTenors.forEach(t=>selT.appendChild(h('option',{value:t},t+'y'))); selT.value=CM.tenor;
-  selT.onchange=()=>{ CM.tenor=selT.value; render(); }; gT.appendChild(selT); bar.appendChild(gT);
-  const gM=h('div',{class:'grp'}); gM.appendChild(h('span',{class:'eyebrow'},'Measure'));
-  const segM=h('div',{class:'seg'});
-  [['obs','Actual yield'],['exp','Expected rate'],['tp','Term premium']].forEach(([k,lab])=>{
-    const btn=h('button',null,lab); if(k===CM.measure)btn.classList.add('active');
-    btn.onclick=()=>{ CM.measure=k; [...segM.children].forEach(c=>c.classList.toggle('active',c===btn)); render(); };
-    segM.appendChild(btn); }); gM.appendChild(segM); bar.appendChild(gM);
-  const gC=h('div',{class:'grp'}); gC.appendChild(h('span',{class:'eyebrow'},'Markets'));
-  const segC=h('div',{class:'seg'});
-  DATA.order.forEach(cc=>{ const btn=h('button',null,cc); if(CM.ccs[cc])btn.classList.add('active');
-    btn.onclick=()=>{ CM.ccs[cc]=!CM.ccs[cc]; btn.classList.toggle('active',CM.ccs[cc]); render(); };
-    segC.appendChild(btn); }); gC.appendChild(segC); bar.appendChild(gC);
-  s.appendChild(bar);
-  const c=h('div',{class:'card'}); const ct=h('div',{class:'card-title'}); c.appendChild(ct);
-  const cn=h('div',{class:'card-note'}); c.appendChild(cn);
-  const lg=h('div'); c.appendChild(lg); const box=h('div'); c.appendChild(box);
-  const sliderMount=h('div'); c.appendChild(sliderMount); s.appendChild(c);
-  // reference timeline = the longest nominal series (US, 1961+); window persists across toggles
+  const PAL=['blue','orange','teal','purple','crimson'];
+  const MEAS={obs:'actual yield',exp:'expected rate',tp:'term premium'};
+  const CM={rows:[
+    {type:'level', A:{cc:'US',inst:'nominal',tenor:'10',meas:'tp'}},
+    {type:'level', A:{cc:'DE',inst:'nominal',tenor:'10',meas:'tp'}},
+  ]};
+  // longest nominal series = reference timeline for the slider
   let refCC=DATA.order[0];
   DATA.order.forEach(cc=>{ if(DATA.countries[cc].instruments.nominal.x.length>DATA.countries[refCC].instruments.nominal.x.length) refCC=cc; });
   const refBlk=DATA.countries[refCC].instruments.nominal;
   CM.xlo=refBlk.x[0]; CM.xhi=refBlk.x[refBlk.x.length-1];
-  function render(){
-    ct.textContent=`${CM.tenor}-year ${SERIES[CM.measure].toLowerCase()} — cross-country`;
-    cn.textContent='Nominal government curves, daily (recent) / weekly (history), percent. Drag the handles below to zoom.';
-    const active=DATA.order.filter(cc=>CM.ccs[cc]);
-    const series=active.map(cc=>({label:DATA.countries[cc].name,color:COL()[CCOL[cc]],
-      pts:ptsFor(DATA.countries[cc].instruments.nominal,CM.measure,CM.tenor).filter(p=>p[0]>=CM.xlo-1e-6&&p[0]<=CM.xhi+1e-6)}));
-    lg.innerHTML=''; lg.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
-    box.innerHTML=''; drawLine(box,{height:280, yZero:CM.measure==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtDay, series});
+
+  function instsFor(cc){ const C=DATA.countries[cc].instruments; const out=['nominal']; if(C.real){ out.push('real','be'); } return out; }
+  function tenorsFor(cc,inst){ const C=DATA.countries[cc].instruments;
+    if(inst==='be'){ const r=(C.real||{}).tenors||[]; return C.nominal.tenors.filter(t=>r.includes(t)); }
+    return (C[inst]||{}).tenors||[]; }
+  function instLabel(inst){ return inst==='be'?'Breakeven':inst==='real'?'Inflation-linked':'Nominal'; }
+  function fixSpec(sp){ // keep inst/tenor valid for the chosen market
+    if(!instsFor(sp.cc).includes(sp.inst)) sp.inst='nominal';
+    const tens=tenorsFor(sp.cc,sp.inst); if(!tens.includes(sp.tenor)) sp.tenor=tens.includes('10')?'10':tens[tens.length-1]; }
+  function rawSeries(sp){
+    const C=DATA.countries[sp.cc].instruments;
+    if(sp.inst==='be'){ const n=C.nominal, r=C.real; if(!r) return null;
+      const an=n[sp.meas][sp.tenor]||[], ar=r[sp.meas][sp.tenor]||[];
+      const rm=new Map(); r.dates.forEach((d,i)=>{ if(ar[i]!=null) rm.set(d,ar[i]); });
+      const out={x:[],v:[],dates:[]};
+      n.dates.forEach((d,i)=>{ if(an[i]!=null && rm.has(d)){ out.dates.push(d); out.x.push(n.x[i]); out.v.push(an[i]-rm.get(d)); } });
+      return out; }
+    const b=C[sp.inst]; if(!b) return null; const a=b[sp.meas][sp.tenor]||[];
+    const out={x:[],v:[],dates:[]}; b.dates.forEach((d,i)=>{ if(a[i]!=null){ out.dates.push(d); out.x.push(b.x[i]); out.v.push(a[i]); } });
+    return out; }
+  function rowPts(row){
+    if(row.type==='spread'){ const A=rawSeries(row.A), B=rawSeries(row.B); if(!A||!B) return [];
+      const mb=new Map(); B.dates.forEach((d,i)=>mb.set(d,B.v[i]));
+      const pts=[]; A.dates.forEach((d,i)=>{ if(mb.has(d)) pts.push([A.x[i], A.v[i]-mb.get(d)]); }); return pts; }
+    const R=rawSeries(row.A); if(!R) return []; return R.x.map((x,i)=>[x,R.v[i]]); }
+  function specLabel(sp){ const inst=sp.inst==='be'?'breakeven ':sp.inst==='real'?'real ':''; const m={obs:'yield',exp:'exp.',tp:'TP'}[sp.meas];
+    return `${sp.cc} ${sp.tenor}y ${inst}${m}`; }
+  function rowLabel(row){ return row.type==='spread' ? specLabel(row.A)+' − '+specLabel(row.B) : specLabel(row.A); }
+
+  // control panel (builder) + chart
+  const builder=h('div'); builder.style.marginBottom='14px'; s.appendChild(builder);
+  const addBtn=h('button',{class:'addrow'},'+ Add series'); addBtn.onclick=()=>{ if(CM.rows.length<5){ CM.rows.push({type:'level',A:{cc:'US',inst:'nominal',tenor:'10',meas:'obs'}}); redraw(); } };
+  const addWrap=h('div'); addWrap.style.margin='4px 0 2px'; addWrap.appendChild(addBtn); s.appendChild(addWrap);
+  const c=h('div',{class:'card'}); const ct=h('div',{class:'card-title'}); c.appendChild(ct);
+  const cn=h('div',{class:'card-note'}); c.appendChild(cn); const lg=h('div'); c.appendChild(lg); const box=h('div'); c.appendChild(box);
+  const sliderMount=h('div'); c.appendChild(sliderMount); s.appendChild(c);
+
+  function sel(opts, val, onch, labels){ const e=h('select',{class:'select-control'});
+    opts.forEach(o=> e.appendChild(h('option',{value:o}, labels?labels(o):o))); e.value=val; e.onchange=()=>onch(e.value); return e; }
+  function specPicker(sp, onchange){
+    const wrap=h('span'); wrap.style.cssText='display:inline-flex;gap:5px;align-items:center;flex-wrap:wrap;';
+    const selCc=sel(DATA.order, sp.cc, v=>{ sp.cc=v; fixSpec(sp); onchange(); });
+    const selIn=sel(instsFor(sp.cc), sp.inst, v=>{ sp.inst=v; fixSpec(sp); onchange(); }, instLabel);
+    const selTe=sel(tenorsFor(sp.cc,sp.inst), sp.tenor, v=>{ sp.tenor=v; onchange(); }, t=>t+'y');
+    const selMe=sel(['obs','exp','tp'], sp.meas, v=>{ sp.meas=v; onchange(); }, m=>({obs:'Actual',exp:'Expected',tp:'Term premium'}[m]));
+    [selCc,selIn,selTe,selMe].forEach(e=>wrap.appendChild(e));
+    return wrap;
   }
-  render(); CHARTS.push(render);
+  function redraw(){ buildRows(); render(); addBtn.disabled=CM.rows.length>=5; }
+  function buildRows(){
+    builder.innerHTML='';
+    CM.rows.forEach((row,i)=>{
+      const r=h('div',{class:'serow'});
+      const dot=h('span',{class:'dot'}); dot.style.background=COL()[PAL[i]]; r.appendChild(dot);
+      const selType=sel(['level','spread'], row.type, v=>{ row.type=v; if(v==='spread'&&!row.B){ row.B=JSON.parse(JSON.stringify(row.A)); } redraw(); }, t=>t==='level'?'Level':'Spread');
+      r.appendChild(selType);
+      r.appendChild(specPicker(row.A, render));
+      if(row.type==='spread'){ r.appendChild(h('span',{class:'op'},'−')); r.appendChild(specPicker(row.B, render)); }
+      const rm=h('button',{class:'rm'},'✕'); rm.title='Remove'; rm.onclick=()=>{ if(CM.rows.length>1){ CM.rows.splice(i,1); redraw(); } };
+      r.appendChild(rm); builder.appendChild(r);
+    });
+  }
+  function render(){
+    const anyTP=CM.rows.some(r=> r.type==='spread' || r.A.meas==='tp');
+    ct.textContent='Custom comparison — '+CM.rows.length+' series';
+    cn.textContent='Percent. Breakeven = nominal − real (inflation-linked markets only). Spreads centre on zero. Drag the handles below to zoom.';
+    const series=CM.rows.map((row,i)=>({label:rowLabel(row), color:COL()[PAL[i]],
+      pts: rowPts(row).filter(p=>p[0]>=CM.xlo-1e-6&&p[0]<=CM.xhi+1e-6)}));
+    lg.innerHTML=''; lg.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
+    box.innerHTML=''; drawLine(box,{height:300, yZero:anyTP, yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtDay, series});
+  }
+  redraw();
+  CHARTS.push(render);
   rangeSlider(sliderMount, refBlk.x, refBlk.dates, (lo,hi)=>{ CM.xlo=lo; CM.xhi=hi; render(); });
 })();
 
@@ -813,47 +922,76 @@ function lastVal(block, measure, tenor){
 
 /* ------------------------------------------------ 3b-DE. GERMANY — THE LONG VIEW (1972+) */
 (function(){
+  return;   // "Germany — the long view" removed from the front-end.
   const DE=DATA.countries.DE; if(!DE) return;
   const b=DE.instruments && DE.instruments.nominal; if(!b || !b.history) return;
   const H=b.history, tenors=Object.keys(H.tp||{}); if(!tenors.length) return;
+  const hasSplice=!!(H.tp_aligned && H.align_offset);
   panel('degermanyhist','Historical lens','Germany — the long view (1972+)',
-    ['The daily Bund term premium in this atlas starts in <b>1997</b>, where Bundesbank’s daily curve begins — but their <b>monthly</b> curve runs back to <b>1972</b>. So we push the same shadow-rate decomposition (with the mean-reversion floor) back over the full Deutsche-Mark-and-euro history as a separate, clearly-labelled <b>monthly exhibit</b>: a full-sample fit, deliberately <b>not spliced</b> onto the daily line. It captures the German premium through the 1970s oil shocks, reunification, and the euro era.']);
+    ['The daily Bund term premium in this atlas starts in <b>1997</b>, where Bundesbank’s daily curve begins — but their <b>monthly</b> curve runs back to <b>1972</b>. We push the same decomposition (with the mean-reversion floor) back over the full Deutsche-Mark-and-euro history. The historical fit uses a <b>full-sample long-run mean</b> that the 15–19% rates of the 1970s–80s drag upward, biasing its <i>level</i> below the modern series — so by default we <b>join</b> it to the production line with a one-time level match at the seam (matched on a month-end basis, the historical series’ convention) and show one continuous series (the 1970s <i>shape</i> is preserved; only the level is shifted). Toggle to the raw as-estimated exhibit to see the gap.']);
   const s=M.lastChild;
-  const DH={};
+  const DH={view: hasSplice?'splice':'raw'};
   const bar=h('div',{class:'ctrlbar'});
   const g=h('div',{class:'grp'}); g.appendChild(h('span',{class:'eyebrow'},'Maturity'));
   const sel=h('select',{class:'select-control'}); sel.style.minWidth='110px';
   tenors.forEach(t=>sel.appendChild(h('option',{value:t},t+'y'))); sel.value=(tenors.includes('10')?'10':tenors[tenors.length-1]); DH.tenor=sel.value;
-  sel.onchange=()=>{ DH.tenor=sel.value; render(); }; g.appendChild(sel); bar.appendChild(g); s.appendChild(bar);
+  sel.onchange=()=>{ DH.tenor=sel.value; render(); }; g.appendChild(sel); bar.appendChild(g);
+  if(hasSplice){
+    const gv=h('div',{class:'grp'}); gv.appendChild(h('span',{class:'eyebrow'},'View'));
+    const seg=h('div',{class:'seg'});
+    [['splice','Level-aligned splice'],['raw','Raw exhibit']].forEach(([v,lab])=>{
+      const bt=h('button',null,lab); if(v===DH.view)bt.classList.add('active');
+      bt.onclick=()=>{ DH.view=v; [...seg.children].forEach(x=>x.classList.toggle('active',x===bt)); render(); };
+      seg.appendChild(bt); }); gv.appendChild(seg); bar.appendChild(gv);
+  }
+  s.appendChild(bar);
   const c=h('div',{class:'card'}); const ct=h('div',{class:'card-title'}); c.appendChild(ct);
   const cn=h('div',{class:'card-note'}); c.appendChild(cn);
   const lg=h('div'); c.appendChild(lg); const box=h('div'); c.appendChild(box);
   const sliderMount=h('div'); c.appendChild(sliderMount); s.appendChild(c);
   DH.xlo=H.x[0]; DH.xhi=H.x[H.x.length-1];
   const call=h('div',{class:'callout teal'}); c.appendChild(call);
-  function stats(t){
-    const v=H.tp[t]||[]; let sum=0,n=0,pk=-1e9,pkd=null,last=null;
-    for(let i=0;i<v.length;i++){ const y=v[i]; if(y==null) continue; last=y;
+  const seamX=b.x[0];                                    // production start = splice join
+  function stats(t, vals){
+    let sum=0,n=0,pk=-1e9,pkd=null,last=null;
+    for(let i=0;i<vals.length;i++){ const y=vals[i]; if(y==null) continue; last=y;
       if(H.x[i]>=1973 && H.x[i]<1986){ sum+=y; n++; }
       if(y>pk){ pk=y; pkd=H.dates[i]; } }
     return {avg:n?sum/n:null, peak:pk, peakDate:pkd, last:last};
   }
   function render(){
     const t=DH.tenor, CC=COL(), inWin=p=>p[0]>=DH.xlo-1e-6&&p[0]<=DH.xhi+1e-6;
-    ct.textContent=`Germany ${t}-year term premium — 1972+ monthly historical exhibit vs the daily production series`;
-    cn.textContent='Percent. Solid = full-sample monthly historical fit (1972+); dashed = the daily production line (1997+) overlaid for the overlap. Drag the handles below to zoom.';
-    const hist=H.x.map((x,i)=>[x, H.tp[t]?H.tp[t][i]:null]).filter(p=>p[1]!=null&&inWin(p));
     const modern=ptsFor(b,'tp',t).filter(inWin);
-    const series=[
-      {label:'Historical (1972+, monthly, full-sample fit)',color:CC.orange,width:2.2,pts:hist},
-      {label:'Daily production (1997+, atlas default)',color:CC.blue,width:1.6,dash:'5 4',pts:modern}];
-    lg.innerHTML=''; lg.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color,dash:!!sr.dash}))));
-    box.innerHTML=''; drawLine(box,{height:300,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,
-      bands:[{x0:ym(1979,8),x1:ym(1985,6),fill:CC.orange,opacity:0.10,label:'2nd oil shock'}],
-      series});
-    const st=stats(t);
-    if(st.avg!=null){
-      call.innerHTML=`Over the <b>1973–85</b> high-inflation era the German ${t}-year premium averaged <b>${fmt(st.avg,2)}%</b>, peaking near <b>${fmt(st.peak,2)}%</b> (${st.peakDate?st.peakDate.slice(0,7):''}); latest ${t}y ≈ <b>${fmt(st.last,2)}%</b>. It ran <b>below the US</b> in the same era — consistent with the Bundesbank’s inflation-fighting credibility keeping the inflation-risk premium compressed even through the oil shocks. Caveat: this is a single full-sample fit with the expected-rate path anchored to a modern long-run mean, so read the deep-past <b>level</b> as approximate — the shape and the cross-country contrast are the point.`;
+    let series;
+    if(DH.view==='splice' && hasSplice){
+      const al=H.tp_aligned[t]||[], off=(H.align_offset[t]!=null?H.align_offset[t]:0);
+      const pre=H.x.map((x,i)=>[x, al[i]]).filter(p=>p[1]!=null && p[0]<seamX && inWin(p));
+      ct.textContent=`Germany ${t}-year term premium — 1972+ spliced with the daily production series`;
+      cn.textContent='Percent. One continuous series: daily production (1997+) joined to the 1972+ monthly history, shifted by a one-time level match at the seam (month-end). Drag the handles below to zoom.';
+      series=[
+        {label:`Historical 1972–97 (level-matched +${fmt(off,2)}%)`,color:CC.orange,width:2.2,pts:pre},
+        {label:'Daily production (1997+)',color:CC.blue,width:2.0,pts:modern}];
+      lg.innerHTML=''; lg.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
+      box.innerHTML=''; drawLine(box,{height:300,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,
+        bands:[{x0:ym(1979,8),x1:ym(1985,6),fill:CC.orange,opacity:0.10,label:'2nd oil shock'}],
+        series});
+      const st=stats(t, al);
+      if(st.avg!=null)
+        call.innerHTML=`Joined to the production line by a <b>one-time +${fmt(off,2)}%</b> level match at the seam (${H.align_month||'the earliest overlap month'}, month-end). On this basis the German ${t}-year premium averaged <b>${fmt(st.avg,2)}%</b> across the <b>1973–85</b> high-inflation era, peaking near <b>${fmt(st.peak,2)}%</b> (${st.peakDate?st.peakDate.slice(0,7):''}) — broadly in line with the US in the same era. The splice shifts only the <b>level</b> (a single per-tenor constant); the 1970s <b>shape</b> is the raw historical fit. Read the deep-past level as indicative.`;
+    } else {
+      const hist=H.x.map((x,i)=>[x, H.tp[t]?H.tp[t][i]:null]).filter(p=>p[1]!=null&&inWin(p));
+      ct.textContent=`Germany ${t}-year term premium — 1972+ monthly historical exhibit vs the daily production series`;
+      cn.textContent='Percent. Solid = full-sample monthly historical fit (1972+, as estimated); dashed = the daily production line (1997+). The vertical gap is the full-sample-θ level bias. Drag the handles below to zoom.';
+      series=[
+        {label:'Historical (1972+, as-estimated)',color:CC.orange,width:2.2,pts:hist},
+        {label:'Daily production (1997+, atlas default)',color:CC.blue,width:1.6,dash:'5 4',pts:modern}];
+      lg.innerHTML=''; lg.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color,dash:!!sr.dash}))));
+      box.innerHTML=''; drawLine(box,{height:300,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,
+        bands:[{x0:ym(1979,8),x1:ym(1985,6),fill:CC.orange,opacity:0.10,label:'2nd oil shock'}],
+        series});
+      const st=stats(t, H.tp[t]||[]);
+      if(st.avg!=null)
+        call.innerHTML=`As estimated, the historical ${t}y premium averaged <b>${fmt(st.avg,2)}%</b> over <b>1973–85</b> and sits systematically <b>below</b> the production line — the full-sample long-run mean (dragged up by the 1970s–80s) biases the historical expected-rate path high and its premium low. Switch to <b>Level-aligned splice</b> to remove this constant offset and read one continuous series.`;
     }
   }
   render(); CHARTS.push(render);
@@ -909,8 +1047,9 @@ function lastVal(block, measure, tenor){
   rangeSlider(sliderMount, b.x, b.dates, (lo,hi)=>{ BM.xlo=lo; BM.xhi=hi; render(); });
 })();
 
-/* ------------------------------------------------ 3d. US NOMINAL vs REAL TERM PREMIUM */
+/* ------------------------------------------------ 3d. US NOMINAL vs REAL TERM PREMIUM (dropped) */
 (function(){
+  return;   // removed from the front-end (inflation-linked now lives in the comparison builder).
   const b=DATA.countries.US.instruments; if(!b.nominal||!b.real) return;
   panel('realtp','Inflation-linked','US term premium — nominal vs inflation-protected',
     ['Two robust, separately-estimated premia side by side: the term premium on <b>nominal</b> Treasuries and on <b>inflation-protected</b> TIPS (real), each fit with the same single-curve model on its own curve. The nominal premium compensates for both real-rate and inflation risk; the real premium strips inflation out, isolating compensation for <b>real-rate</b> uncertainty. We show the two premia directly and deliberately stop there — splitting their difference into expected inflation and an inflation-risk premium is not yet on a footing we would publish (see note). Monthly overlap from 2004 (the TIPS sample); pick a maturity.']);
@@ -970,24 +1109,51 @@ function lastVal(block, measure, tenor){
   s.appendChild(call);
 })();
 
-/* ------------------------------------------------ 3g. GLOBAL TERM-PREMIUM FACTOR */
+/* ------------------------------------------------ 3f. GERMAN BUND LIQUIDITY GAUGE (noise) */
+(function(){
+  return;   // HIDDEN from the front-end for now (data pipeline retained; non-binding issues to resolve)
+  const de=DATA.countries.DE; const nz=de&&de.bund_noise; if(!nz) return;
+  panel('liquidityde','Market quality','German Bund liquidity — curve-fitting “noise”',
+    ['The same Hu–Pan–Wang “noise” gauge applied to the German Bund cross-section: per day, fit a smooth curve to the yields of every outstanding Bund/Bobl/Schatz (Bundesbank per-security reference prices) and take the <b>RMS deviation</b>. Low when the market is liquid and every issue sits on the curve; higher when individual bonds scatter. A free daily illiquidity read on the euro-area benchmark, built only from public security-level data — the DE analogue of the US TIPS gauge above.']);
+  const s=M.lastChild;
+  const c=h('div',{class:'card'});
+  c.appendChild(h('div',{class:'card-title'},'German Bund cross-sectional fitting noise'));
+  c.appendChild(h('div',{class:'card-note'},'Basis points, daily. Higher = individual Bunds priced further from a smooth curve (less liquid). History is short (Bundesbank publishes only recent months) and lengthens daily. Drag the handles below to zoom.'));
+  const box=h('div'); c.appendChild(box);
+  const sliderMount=h('div'); c.appendChild(sliderMount); s.appendChild(c);
+  const allPts=nz.x.map((x,i)=>[x,nz.noise[i]]).filter(p=>p[1]!=null);
+  const NZ={xlo:nz.x[0], xhi:nz.x[nz.x.length-1]};
+  function render(){
+    const CC=COL();
+    box.innerHTML=''; drawLine(box,{height:260,yZero:true,yFmt:v=>fmt(v,0)+' bp',xFmt:xYear,xTipFmt:xFmtDay,
+      series:[{label:'Bund noise',color:CC.purple,pts:allPts.filter(p=>p[0]>=NZ.xlo-1e-6&&p[0]<=NZ.xhi+1e-6)}]});
+  }
+  render(); CHARTS.push(render);
+  rangeSlider(sliderMount, nz.x, nz.dates, (lo,hi)=>{ NZ.xlo=lo; NZ.xhi=hi; render(); });
+  // JS-computed callout: latest, mean, and the peak with its date.
+  const call=h('div',{class:'callout'});
+  const vals=allPts.map(p=>p[1]);
+  if(vals.length){
+    const latest=vals[vals.length-1];
+    const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
+    let pk=allPts[0]; allPts.forEach(p=>{ if(p[1]>pk[1]) pk=p; });
+    const pkDate=nz.dates[nz.x.indexOf(pk[0])]||'';
+    const pkYM=pkDate?pkDate.slice(0,7):'';
+    call.innerHTML='Bund noise averages <b>'+fmt(mean,1)+' bp</b> over the sample, peaking at <b>'+fmt(pk[1],1)+' bp</b> ('+pkYM+') and sitting near <b>'+fmt(latest,1)+' bp</b> today. Bunds are among the most liquid government bonds in the world, so the level stays low; spikes flag genuine market stress independent of any term-premium model.';
+  } else {
+    call.innerHTML='The gauge is independent of any term-premium model, so it doubles as a data-quality check on the Bund curve.';
+  }
+  s.appendChild(call);
+})();
+
+/* ------------------------------------------------ 3g. GLOBAL CYCLE (market vs cycle only) */
 (function(){
   const gf=DATA.global_factor; if(!gf || !gf.G || !gf.G.length) return;
   const ladder=gf.pca_ladder||[];
-  panel('globalfactor','Global cycle','A common term-premium cycle across bond markets',
-    ['Across the five markets the 10-year term premia move largely <b>together</b>: a single common factor (the first principal component) explains <b>'+(ladder[0]||0).toFixed(0)+'%</b> of the variation'+(ladder[1]?' — the second explains only '+ladder[1].toFixed(0)+'%, so one global factor suffices':'')+'. We extract that factor with a dynamic factor model on the term-premium series and read each market as <b>global cycle + a local residual</b>. The residual — how cheap or rich a curve sits <b>versus the global cycle</b> — is a relative-value signal (see note).']);
+  panel('globalfactor','Global cycle','Each market versus the global term-premium cycle',
+    ['Across four major markets (US, Germany, Japan and the UK — Switzerland is left out, its bond market too thin to belong in a common cycle) the 10-year term premia move largely <b>together</b>: one common factor explains <b>'+(ladder[0]||0).toFixed(0)+'%</b> of the variation. We split each market’s premium into that <b>global cycle</b> plus a <b>local residual</b> — how cheap or rich a curve sits versus the cycle. Pick a market: its observed 10-year premium is shown against the global-cycle-implied fitted; the gap is the residual (monthly, back to 1974).']);
   const s=M.lastChild;
-  const CC0=COL();
-  // variance-share readout
-  const shr=gf.order.map(cc=>cc+' '+gf.markets[cc].share.toFixed(0)+'%').join('  ·  ');
-  s.appendChild(h('div',{class:'callout teal',html:'<b>How global is each market?</b> Share of each 10y term premium explained by the common factor — '+shr+'. The factor correlates <b>+0.96</b> with the US 10-year term premium and <b>−0.60</b> with the broad dollar (a rates/dollar cycle, not equity vol).'}));
   const GF={mkt:'US', xlo:gf.x[0], xhi:gf.x[gf.x.length-1]};
-  // Card A — the global factor
-  const cA=h('div',{class:'card'});
-  cA.appendChild(h('div',{class:'card-title'},'The global term-premium factor (PC1, standardized)'));
-  cA.appendChild(h('div',{class:'card-note'},'Common cycle across US/UK/DE/JP/CH 10y term premia. Unitless (standardized); read the shape, not the level. Drag the handles below to zoom.'));
-  const boxA=h('div'); cA.appendChild(boxA); s.appendChild(cA);
-  // Card B — a market vs the global cycle
   const barB=h('div',{class:'ctrlbar'});
   const gB=h('div',{class:'grp'}); gB.appendChild(h('span',{class:'eyebrow'},'Market'));
   const segB=h('div',{class:'seg'});
@@ -997,24 +1163,20 @@ function lastVal(block, measure, tenor){
   const cB=h('div',{class:'card'}); const ctB=h('div',{class:'card-title'}); const cnB=h('div',{class:'card-note'});
   cB.appendChild(ctB); cB.appendChild(cnB); const lgB=h('div'); cB.appendChild(lgB); const boxB=h('div'); cB.appendChild(boxB);
   const sliderMount=h('div'); cB.appendChild(sliderMount); s.appendChild(cB);
-  s.appendChild(h('div',{class:'callout',html:'<b>The local residual is a relative-value signal.</b> A market trading <b>cheap</b> versus the global cycle (observed above the fitted line) has tended to <b>outperform</b> the others over the next month. On the balanced 1997+ cross-section this beats a naive term-spread carry signal (information ratio <b>0.59 vs 0.28</b>) and <b>subsumes</b> it in a joint regression (t≈+3.6 vs +0.3). A construct-validity diagnostic on synthetic duration-hedged excess returns — not a tradeable strategy (no costs, no real hedging, 5-name cross-section). See <i>FINDINGS_global_factor</i>.'}));
+  s.appendChild(h('div',{class:'callout',html:'<b>The local residual is a relative-value signal.</b> A market trading <b>cheap</b> versus the global cycle (observed above the fitted line) has tended to <b>outperform</b> the others over the next month — in the research backtest the residual carries relative-value information beyond a naive term-spread carry signal. A construct-validity diagnostic on synthetic duration-hedged excess returns across the four markets — not a tradeable strategy (no costs, no real hedging). See <i>FINDINGS_global_factor</i>.'}));
   rangeSlider(sliderMount, gf.x, gf.dates, (lo,hi)=>{ GF.xlo=lo; GF.xhi=hi; render(); });
   function render(){
     const CC=COL(), inWin=p=>p[0]>=GF.xlo-1e-6&&p[0]<=GF.xhi+1e-6;
-    const gpts=gf.x.map((x,i)=>[x,gf.G[i]]).filter(p=>p[1]!=null&&inWin(p));
-    boxA.innerHTML=''; drawLine(boxA,{height:250,yFmt:v=>fmt(v,1),xFmt:xYear,xTipFmt:xFmtDay,
-      series:[{label:'Global factor (PC1)',color:CC.blue,width:2.2,pts:gpts}]});
     const m=gf.markets[GF.mkt];
     ctB.textContent=`${DATA.countries[GF.mkt].name} — 10y term premium vs the global cycle`;
-    cnB.textContent='Percent, monthly. Observed 10y term premium vs the global-cycle-implied fitted (α+β·G); the gap is the local residual (+ = cheap vs the cycle).';
-    // clip to the market's own observed sample (don't show fitted before the market existed)
+    cnB.textContent='Percent, monthly. Observed 10y term premium vs the global-cycle-implied fitted (α+β·G); the gap is the local residual (+ = cheap vs the cycle). Drag the handles below to zoom.';
     let x0=gf.x[gf.x.length-1];
     for(let i=0;i<m.observed.length;i++){ if(m.observed[i]!=null){ x0=gf.x[i]; break; } }
     const obs=gf.x.map((x,i)=>[x,m.observed[i]]).filter(p=>p[1]!=null&&inWin(p));
     const fit=gf.x.map((x,i)=>[x,m.fitted[i]]).filter(p=>p[1]!=null&&inWin(p)&&p[0]>=x0-1e-6);
     lgB.innerHTML=''; lgB.appendChild(legend([{label:'Observed 10y TP',color:CC[CCOL[GF.mkt]]||CC.blue},
       {label:'Global-cycle fitted (α+β·G)',color:CC.faint,dash:true}]));
-    boxB.innerHTML=''; drawLine(boxB,{height:250,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,
+    boxB.innerHTML=''; drawLine(boxB,{height:280,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,
       series:[{label:'Observed',color:CC[CCOL[GF.mkt]]||CC.blue,width:2.2,pts:obs},
               {label:'Fitted',color:CC.faint,dash:'5 4',pts:fit}]});
   }
