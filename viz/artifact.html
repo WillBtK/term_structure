@@ -130,8 +130,11 @@ a { color: var(--blue); }
 section.panel{ margin-bottom: 66px; scroll-margin-top: 24px; }
 /* side-by-side explorer cards; stack below 980px */
 .dual{ display:grid; grid-template-columns:1fr; gap:14px; }
-@media(min-width:980px){ .dual{ grid-template-columns:1fr 1fr; align-items:start; } }
-.dual > .card{ margin:0; }
+@media(min-width:980px){ .dual{ grid-template-columns:1fr 1fr; align-items:stretch; } }
+.dual > .card{ margin:0; display:flex; flex-direction:column; }
+/* bottom-align the chart in each paired card so the two plot areas line up exactly,
+   regardless of how many lines the title/note/legend above them take. */
+.dual > .card > div:nth-last-child(2){ margin-top:auto; }
 /* comparison series-builder rows */
 /* Compare: chart left (narrower), vertical series builder right */
 .cmp-layout{ display:grid; grid-template-columns:1fr; gap:16px; }
@@ -139,11 +142,12 @@ section.panel{ margin-bottom: 66px; scroll-margin-top: 24px; }
 .cmp-build{ display:flex; flex-direction:column; gap:8px; }
 .cmp-build-head{ font-variant-caps:small-caps; letter-spacing:0.06em; font-size:13px; color:var(--muted); }
 .cmp-build .addrow{ align-self:flex-start; }
-.serow{ display:flex; gap:7px; align-items:center; flex-wrap:wrap; margin-bottom:8px; padding:7px 9px; background:var(--surface-2); border:1px solid var(--line); border-radius:6px; }
-.serow .dot{ width:11px; height:11px; border-radius:3px; flex:0 0 auto; }
-.serow select{ font-size:12px; padding:3px 5px; }
-.serow .op{ color:var(--muted); font-size:12px; padding:0 2px; }
-.serow .rm{ margin-left:auto; cursor:pointer; color:var(--muted); border:none; background:none; font-size:15px; line-height:1; padding:2px 4px; }
+.serow{ position:relative; display:flex; flex-direction:column; gap:6px; margin-bottom:8px; padding:8px 10px; background:var(--surface-2); border:1px solid var(--line); border-left:3px solid var(--blue); border-radius:6px; }
+.serow .pgrid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px; }
+.serow select{ width:100%; min-width:0; font-size:11.5px; padding:3px 4px; }
+.serow .op{ color:var(--muted); font-size:11px; letter-spacing:.04em; }
+.serow .rm{ cursor:pointer; color:var(--faint); border:1px solid var(--line); background:var(--surface); border-radius:5px; font-size:12px; line-height:1; padding:2px 4px; }
+.serow .rm:hover{ color:var(--crimson); border-color:var(--crimson); }
 .serow .rm:hover{ color:var(--crimson); }
 .addrow{ font-size:12.5px; padding:5px 12px; border:1px dashed var(--line); border-radius:6px; background:none; color:var(--ink-2); cursor:pointer; }
 .addrow:hover:not(:disabled){ border-color:var(--blue); color:var(--blue); }
@@ -504,9 +508,11 @@ function drawStacked(mount, o){
     for(let i=0;i<xs.length;i++){ if(a.y1[i]==null||a.y0[i]==null){started=false;continue;} d+=(started?'L':'M')+sx(xs[i]).toFixed(1)+' '+sy(a.y1[i]).toFixed(1)+' '; started=true; }
     for(let i=xs.length-1;i>=0;i--){ if(a.y1[i]==null||a.y0[i]==null) continue; d+='L'+sx(xs[i]).toFixed(1)+' '+sy(a.y0[i]).toFixed(1)+' '; }
     if(d) svg.appendChild(el('path',{d:d+'Z',fill:a.color,opacity:a.opacity!=null?a.opacity:0.62,stroke:'none'})); });
-  if(o.line){ let d='',started=false; const ly=o.line.y;
+  const drawPoly=(ln)=>{ let d='',started=false; const ly=ln.y;
     for(let i=0;i<xs.length;i++){ if(ly[i]==null){started=false;continue;} d+=(started?'L':'M')+sx(xs[i]).toFixed(1)+' '+sy(ly[i]).toFixed(1)+' '; started=true; }
-    if(d) svg.appendChild(el('path',{d,fill:'none',stroke:o.line.color,'stroke-width':o.line.width||2,'stroke-linejoin':'round'})); }
+    if(d){ const at={d,fill:'none',stroke:ln.color,'stroke-width':ln.width||2,'stroke-linejoin':'round'}; if(ln.dash) at['stroke-dasharray']=ln.dash; svg.appendChild(el('path',at)); } };
+  (o.lines||[]).forEach(drawPoly);
+  if(o.line) drawPoly(o.line);
   // crosshair + tooltip
   const cross=el('line',{x1:0,x2:0,y1:m.t,y2:m.t+plotH,stroke:C.faint,'stroke-width':1,opacity:0}); svg.appendChild(cross);
   const rect=el('rect',{x:m.l,y:m.t,width:plotW,height:plotH,fill:'transparent'}); svg.appendChild(rect);
@@ -515,6 +521,7 @@ function drawStacked(mount, o){
     let bi=0,bd=1e9; xs.forEach((x,i)=>{const dd=Math.abs(sx(x)-px); if(dd<bd){bd=dd;bi=i;}});
     cross.setAttribute('x1',sx(xs[bi])); cross.setAttribute('x2',sx(xs[bi])); cross.setAttribute('opacity',0.5);
     let rows=''; o.areas.forEach(a=>{ if(a.y1[bi]!=null&&a.y0[bi]!=null) rows+=`<div class="tt-row"><span class="l">${a.label}</span><span>${tipFmt(a.y1[bi]-a.y0[bi])}</span></div>`; });
+    (o.lines||[]).forEach(ln=>{ if(ln.y[bi]!=null) rows+=`<div class="tt-row"><span class="l">${ln.label}</span><span>${tipFmt(ln.y[bi])}</span></div>`; });
     if(o.line&&o.line.y[bi]!=null) rows+=`<div class="tt-row"><span class="l">${o.line.label}</span><span>${tipFmt(o.line.y[bi])}</span></div>`;
     const xTip=o.xTipFmt||o.xFmt; showTip(ev,`<div class="tt-title">${xTip?xTip(xs[bi]):Math.round(xs[bi])}</div>${rows}`);
     if(o.onHover) o.onHover(xs[bi]); });
@@ -524,8 +531,9 @@ function drawStacked(mount, o){
 function legend(items){
   const wrap=h('div',{class:'legend'});
   items.forEach(it=>{
-    const mark = it.dash ? h('span',{class:'ln'}) : h('span',{class:'sw'});
+    const mark = (it.dash||it.line) ? h('span',{class:'ln'}) : h('span',{class:'sw'});
     if(it.dash){ mark.style.background='none'; mark.style.borderTop='2px dashed '+it.color; mark.style.height='0'; }
+    else if(it.line){ mark.style.background='none'; mark.style.borderTop='2px solid '+it.color; mark.style.height='0'; }
     else mark.style.background=it.color;
     wrap.appendChild(h('span',{class:'item'},[mark, it.label]));
   });
@@ -682,7 +690,7 @@ function lastVal(block, measure, tenor){
 /* ------------------------------------------------ 2. EXPLORER (side-by-side TS + curve) */
 (function(){
   panel('explorer','Explore','Curve explorer — a tenor through time and the whole curve, side by side',
-    ['Pick a market, instrument, tenor and measure. The <b>left</b> chart is that tenor through time; the <b>right</b> chart is the entire term structure on whatever date you hover (latest by default). Both respond to the measure: the <b>actual yield</b>, the <b>expected-rate path</b>, the <b>term premium</b>, or the <b>contribution</b> view — expected rate + term premium summing to the yield, shown as stacked bands under the yield line or as separate lines. Daily throughout; drag the range handles to zoom. The <b>orange region</b> flags dates before the model’s estimation sample (extrapolated parameters).']);
+    ['Pick a market, instrument, tenor and measure. The <b>left</b> chart is that tenor through time; the <b>right</b> chart is the entire term structure on whatever date you hover (latest by default). Both respond to the measure: the <b>actual yield</b>, the <b>expected-rate path</b>, the <b>term premium</b>, or the <b>contribution</b> view — the term premium as a signed area from zero (positive above, negative below) with the expected rate and actual yield as lines, so a negative premium is unmistakable. Daily throughout; drag the range handles to zoom. The <b>orange region</b> flags dates before the model’s estimation sample (extrapolated parameters).']);
   const s=M.lastChild;
   const EX={cc:'US', inst:'nominal', tenor:'10', meas:'tp', style:'stack', lo:0, hi:0, hoverX:null, annot:true};
   function block(){ return DATA.countries[EX.cc].instruments[EX.inst]; }
@@ -739,7 +747,7 @@ function lastVal(block, measure, tenor){
     const label = EX.meas==='contrib' ? 'expected rate + term premium' : MEASLAB[EX.meas];
     tsTitle.textContent=`${DATA.countries[EX.cc].name}${EX.inst==='real'?' (real)':''} · ${EX.tenor}y · ${label}`;
     tsNote.textContent = EX.meas==='contrib'
-      ? (EX.style==='stack'?'Stacked bands (expected rate + term premium) under the actual-yield line, percent. Where the premium is negative the band sits below the expected-rate path. Drag to zoom.':'Expected rate, term premium and actual yield as separate lines, percent. Drag to zoom.')
+      ? (EX.style==='stack'?'Percent. Term premium as a signed area from zero — positive above, negative below; expected rate and actual yield as lines, their gap = the premium. Drag to zoom.':'Expected rate, term premium and actual yield as separate lines, percent. Drag to zoom.')
       : 'Daily, percent. Orange = pre-estimation-sample (extrapolated); grey = policy episodes; dashed = structural breaks. Drag the handles below to zoom.';
     const bands=EX.annot?contextBands(EX.cc,EX.inst,b).concat(bandsFor(EX.cc)).filter(bd=>bd.x1>=xlo&&bd.x0<=xhi):[];
     const breaks=EX.annot?breaksFor(EX.cc,EX.inst).filter(bk=>bk.x>=xlo&&bk.x<=xhi):[];
@@ -749,11 +757,14 @@ function lastVal(block, measure, tenor){
       const exp=arr('exp',EX.tenor), tp=arr('tp',EX.tenor), obs=arr('obs',EX.tenor);
       const idxs=[]; for(let i=0;i<xArr.length;i++) if(inW(i)&&exp[i]!=null&&tp[i]!=null) idxs.push(i);
       const X=idxs.map(i=>xArr[i]);
-      tsLegend.appendChild(legend([{label:'Expected rate',color:COL().teal},{label:'Term premium',color:COL().orange},{label:'Actual yield',color:COL().blue}]));
-      drawStacked(tsBox,{height:250,x:X,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,bands,breaks,
-        areas:[{y0:idxs.map(()=>0),y1:idxs.map(i=>exp[i]),color:COL().teal,opacity:1,label:'Expected rate'},
-               {y0:idxs.map(i=>exp[i]),y1:idxs.map(i=>exp[i]+tp[i]),color:COL().orange,opacity:1,label:'Term premium'}],
-        line:{y:idxs.map(i=>obs[i]!=null?obs[i]:exp[i]+tp[i]),color:COL().blue,width:2,label:'Actual yield'}, onHover:hoverCb, onLeave:()=>{}});
+      tsLegend.appendChild(legend([{label:'Term premium',color:COL().orange},{label:'Expected rate',color:COL().teal,line:true},{label:'Actual yield',color:COL().blue,line:true}]));
+      // Term premium as a SIGNED area from zero: positive fills above zero, negative fills
+      // below zero — so a negative premium is unmistakable. Expected rate and actual yield
+      // are reference lines; their gap equals the term premium.
+      drawStacked(tsBox,{height:290,x:X,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,bands,breaks,
+        areas:[{y0:idxs.map(()=>0),y1:idxs.map(i=>tp[i]),color:COL().orange,opacity:0.9,label:'Term premium'}],
+        lines:[{y:idxs.map(i=>exp[i]),color:COL().teal,width:2,label:'Expected rate'}],
+        line:{y:idxs.map(i=>obs[i]!=null?obs[i]:exp[i]+tp[i]),color:COL().blue,width:2.2,label:'Actual yield'}, onHover:hoverCb, onLeave:()=>{}});
     } else {
       let series;
       if(EX.meas==='contrib') series=[
@@ -777,11 +788,11 @@ function lastVal(block, measure, tenor){
       const X=keep.map(i=>ten[i]);
       const E=keep.map(i=>b.exp[b.tenors[i]][idx]), P=keep.map(i=>b.tp[b.tenors[i]][idx]);
       const O=keep.map(i=>{ const o=b.obs[b.tenors[i]]; return o&&o[idx]!=null?o[idx]:b.exp[b.tenors[i]][idx]+b.tp[b.tenors[i]][idx]; });
-      xLegend.appendChild(legend([{label:'Expected rate',color:COL().teal},{label:'Term premium',color:COL().orange},{label:'Actual yield',color:COL().blue}]));
-      drawStacked(xBox,{height:250,x:X,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:v=>v+'y',xTipFmt:v=>v+'y',
-        areas:[{y0:X.map(()=>0),y1:E,color:COL().teal,opacity:1,label:'Expected rate'},
-               {y0:E,y1:E.map((e,j)=>e+P[j]),color:COL().orange,opacity:1,label:'Term premium'}],
-        line:{y:O,color:COL().blue,width:2,label:'Actual yield'}});
+      xLegend.appendChild(legend([{label:'Term premium',color:COL().orange},{label:'Expected rate',color:COL().teal,line:true},{label:'Actual yield',color:COL().blue,line:true}]));
+      drawStacked(xBox,{height:290,x:X,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:v=>v+'y',xTipFmt:v=>v+'y',
+        areas:[{y0:X.map(()=>0),y1:P,color:COL().orange,opacity:0.9,label:'Term premium'}],
+        lines:[{y:E,color:COL().teal,width:2,label:'Expected rate'}],
+        line:{y:O,color:COL().blue,width:2.2,label:'Actual yield'}});
     } else {
       function curve(meas){ return ten.map((t,i)=>[t, b[meas][b.tenors[i]]?b[meas][b.tenors[i]][idx]:null]).filter(p=>p[1]!=null); }
       let series;
@@ -875,27 +886,31 @@ function lastVal(block, measure, tenor){
 
   function sel(opts, val, onch, labels){ const e=h('select',{class:'select-control'});
     opts.forEach(o=> e.appendChild(h('option',{value:o}, labels?labels(o):o))); e.value=val; e.onchange=()=>onch(e.value); return e; }
-  function specPicker(sp, onchange){
-    const wrap=h('span'); wrap.style.cssText='display:inline-flex;gap:5px;align-items:center;flex-wrap:wrap;';
-    const selCc=sel(DATA.order, sp.cc, v=>{ sp.cc=v; fixSpec(sp); onchange(); });
-    const selIn=sel(instsFor(sp.cc), sp.inst, v=>{ sp.inst=v; fixSpec(sp); onchange(); }, instLabel);
-    const selTe=sel(tenorsFor(sp.cc,sp.inst), sp.tenor, v=>{ sp.tenor=v; onchange(); }, t=>t+'y');
-    const selMe=sel(['obs','exp','tp'], sp.meas, v=>{ sp.meas=v; onchange(); }, m=>({obs:'Actual',exp:'Expected',tp:'Term premium'}[m]));
-    [selCc,selIn,selTe,selMe].forEach(e=>wrap.appendChild(e));
-    return wrap;
+  function specSelects(sp, onchange){          // the four pick dropdowns, as an array
+    return [
+      sel(DATA.order, sp.cc, v=>{ sp.cc=v; fixSpec(sp); onchange(); }),
+      sel(instsFor(sp.cc), sp.inst, v=>{ sp.inst=v; fixSpec(sp); onchange(); }, instLabel),
+      sel(tenorsFor(sp.cc,sp.inst), sp.tenor, v=>{ sp.tenor=v; onchange(); }, t=>t+'y'),
+      sel(['obs','exp','tp'], sp.meas, v=>{ sp.meas=v; onchange(); }, m=>({obs:'Actual',exp:'Expected',tp:'Term premium'}[m])),
+    ];
   }
   function redraw(){ buildRows(); render(); addBtn.disabled=CM.rows.length>=5; }
   function buildRows(){
     builder.innerHTML='';
     CM.rows.forEach((row,i)=>{
-      const r=h('div',{class:'serow'});
-      const dot=h('span',{class:'dot'}); dot.style.background=COL()[PAL[i]]; r.appendChild(dot);
+      const r=h('div',{class:'serow'}); r.style.borderLeftColor=COL()[PAL[i]];
+      const rm=h('button',{class:'rm'},'✕'); rm.title='Remove series'; rm.onclick=()=>{ if(CM.rows.length>1){ CM.rows.splice(i,1); redraw(); } };
       const selType=sel(['level','spread'], row.type, v=>{ row.type=v; if(v==='spread'&&!row.B){ row.B=JSON.parse(JSON.stringify(row.A)); } redraw(); }, t=>t==='level'?'Level':'Spread');
-      r.appendChild(selType);
-      r.appendChild(specPicker(row.A, render));
-      if(row.type==='spread'){ r.appendChild(h('span',{class:'op'},'−')); r.appendChild(specPicker(row.B, render)); }
-      const rm=h('button',{class:'rm'},'✕'); rm.title='Remove'; rm.onclick=()=>{ if(CM.rows.length>1){ CM.rows.splice(i,1); redraw(); } };
-      r.appendChild(rm); builder.appendChild(r);
+      // 3-per-row grid: [Level/Spread, market, instrument] then [tenor, measure]; ✕ fills the 6th cell of the last grid
+      const gA=h('div',{class:'pgrid'}); gA.appendChild(selType);
+      specSelects(row.A, render).forEach(e=>gA.appendChild(e));
+      r.appendChild(gA);
+      if(row.type==='spread'){
+        r.appendChild(h('div',{class:'op'},'− minus (spread)'));
+        const gB=h('div',{class:'pgrid'}); specSelects(row.B, render).forEach(e=>gB.appendChild(e));
+        gB.appendChild(rm); r.appendChild(gB);
+      } else { gA.appendChild(rm); }
+      builder.appendChild(r);
     });
   }
   function render(){
