@@ -285,16 +285,19 @@ def _load_hist_tp(fname, tenor_key):
 
 
 def load_tp_panel(tenor: float = 10.0, canon_path=None, extend: bool = True,
-                  min_markets: int = 3, min_start: str = "1974-01-01"):
-    """Wide (month-end × market) 10y nominal term-premium panel (decimal), markets
+                  min_markets: int = 3, min_start: str = "1974-01-01", freq: str = "D"):
+    """Wide (date × market) 10y nominal term-premium panel (decimal), markets
     US,DE,JP,UK (Switzerland excluded — negligible liquidity).
 
-    With ``extend`` (default), two markets are backfilled before their modern daily
+    ``freq='D'`` (default) builds a **daily** panel at the highest frequency available —
+    each market's daily curve where it exists, and, before that, the monthly historical
+    backfill **interpolated to daily** (linear in time). ``freq='M'`` gives the month-end
+    panel. With ``extend`` (default), two markets are backfilled before their modern daily
     curve begins, via a one-time level splice (:func:`splice_backfill`):
       * DE 10y ← the 1972+ monthly historical overlay (germany_hist_tp.json).
       * JP 10y ← the 1974+ **9y** monthly overlay (japan_hist_tp.json); MoF's 10y
         starts only 1986-07, so the 9y premium (back to 1974) is spliced onto the 10y.
-    The panel is clipped to the first month with at least ``min_markets`` markets present
+    The panel is clipped to the first date with at least ``min_markets`` markets present
     (and to ``min_start`` — pre-1974 only US+DE exist, which is too thin for a common
     factor)."""
     import pandas as pd
@@ -302,18 +305,38 @@ def load_tp_panel(tenor: float = 10.0, canon_path=None, extend: bool = True,
     canon_path = canon_path or (Path(__file__).resolve().parent.parent / "viz" / "data_daily.parquet")
     df = pd.read_parquet(canon_path)
     df["date"] = pd.to_datetime(df["date"])
-    cols = {}
+    daily = {}
     for cc in GF_ORDER:
         s = df[(df.country == cc) & (df.instrument == "nominal") & (np.isclose(df.tenor, tenor))]
-        cols[cc] = _month_end(s.set_index("date")["term_premium"])
+        s = s.set_index("date")["term_premium"].sort_index()
+        daily[cc] = s[~s.index.duplicated()].dropna()
+    back = {}                                                    # cc -> monthly continuous spliced series
     if extend:
-        de_hist = _load_hist_tp("germany_hist_tp.json", "%g" % tenor)     # DE 10y history
+        de_hist = _load_hist_tp("germany_hist_tp.json", "%g" % tenor)
         if de_hist is not None:
-            cols["DE"] = splice_backfill(cols["DE"], de_hist)
-        jp_hist = _load_hist_tp("japan_hist_tp.json", "9")                # JP 9y -> 10y splice
+            back["DE"] = splice_backfill(_month_end(daily["DE"]), de_hist)
+        jp_hist = _load_hist_tp("japan_hist_tp.json", "9")
         if jp_hist is not None:
-            cols["JP"] = splice_backfill(cols["JP"], jp_hist)
-    panel = pd.DataFrame(cols).sort_index()
+            back["JP"] = splice_backfill(_month_end(daily["JP"]), jp_hist)
+
+    if freq in ("M", "monthly"):
+        cols = {cc: (back[cc] if cc in back else _month_end(daily[cc])) for cc in GF_ORDER}
+        panel = pd.DataFrame(cols).sort_index()
+    else:                                                        # daily
+        allidx = pd.DatetimeIndex(sorted(set().union(*[set(s.index) for s in daily.values()])))
+        allidx = allidx[allidx >= pd.Timestamp(min_start)]
+        cols = {}
+        for cc in GF_ORDER:
+            s = daily[cc].reindex(allidx)
+            if cc in back and len(daily[cc]):
+                pstart = daily[cc].index.min()
+                bf = back[cc]                                    # monthly (month-end) continuous
+                bf_daily = (bf.reindex(allidx.union(bf.index)).sort_index()
+                            .interpolate(method="time").reindex(allidx))
+                pre = allidx < pstart
+                s = s.where(~pre, bf_daily.where(pre))
+            cols[cc] = s
+        panel = pd.DataFrame(cols, index=allidx).sort_index()
     ok = panel.notna().sum(axis=1) >= min_markets
     if ok.any():
         start = max(panel.index[ok].min(), pd.Timestamp(min_start))

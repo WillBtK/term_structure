@@ -740,8 +740,8 @@ function lastVal(block, measure, tenor){
       const X=idxs.map(i=>xArr[i]);
       tsLegend.appendChild(legend([{label:'Expected rate',color:COL().teal},{label:'Term premium',color:COL().orange},{label:'Actual yield',color:COL().blue}]));
       drawStacked(tsBox,{height:250,x:X,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,bands,breaks,
-        areas:[{y0:idxs.map(()=>0),y1:idxs.map(i=>exp[i]),color:COL().teal,label:'Expected rate'},
-               {y0:idxs.map(i=>exp[i]),y1:idxs.map(i=>exp[i]+tp[i]),color:COL().orange,label:'Term premium'}],
+        areas:[{y0:idxs.map(()=>0),y1:idxs.map(i=>exp[i]),color:COL().teal,opacity:1,label:'Expected rate'},
+               {y0:idxs.map(i=>exp[i]),y1:idxs.map(i=>exp[i]+tp[i]),color:COL().orange,opacity:1,label:'Term premium'}],
         line:{y:idxs.map(i=>obs[i]!=null?obs[i]:exp[i]+tp[i]),color:COL().blue,width:2,label:'Actual yield'}, onHover:hoverCb, onLeave:()=>{}});
     } else {
       let series;
@@ -767,9 +767,9 @@ function lastVal(block, measure, tenor){
       const E=keep.map(i=>b.exp[b.tenors[i]][idx]), P=keep.map(i=>b.tp[b.tenors[i]][idx]);
       const O=keep.map(i=>{ const o=b.obs[b.tenors[i]]; return o&&o[idx]!=null?o[idx]:b.exp[b.tenors[i]][idx]+b.tp[b.tenors[i]][idx]; });
       xLegend.appendChild(legend([{label:'Expected rate',color:COL().teal},{label:'Term premium',color:COL().orange},{label:'Actual yield',color:COL().blue}]));
-      drawStacked(xBox,{height:230,x:X,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:v=>v+'y',xTipFmt:v=>v+'y',
-        areas:[{y0:X.map(()=>0),y1:E,color:COL().teal,label:'Expected rate'},
-               {y0:E,y1:E.map((e,j)=>e+P[j]),color:COL().orange,label:'Term premium'}],
+      drawStacked(xBox,{height:250,x:X,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:v=>v+'y',xTipFmt:v=>v+'y',
+        areas:[{y0:X.map(()=>0),y1:E,color:COL().teal,opacity:1,label:'Expected rate'},
+               {y0:E,y1:E.map((e,j)=>e+P[j]),color:COL().orange,opacity:1,label:'Term premium'}],
         line:{y:O,color:COL().blue,width:2,label:'Actual yield'}});
     } else {
       function curve(meas){ return ten.map((t,i)=>[t, b[meas][b.tenors[i]]?b[meas][b.tenors[i]][idx]:null]).filter(p=>p[1]!=null); }
@@ -777,7 +777,7 @@ function lastVal(block, measure, tenor){
       if(EX.meas==='contrib') series=[{label:'Expected rate',color:COL().teal,pts:curve('exp')},{label:'Term premium',color:COL().orange,pts:curve('tp')},{label:'Actual yield',color:COL().blue,pts:curve('obs')}];
       else series=[{label:MEASLAB[EX.meas]+' curve',color:COL()[measColor[EX.meas]],pts:curve(EX.meas)}];
       if(series.length>1) xLegend.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
-      drawLine(xBox,{height:230, yZero:EX.meas==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:v=>v+'y', xTipFmt:v=>v+'y', series});
+      drawLine(xBox,{height:250, yZero:EX.meas==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:v=>v+'y', xTipFmt:v=>v+'y', series});
     }
   }
   function render(){ renderTs(); renderX(); }
@@ -1091,7 +1091,7 @@ function lastVal(block, measure, tenor){
   const s=M.lastChild;
   const c=h('div',{class:'card'});
   c.appendChild(h('div',{class:'card-title'},'US TIPS cross-sectional fitting noise'));
-  c.appendChild(h('div',{class:'card-note'},'Basis points, monthly. Higher = individual TIPS priced further from a smooth curve (less liquid). Drag the handles below to zoom.'));
+  c.appendChild(h('div',{class:'card-note'},'Basis points, daily. Higher = individual TIPS priced further from a smooth curve (less liquid). Drag the handles below to zoom.'));
   const box=h('div'); c.appendChild(box);
   const sliderMount=h('div'); c.appendChild(sliderMount); s.appendChild(c);
   const allPts=nz.x.map((x,i)=>[x,nz.noise[i]]).filter(p=>p[1]!=null);
@@ -1151,7 +1151,7 @@ function lastVal(block, measure, tenor){
   const gf=DATA.global_factor; if(!gf || !gf.G || !gf.G.length) return;
   const ladder=gf.pca_ladder||[];
   panel('globalfactor','Global cycle','Each market versus the global term-premium cycle',
-    ['Across four major markets (US, Germany, Japan and the UK — Switzerland is left out, its bond market too thin to belong in a common cycle) the 10-year term premia move largely <b>together</b>: one common factor explains <b>'+(ladder[0]||0).toFixed(0)+'%</b> of the variation. We split each market’s premium into that <b>global cycle</b> plus a <b>local residual</b> — how cheap or rich a curve sits versus the cycle. Pick a market: its observed 10-year premium is shown against the global-cycle-implied fitted; the gap is the residual (monthly, back to 1974).']);
+    ['Across four major markets (US, Germany, Japan and the UK — Switzerland is left out, its bond market too thin to belong in a common cycle) the 10-year term premia move largely <b>together</b>: one common factor explains <b>'+(ladder[0]||0).toFixed(0)+'%</b> of the variation. We split each market’s premium into that <b>global cycle</b> plus a <b>local residual</b> — how cheap or rich a curve sits versus the cycle. Pick a market: its observed 10-year premium is shown against the global-cycle-implied fitted; the gap is the residual (daily, back to 1974).']);
   const s=M.lastChild;
   const GF={mkt:'US', xlo:gf.x[0], xhi:gf.x[gf.x.length-1]};
   const barB=h('div',{class:'ctrlbar'});
@@ -1169,7 +1169,7 @@ function lastVal(block, measure, tenor){
     const CC=COL(), inWin=p=>p[0]>=GF.xlo-1e-6&&p[0]<=GF.xhi+1e-6;
     const m=gf.markets[GF.mkt];
     ctB.textContent=`${DATA.countries[GF.mkt].name} — 10y term premium vs the global cycle`;
-    cnB.textContent='Percent, monthly. Observed 10y term premium vs the global-cycle-implied fitted (α+β·G); the gap is the local residual (+ = cheap vs the cycle). Drag the handles below to zoom.';
+    cnB.textContent='Percent, daily. Observed 10y term premium vs the global-cycle-implied fitted (α+β·G); the gap is the local residual (+ = cheap vs the cycle). Drag the handles below to zoom.';
     let x0=gf.x[gf.x.length-1];
     for(let i=0;i<m.observed.length;i++){ if(m.observed[i]!=null){ x0=gf.x[i]; break; } }
     const obs=gf.x.map((x,i)=>[x,m.observed[i]]).filter(p=>p[1]!=null&&inWin(p));

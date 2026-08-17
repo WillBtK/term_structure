@@ -48,13 +48,20 @@ def build(maxiter: int = 4000, out: Path = OUT) -> dict:
     K_expect = tp.mean_reversion_floor(K, float(np.log(2) / MR_HALFLIFE_YEARS))
     expected = tp.expected_rate_yields(states, K_expect, theta, sr.RHO, np.asarray(grid))
     premium = fitted - expected                                    # (T, m), decimal
+    def _col(mat, arr):
+        j = grid.index(mat)
+        return [round(float(arr[t, j] * 100), 4) for t in range(len(dates))]
     out_d = {"country": "DE", "instrument": "nominal", "freq": "monthly",
              "start": cfg.HIST_START, "dates": dates,
              "method": ("plain AFNS + mean-reversion floor (3.5y half-life), full-sample "
                         "fit on 1972+ monthly Bundesbank Svensson curve; separate historical "
                         "exhibit, NOT the daily production series"),
-             "tenors": {"%g" % m: [round(float(premium[t, grid.index(m)] * 100), 4)
-                                   for t in range(len(dates))] for m in TENORS}}
+             # tenors = term premium (kept for the global factor); obs/exp = the fitted
+             # yield and expected-rate path so the explorer can show Actual/Contribution
+             # back to 1972 (obs = exp + tp).
+             "tenors": {"%g" % m: _col(m, premium) for m in TENORS},
+             "obs": {"%g" % m: _col(m, fitted) for m in TENORS},
+             "exp": {"%g" % m: _col(m, expected) for m in TENORS}}
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(out_d, separators=(",", ":")))
     t10 = out_d["tenors"]["10"]

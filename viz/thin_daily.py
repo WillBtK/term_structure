@@ -66,6 +66,14 @@ def _block(sub: pd.DataFrame, meta: dict, cutoff: pd.Timestamp) -> dict:
             tk = "%g" % float(t)
             col = wide[t] if t in wide.columns else pd.Series(index=keep, dtype=float)
             out[key][tk] = [None if pd.isna(v) else round(float(v) * 100, 4) for v in col]
+    # Consistency: the model gives an expected-rate value at every grid tenor, but a
+    # maturity that was never observed (e.g. the JGB 20y/30y before those bonds existed)
+    # should not show an extrapolated expected-rate line where it has no observed yield.
+    # Mask exp to the tenor's observed availability so obs/exp/term-premium line up.
+    for tk in out["tenors"]:
+        ob, ex = out["obs"].get(tk), out["exp"].get(tk)
+        if ob and ex:
+            out["exp"][tk] = [None if ob[i] is None else ex[i] for i in range(len(ex))]
     return out
 
 
@@ -128,6 +136,22 @@ def _extend_nominal_tp_history(countries: dict, canon: pd.DataFrame) -> None:
     the pre-seam rows are monthly and carry None for other tenors and for obs/exp."""
     import json as _json
     from model.global_factor import splice_backfill, _load_hist_tp, _month_end
+
+    def _load_hist_meas(fname, key, ht):
+        """A monthly historical-overlay measure (obs/exp) as a month-end DECIMAL series."""
+        f = HERE / "history" / fname
+        if not f.exists():
+            return None
+        try:
+            dj = _json.loads(f.read_text()); vals = (dj.get(key) or {}).get(ht)
+            if vals is None:
+                return None
+            s = pd.Series([None if v is None else float(v) / 100.0 for v in vals],
+                          index=pd.to_datetime(dj["dates"]), dtype=float).dropna()
+            return _month_end(s)
+        except Exception:                                         # noqa: BLE001
+            return None
+
     # (market, overlay json, {block_tenor: hist_tenor}). "all" = map every tenor in the
     # overlay JSON to itself (DE: full term structure back to 1972). JP: only the 10y
     # node (≤9y term premia already reach 1974 in the canonical set).
@@ -147,47 +171,64 @@ def _extend_nominal_tp_history(countries: dict, canon: pd.DataFrame) -> None:
                 continue
         cc_tp = canon[(canon["country"] == cc) & (canon["instrument"] == "nominal")]
         block_first = pd.Timestamp(block["dates"][0])
-        pre_periods = {}                                           # block_tenor -> {Period: pct}
+        # block_tenor -> {Period: {'tp','obs','exp'} in pct or None}. Where the overlay
+        # carries a fitted yield (DE), obs/exp are backfilled too (obs = exp + tp), so the
+        # explorer shows Actual/Contribution back to 1972; otherwise (JP) only tp is set.
+        pre = {}
         for bt, ht in tmap.items():
             if bt not in block.get("tenors", []):
                 continue
-            hist = _load_hist_tp(fname, ht)                        # decimal, month-end
-            if hist is None:
+            hist_tp = _load_hist_tp(fname, ht)                    # decimal, month-end
+            if hist_tp is None:
                 continue
             prod = _month_end(cc_tp[np.isclose(cc_tp["tenor"], float(bt))]
                               .set_index("date")["term_premium"])
             if prod.empty:
                 continue
-            spliced = splice_backfill(prod, hist)                  # decimal, continuous
-            pre = spliced[spliced.index < prod.index.min()]        # deep-past only (< prod start)
-            if len(pre):
-                pre_periods[bt] = {d.to_period("M"): round(float(v) * 100, 4)
-                                   for d, v in pre.items()}
-        if not pre_periods:
+            spliced = splice_backfill(prod, hist_tp)              # decimal, continuous
+            pre_tp = spliced[spliced.index < prod.index.min()]    # deep-past only (< prod start)
+            if not len(pre_tp):
+                continue
+            hist_obs = _load_hist_meas(fname, "obs", ht)          # fitted yield, decimal (or None)
+            m = {}
+            for d, tpv in pre_tp.items():
+                e = {"tp": round(float(tpv) * 100, 4), "obs": None, "exp": None}
+                if hist_obs is not None and d in hist_obs.index:
+                    ov = float(hist_obs.loc[d]); e["obs"] = round(ov * 100, 4)
+                    e["exp"] = round((ov - float(tpv)) * 100, 4)  # keep obs = exp + tp
+                m[d.to_period("M")] = e
+            pre[bt] = m
+        if not pre:
             continue
-        # (A) FILL existing pre-production rows already in the block (e.g. JP has ≤9y
-        # observed back to 1974, so 1974-1986 rows exist with a None 10y term premium).
+        # (A) FILL existing pre-production rows already in the block (JP: ≤9y observed back
+        # to 1974, so 1974-1986 rows exist with a None 10y term premium).
         filled = 0
         for i, ds in enumerate(block["dates"]):
             per = pd.Timestamp(ds).to_period("M")
-            for bt, mp in pre_periods.items():
-                if block["tp"][bt][i] is None and per in mp:
-                    block["tp"][bt][i] = mp[per]; filled += 1
-        # (B) PREPEND months entirely before the block's first date (e.g. DE's daily
-        # curve starts only 1997-08, so 1972-1997 are new monthly rows).
-        pre_months = sorted({p for mp in pre_periods.values() for p in mp
+            for bt, mp in pre.items():
+                e = mp.get(per)
+                if not e:
+                    continue
+                if block["tp"][bt][i] is None and e["tp"] is not None:
+                    block["tp"][bt][i] = e["tp"]; filled += 1
+                if block["obs"][bt][i] is None and e["obs"] is not None:
+                    block["obs"][bt][i] = e["obs"]
+                if block["exp"][bt][i] is None and e["exp"] is not None:
+                    block["exp"][bt][i] = e["exp"]
+        # (B) PREPEND months entirely before the block's first date (DE: daily curve starts
+        # only 1997-08, so 1972-1997 are new monthly rows).
+        pre_months = sorted({p for mp in pre.values() for p in mp
                              if p.to_timestamp("M") < block_first})
         if pre_months:
             idx = pd.DatetimeIndex([p.to_timestamp("M") for p in pre_months])
             block["x"] = _xdec(idx) + block["x"]
             block["dates"] = [str(d.date()) for d in idx] + block["dates"]
             for tk in block["tenors"]:
-                lead = [pre_periods.get(tk, {}).get(p) for p in pre_months]
-                block["tp"][tk] = lead + block["tp"][tk]
-                block["obs"][tk] = [None] * len(idx) + block["obs"][tk]
-                block["exp"][tk] = [None] * len(idx) + block["exp"][tk]
+                mp = pre.get(tk, {})
+                for meas in ("tp", "obs", "exp"):
+                    block[meas][tk] = [(mp.get(p) or {}).get(meas) for p in pre_months] + block[meas][tk]
         if filled or pre_months:
-            print(f"{cc} nominal: TP history extended for {sorted(pre_periods)} "
+            print(f"{cc} nominal: history extended for {sorted(pre)} "
                   f"(filled {filled} rows, prepended {len(pre_months)} months)")
 
 
@@ -319,9 +360,14 @@ def _attach_global_factor(result: dict) -> None:
     d = pd.read_parquet(f); d["date"] = pd.to_datetime(d["date"])
     meta = _json.loads(mf.read_text())
     names = meta["names"]
-    # month-end pivot per (country, kind)
-    d = d.groupby([d["date"].dt.year, d["date"].dt.month, "country", "kind"]).tail(1)
-    dates = pd.DatetimeIndex(sorted(d[d.country == "GLOBAL"]["date"].unique()))
+    # DAILY resolution, thinned for payload size: weekly in the deep past, daily recent
+    # (the factor is now estimated on daily data — the deep-past monthly backfill is
+    # interpolated to daily upstream).
+    all_dates = pd.DatetimeIndex(sorted(d[d.country == "GLOBAL"]["date"].unique()))
+    # recent daily + weekly history (fixed 12y daily window) to keep the payload small —
+    # the deep past is interpolated-monthly anyway, so daily density there adds no info.
+    cutoff = all_dates.max() - pd.DateOffset(years=12)
+    dates = _keep_dates(all_dates, cutoff)
     def series(country, kind, scale):
         s = d[(d.country == country) & (d.kind == kind)].set_index("date")["value"].reindex(dates)
         return [None if pd.isna(v) else round(float(v) * scale, 4) for v in s]
@@ -331,33 +377,37 @@ def _attach_global_factor(result: dict) -> None:
                        "residual": series(cc, "residual", 100),
                        "beta": meta["markets"][cc]["beta"], "share": meta["markets"][cc]["global_share"]}
     result["global_factor"] = {
+        "freq": "daily",
         "x": _xdec(dates), "dates": [str(x.date()) for x in dates],
         "G": series("GLOBAL", "factor", 1),      # standardized (unitless)
         "markets": markets, "order": names,
         "pca_ladder": meta.get("pca_ladder", []), "phi": meta.get("phi"),
         "pca_corr": meta.get("pca_corr"), "balanced_start": meta.get("balanced_start")}
-    print(f"global factor: {len(dates)} months, PC1 {meta.get('pca_ladder', ['?'])[0]}%")
+    print(f"global factor: {len(dates)} points (daily, thinned), PC1 {meta.get('pca_ladder', ['?'])[0]}%")
 
 
 def _attach_us_tips_noise(countries: dict) -> None:
     """US TIPS market-liquidity gauge — the curve-fitting 'noise' (RMS deviation of
-    individual TIPS from a smooth fit), month-end in bp. Optional/guarded."""
+    individual TIPS from a smooth fit), DAILY in bp. Optional/guarded. The Hu-Pan-Wang
+    fit is per trading day, so a daily series is the natural resolution; each spike (a
+    dislocation) is a single day rather than a smoothed monthly average."""
     from validation import config as vcfg
     if not vcfg.TIPS_NOISE_PARQUET.exists():
         return
     try:
         from validation.tips_liquidity import build_noise
-        m = build_noise(refresh=False, freq="M").dropna(subset=["noise"])
+        m = build_noise(refresh=False, freq="D").dropna(subset=["noise"]).sort_values("date")
     except Exception:                                              # noqa: BLE001
         return
     if m.empty:
         return
     dates = pd.DatetimeIndex(m["date"])
     countries["US"]["tips_noise"] = {
+        "freq": "daily",
         "x": _xdec(dates), "dates": [str(d.date()) for d in dates],
         "noise": [round(float(v) * 1e4, 2) for v in m["noise"]]}       # decimal -> bp
-    print(f"US TIPS noise gauge: {len(dates)} months, latest "
-          f"{countries['US']['tips_noise']['noise'][-1]:.1f} bp")
+    print(f"US TIPS noise gauge: {len(dates)} daily obs {dates[0].date()}..{dates[-1].date()}, "
+          f"latest {countries['US']['tips_noise']['noise'][-1]:.1f} bp")
 
 
 def _attach_germany_bund_noise(countries: dict) -> None:
