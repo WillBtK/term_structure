@@ -43,7 +43,8 @@ def test_parse_workbook_maps_layout_and_date_from_sheet():
         ],
     }
     df = parse_workbook(_build_workbook(days))
-    assert list(df.columns) == ["date", "isin", "maturity", "yield"]
+    assert ["date", "isin", "maturity", "yield"] == list(df.columns)[:4]
+    assert "name" in df.columns          # Description captured for instrument filtering
     assert len(df) == 5
     # date derives from the sheet name (two distinct trading days)
     assert sorted(df["date"].dt.strftime("%Y-%m-%d").unique()) == ["2026-08-03", "2026-08-04"]

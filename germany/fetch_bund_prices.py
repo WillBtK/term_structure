@@ -80,6 +80,7 @@ def discover_workbook_urls(limit: int | None = None) -> list[str]:
 _ISIN_KEYS = ("isin",)
 _YIELD_KEYS = ("yield", "rendite")
 _MAT_KEYS = ("maturity", "redemption", "fälligkeit", "faelligkeit")
+_DESC_KEYS = ("description", "bezeichnung", "name")
 
 
 def _find_col(cols, keys):
@@ -120,17 +121,22 @@ def parse_workbook(content: bytes) -> pd.DataFrame:
         c_isin = _find_col(df.columns, _ISIN_KEYS)
         c_yield = _find_col(df.columns, _YIELD_KEYS)
         c_mat = _find_col(df.columns, _MAT_KEYS)
+        c_desc = _find_col(df.columns, _DESC_KEYS)
         if not (c_isin and c_yield and c_mat):
             logger.warning("sheet %r missing cols (isin=%s yield=%s mat=%s)",
                            sheet, c_isin, c_yield, c_mat)
             continue
-        sub = df[[c_isin, c_mat, c_yield]].copy()
-        sub.columns = ["isin", "maturity", "yield"]
+        cols = [c_isin, c_mat, c_yield] + ([c_desc] if c_desc else [])
+        sub = df[cols].copy()
+        sub.columns = ["isin", "maturity", "yield"] + (["name"] if c_desc else [])
+        if not c_desc:
+            sub["name"] = ""
         sub.insert(0, "date", sheet_date)
         frames.append(sub)
     if not frames:
-        return pd.DataFrame(columns=["date", "isin", "maturity", "yield"])
+        return pd.DataFrame(columns=["date", "isin", "maturity", "yield", "name"])
     out = pd.concat(frames, ignore_index=True)
+    out["name"] = out["name"].astype(str).str.strip()
     out["maturity"] = pd.to_datetime(out["maturity"], errors="coerce", dayfirst=True)
     out["yield"] = pd.to_numeric(out["yield"], errors="coerce")
     # Bundesbank yields are in PERCENT -> decimal. Guard against already-decimal.
@@ -201,15 +207,58 @@ def _probe() -> None:
     print("rows:", len(df), "| cols:", list(df.columns))
 
 
+def _diagnose() -> None:
+    """Diagnostic: on the latest date, fit the NS curve and dump the worst-fitting
+    bonds by name + a name-prefix breakdown, to spot non-nominal contaminants
+    (inflation-linked / green) that inflate the 'noise'."""
+    from validation.bund_liquidity import _ns_design
+    panel = load_bund_yields(refresh=True, limit=1)
+    if not len(panel):
+        print("empty panel"); return
+    last = panel["date"].max()
+    g = panel[panel["date"] == last].copy()
+    g["tau"] = (pd.to_datetime(g["maturity"]) - last).dt.days / 365.25
+    g = g[(g["tau"] >= 1.0) & (g["tau"] <= 30.0)].dropna(subset=["yield"])
+    tau = g["tau"].to_numpy(); y = g["yield"].to_numpy()
+    X = _ns_design(tau)
+    beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+    g["resid_bp"] = (y - X @ beta) * 1e4
+    rms = float(np.sqrt(np.mean(((y - X @ beta) * 1e4) ** 2)))
+    print(f"=== latest date {last.date()} | {len(g)} bonds in [1,30]y | RMS {rms:.1f} bp")
+    g["prefix"] = g["name"].str.split().str[0].str.upper()
+    print("\n-- name-prefix counts --")
+    print(g["prefix"].value_counts().to_string())
+    print("\n-- 12 worst-fitting bonds (|resid|) --")
+    worst = g.reindex(g["resid_bp"].abs().sort_values(ascending=False).index).head(12)
+    print(worst[["isin", "name", "tau", "yield", "resid_bp"]]
+          .assign(tau=lambda d: d["tau"].round(1),
+                  yld_bp=lambda d: (d["yield"] * 1e4).round(0),
+                  resid_bp=lambda d: d["resid_bp"].round(0))
+          [["isin", "name", "tau", "yld_bp", "resid_bp"]].to_string(index=False))
+    # RMS excluding inflation-linked (heuristic: name/ISIN markers) for comparison.
+    linker = g["name"].str.contains(r"\bei\b|inflation|index|infl|/i", case=False, regex=True) \
+             | g["isin"].str.contains("103", na=False)
+    gc = g[~linker]
+    if len(gc) >= 6:
+        Xc = _ns_design(gc["tau"].to_numpy())
+        bc, *_ = np.linalg.lstsq(Xc, gc["yield"].to_numpy(), rcond=None)
+        rc = float(np.sqrt(np.mean(((gc["yield"].to_numpy() - Xc @ bc) * 1e4) ** 2)))
+        print(f"\n-- RMS excluding {int(linker.sum())} suspected linkers: {rc:.1f} bp "
+              f"({len(gc)} bonds) --")
+
+
 def _main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     import argparse
     ap = argparse.ArgumentParser(description="Fetch Bundesbank per-ISIN Bund prices/yields")
     ap.add_argument("--probe", action="store_true", help="dump discovered URLs + one workbook")
+    ap.add_argument("--diagnose", action="store_true", help="fit latest date, dump worst bonds")
     ap.add_argument("--limit", type=int, default=None, help="max months to fetch")
     args = ap.parse_args()
     if args.probe:
         _probe(); return
+    if args.diagnose:
+        _diagnose(); return
     panel = load_bund_yields(refresh=True, limit=args.limit)
     print(f"per-ISIN panel: {len(panel)} rows"
           + (f", {panel['date'].min().date()}..{panel['date'].max().date()}, "
