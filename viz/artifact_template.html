@@ -811,6 +811,55 @@ function lastVal(block, measure, tenor){
   s.appendChild(call);
 })();
 
+/* ------------------------------------------------ 3b-DE. GERMANY — THE LONG VIEW (1972+) */
+(function(){
+  const DE=DATA.countries.DE; if(!DE) return;
+  const b=DE.instruments && DE.instruments.nominal; if(!b || !b.history) return;
+  const H=b.history, tenors=Object.keys(H.tp||{}); if(!tenors.length) return;
+  panel('degermanyhist','Historical lens','Germany — the long view (1972+)',
+    ['The daily Bund term premium in this atlas starts in <b>1997</b>, where Bundesbank’s daily curve begins — but their <b>monthly</b> curve runs back to <b>1972</b>. So we push the same shadow-rate decomposition (with the mean-reversion floor) back over the full Deutsche-Mark-and-euro history as a separate, clearly-labelled <b>monthly exhibit</b>: a full-sample fit, deliberately <b>not spliced</b> onto the daily line. It captures the German premium through the 1970s oil shocks, reunification, and the euro era.']);
+  const s=M.lastChild;
+  const DH={};
+  const bar=h('div',{class:'ctrlbar'});
+  const g=h('div',{class:'grp'}); g.appendChild(h('span',{class:'eyebrow'},'Maturity'));
+  const sel=h('select',{class:'select-control'}); sel.style.minWidth='110px';
+  tenors.forEach(t=>sel.appendChild(h('option',{value:t},t+'y'))); sel.value=(tenors.includes('10')?'10':tenors[tenors.length-1]); DH.tenor=sel.value;
+  sel.onchange=()=>{ DH.tenor=sel.value; render(); }; g.appendChild(sel); bar.appendChild(g); s.appendChild(bar);
+  const c=h('div',{class:'card'}); const ct=h('div',{class:'card-title'}); c.appendChild(ct);
+  const cn=h('div',{class:'card-note'}); c.appendChild(cn);
+  const lg=h('div'); c.appendChild(lg); const box=h('div'); c.appendChild(box);
+  const sliderMount=h('div'); c.appendChild(sliderMount); s.appendChild(c);
+  DH.xlo=H.x[0]; DH.xhi=H.x[H.x.length-1];
+  const call=h('div',{class:'callout teal'}); c.appendChild(call);
+  function stats(t){
+    const v=H.tp[t]||[]; let sum=0,n=0,pk=-1e9,pkd=null,last=null;
+    for(let i=0;i<v.length;i++){ const y=v[i]; if(y==null) continue; last=y;
+      if(H.x[i]>=1973 && H.x[i]<1986){ sum+=y; n++; }
+      if(y>pk){ pk=y; pkd=H.dates[i]; } }
+    return {avg:n?sum/n:null, peak:pk, peakDate:pkd, last:last};
+  }
+  function render(){
+    const t=DH.tenor, CC=COL(), inWin=p=>p[0]>=DH.xlo-1e-6&&p[0]<=DH.xhi+1e-6;
+    ct.textContent=`Germany ${t}-year term premium — 1972+ monthly historical exhibit vs the daily production series`;
+    cn.textContent='Percent. Solid = full-sample monthly historical fit (1972+); dashed = the daily production line (1997+) overlaid for the overlap. Drag the handles below to zoom.';
+    const hist=H.x.map((x,i)=>[x, H.tp[t]?H.tp[t][i]:null]).filter(p=>p[1]!=null&&inWin(p));
+    const modern=ptsFor(b,'tp',t).filter(inWin);
+    const series=[
+      {label:'Historical (1972+, monthly, full-sample fit)',color:CC.orange,width:2.2,pts:hist},
+      {label:'Daily production (1997+, atlas default)',color:CC.blue,width:1.6,dash:'5 4',pts:modern}];
+    lg.innerHTML=''; lg.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color,dash:!!sr.dash}))));
+    box.innerHTML=''; drawLine(box,{height:300,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,
+      bands:[{x0:ym(1979,8),x1:ym(1985,6),fill:CC.orange,opacity:0.10,label:'2nd oil shock'}],
+      series});
+    const st=stats(t);
+    if(st.avg!=null){
+      call.innerHTML=`Over the <b>1973–85</b> high-inflation era the German ${t}-year premium averaged <b>${fmt(st.avg,2)}%</b>, peaking near <b>${fmt(st.peak,2)}%</b> (${st.peakDate?st.peakDate.slice(0,7):''}); latest ${t}y ≈ <b>${fmt(st.last,2)}%</b>. It ran <b>below the US</b> in the same era — consistent with the Bundesbank’s inflation-fighting credibility keeping the inflation-risk premium compressed even through the oil shocks. Caveat: this is a single full-sample fit with the expected-rate path anchored to a modern long-run mean, so read the deep-past <b>level</b> as approximate — the shape and the cross-country contrast are the point.`;
+    }
+  }
+  render(); CHARTS.push(render);
+  rangeSlider(sliderMount, H.x, H.dates, (lo,hi)=>{ DH.xlo=lo; DH.xhi=hi; render(); });
+})();
+
 /* ------------------------------------------------ 3c. US TP vs EXTERNAL MODELS */
 (function(){
   const b=DATA.countries.US.instruments.nominal;

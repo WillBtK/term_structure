@@ -88,6 +88,7 @@ def build() -> dict:
     full = cutoff <= canon["date"].min()
     res = "daily, full history" if full else f"daily (last {DAILY_YEARS:g}y) + weekly history"
     _attach_us_regime_overlay(countries)
+    _attach_germany_history(countries)
     _attach_us_benchmarks(countries)
     _attach_us_tips_noise(countries)
     result = {"meta": {"asof": str(asof.date()), "units": "percent",
@@ -113,6 +114,33 @@ def _attach_us_regime_overlay(countries: dict) -> None:
         "x": _xdec(idx), "dates": [str(d.date()) for d in idx],
         "tp": [round(float(v), 4) for v in s.values],
         "note": "2-regime Kim-filter model (per-era θ); illustrative in the extrapolated era."}
+
+
+def _attach_germany_history(countries: dict) -> None:
+    """Attach the Germany 1972+ MONTHLY historical term premium (a separate,
+    full-sample historical exhibit — not the daily production series) to DE:nominal
+    as a `history` sub-block, if the committed series is present.
+
+    Produced offline by `scratchpad/make_de_history.py` (same shadow-AFNS +
+    mean-reversion-floor decomposition as the daily line, fit over the full monthly
+    Bundesbank Svensson history) and committed as JSON so the deployed build can
+    read it without re-estimating."""
+    f = HERE / "history" / "germany_hist_tp.json"
+    if "DE" not in countries or not f.exists():
+        return
+    try:
+        d = json.loads(f.read_text())
+    except Exception:                                              # noqa: BLE001
+        return
+    dates = d.get("dates") or []
+    tenors = d.get("tenors") or {}
+    if not dates or not tenors:
+        return
+    idx = pd.DatetimeIndex(pd.to_datetime(dates))
+    countries["DE"]["instruments"]["nominal"]["history"] = {
+        "x": _xdec(idx), "dates": [str(x.date()) for x in idx],
+        "tp": {t: tenors[t] for t in tenors},
+        "note": d.get("method", "monthly historical exhibit (full-sample fit)")}
 
 
 # External US TP benchmarks for side-by-side plotting. (label, loader) — C&R via
