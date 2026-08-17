@@ -101,3 +101,38 @@ No German SF-Fed-equivalent term-premium benchmark exists, so validation rests o
 profile validating Praet's −1.0%; (3) the internal shadow-rate/ELB behavior above;
 (4) sensible modern levels (10y ~0.26%, below the US). External euro-area
 directional benchmarks (Wu-Xia / Krippner) were not readily loadable this session.
+
+## Bund liquidity "noise" gauge (market quality)
+The German analogue of the US TIPS/UST Hu–Pan–Wang "noise" measure
+(`validation/bund_liquidity.py`): per trading day, fit a fixed-λ Nelson–Siegel
+curve (OLS) to the yields of every outstanding conventional Federal security and take
+the **RMS fitting residual**. A liquid market keeps every issue on a smooth curve
+(low noise); illiquidity scatters individual issues (high noise). Built only from
+public security-level data — a free daily illiquidity read on the euro benchmark.
+
+**Data** — Deutsche Bundesbank "Prices and yields of listed Federal securities"
+(`germany/fetch_bund_prices.py`). The monthly workbooks are linked directly from the
+service index page (`…/810710/…`) as `YYYY-MM-excel-data.xlsx`; each workbook has
+**one sheet per trading day** (named `DD.MM.YYYY`) with columns
+`ISIN | Coupon | Description | Maturity | Residual life | Issue volume | Price |
+Yield in % | Dirty price`. The trading date is the **sheet name**, not a column.
+The index exposes ~5 recent months, so the cache accumulates month-by-month (deep
+history back-fill via the PDF archive is a deferred follow-up). Bundesbank is
+egress-blocked from the dev sandbox, so the fetch runs in the daily GitHub job;
+confirmed end-to-end via CI probes.
+
+**Key correctness fix** — the workbook mixes nominal Bunds/Bobls/Schätze
+(DBR/OBL/BKO) with a few **inflation-linked** issues (`DBRI … I/L`). Linkers quote
+**real** yields ~2% below the nominal curve, so a single cross-sectional fit read
+them as ~200 bp residuals and the raw "noise" ballooned to **~41 bp** — an artefact,
+not illiquidity. `drop_inflation_linked` removes them (by `DBRI`/`I/L` marker),
+bringing the gauge to **~5 bp** — the single-digit level expected for the world's most
+liquid sovereign curve (diagnosed on 2026-08-14: 71 bonds → RMS 41 bp; 63 nominal →
+RMS 5.3 bp; the 3 DBRI linkers carried −189…−202 bp residuals). Tested offline
+(`validation/tests/test_bund_liquidity.py`, `germany/tests/test_fetch_bund_prices.py`).
+
+**Wiring** — `build_noise` is refreshed daily (`scheduler/daily_update.py`), staged to
+Supabase as source `bund_noise` (`scheduler/supabase_export.py`), attached to
+`DE.bund_noise` in `viz/thin_daily.py`, and rendered as a guarded **"Market quality"**
+Atlas panel (`viz/artifact_template.html`) mirroring the US TIPS-noise panel, with a
+JS-computed callout (mean / peak / latest, in bp).

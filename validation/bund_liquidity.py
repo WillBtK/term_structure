@@ -78,6 +78,23 @@ def noise_from_panel(panel: pd.DataFrame,
     return pd.DataFrame(recs).dropna().sort_values("date").reset_index(drop=True)
 
 
+def drop_inflation_linked(panel: pd.DataFrame) -> pd.DataFrame:
+    """Keep only conventional NOMINAL Federal securities for the noise fit.
+
+    The Bundesbank workbook mixes nominal Bunds/Bobls/Schätze (DBR/OBL/BKO) with a
+    handful of inflation-linked issues (``DBRI ... I/L``). Linkers quote REAL yields
+    that sit ~2% below the nominal curve, so a single cross-sectional fit sees them as
+    huge residuals (~200 bp) and the 'noise' balloons to ~40 bp — an artefact, not
+    illiquidity. Dropping them brings the gauge to the single-digit bp expected for the
+    highly liquid Bund curve. Identified by the ``DBRI`` name prefix / ``I/L`` marker;
+    a no-op when the panel carries no ``name`` column (older cache)."""
+    if "name" not in panel.columns:
+        return panel
+    nm = panel["name"].astype(str)
+    is_linker = nm.str.match(r"\s*DBRI\b", case=False) | nm.str.contains(r"I/L", case=False)
+    return panel.loc[~is_linker].copy()
+
+
 def _to_monthly(daily: pd.DataFrame) -> pd.DataFrame:
     d = daily.copy()
     d["ym"] = d["date"].dt.to_period("M")
@@ -97,7 +114,7 @@ def build_noise(refresh: bool = False, freq: str = "M") -> pd.DataFrame:
         out = pd.read_parquet(path)
         return out if freq == "D" else _to_monthly(out)
     from germany.fetch_bund_prices import load_bund_yields
-    raw = load_bund_yields(refresh=refresh)
+    raw = drop_inflation_linked(load_bund_yields(refresh=refresh))
     daily = noise_from_panel(raw)
     path.parent.mkdir(parents=True, exist_ok=True)
     daily.to_parquet(path)
