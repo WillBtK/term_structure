@@ -22,6 +22,7 @@ import logging
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from germany import config as cfg
 from germany.fetch_bundesbank import build_yield_panel
