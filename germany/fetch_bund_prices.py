@@ -2,10 +2,13 @@
 securities" (the raw material for the Bund liquidity 'noise' gauge).
 
 Unlike the term-structure curve (SDMX flow BBSIS), the per-security reference prices
-and yields are a **service download**: one monthly workbook (recent months XLSX,
-older PDF) reached from the index page, at opaque per-file blob URLs. So this fetcher
-scrapes the index -> monthly landing pages -> the XLSX blob, parses each workbook to a
-tidy ``(date, isin, maturity, yield)`` panel, and caches the union to parquet.
+and yields are a **service download**: one monthly workbook per month, linked directly
+from the index page at opaque per-file blob URLs. Each month exposes both an Excel file
+(``YYYY-MM-excel-data.xlsx``) and a PDF (``YYYY-MM-data.pdf``); we take the XLSX. The
+index shows the most recent ~5 months, so the fetcher accumulates the union into a
+parquet cache (history grows month-by-month as the daily job runs). This fetcher scrapes
+the index for the ``-excel-data.xlsx`` blobs, parses each workbook to a tidy
+``(date, isin, maturity, yield)`` panel, and caches the union.
 
 Egress: Bundesbank is only reachable from the daily GitHub job (open egress), not the
 dev sandbox — so this is exercised in CI. Run ``python -m germany.fetch_bund_prices
@@ -13,8 +16,9 @@ dev sandbox — so this is exercised in CI. Run ``python -m germany.fetch_bund_p
 (used to pin the column mapping); ``--refresh`` (default in the daily job) rebuilds the
 cache.
 
-STATUS: the index/workbook layout is confirmed via the --probe run; the column
-mapping below uses keyword detection and is hardened against layout drift.
+STATUS: the index/workbook layout is confirmed via the --probe run (files linked
+directly from the index; XLSX available); the column mapping uses keyword detection
+and is hardened against layout drift.
 """
 from __future__ import annotations
 
@@ -29,9 +33,12 @@ from validation import config as vcfg
 
 logger = logging.getLogger(__name__)
 
-_BLOB_ANY_RE = re.compile(r'href="(/resource/blob/[^"]+?\.(?:xlsx|xls|csv|pdf))"', re.I)
-_BLOB_DATA_RE = re.compile(r'href="(/resource/blob/[^"]+?\.(?:xlsx|xls|csv))"', re.I)  # parseable only
-_MONTH_LINK_RE = re.compile(r'href="(/en/service/federal-securities/prices-and-yields/[^"]+?-\d{5,})"', re.I)
+# Monthly Excel workbooks are linked directly from the index, e.g.
+#   /resource/blob/972742/<hash>/<hash>/2026-08-excel-data.xlsx
+# Capture the URL and the YYYY-MM stamp so we can order newest-first.
+_EXCEL_LINK_RE = re.compile(
+    r'(/resource/blob/[^"\']+?/(\d{4})-(\d{2})-excel-data\.xlsx)', re.I)
+_BLOB_ANY_RE = re.compile(r'(/resource/blob/[^"\']+?\.(?:xlsx|xls|csv|pdf))', re.I)
 _HOST = "https://www.bundesbank.de"
 
 
@@ -54,27 +61,18 @@ def _abs(href: str) -> str:
 
 
 def discover_workbook_urls(limit: int | None = None) -> list[str]:
-    """Scrape the index -> monthly landing pages -> XLSX/CSV blob URLs (newest first)."""
+    """Scrape the index for monthly ``-excel-data.xlsx`` blob URLs, newest first.
+
+    Files are linked directly from the index page (no per-month landing pages); the
+    page exposes roughly the most recent five months."""
     index_html = _get(vcfg.BUND_PRICES_INDEX).decode("utf-8", "replace")
-    month_pages = []
-    seen = set()
-    for m in _MONTH_LINK_RE.finditer(index_html):
-        u = _abs(m.group(1))
-        if u not in seen:
-            seen.add(u); month_pages.append(u)
-    logger.info("discovered %d monthly landing pages", len(month_pages))
-    files: list[str] = []
-    for page in (month_pages if limit is None else month_pages[:limit]):
-        try:
-            html = _get(page).decode("utf-8", "replace")
-        except Exception as exc:                                    # noqa: BLE001
-            logger.warning("landing page failed %s: %s", page, exc)
-            continue
-        blobs = [_abs(b.group(1)) for b in _BLOB_DATA_RE.finditer(html)]
-        if blobs:
-            files.append(blobs[0])                                 # one data file per month
-    logger.info("discovered %d workbook files", len(files))
-    return files
+    found = {}
+    for m in _EXCEL_LINK_RE.finditer(index_html):
+        url, yy, mm = _abs(m.group(1)), m.group(2), m.group(3)
+        found[(yy, mm)] = url                       # dedupe by month, keep the URL
+    ordered = [found[k] for k in sorted(found, reverse=True)]   # newest month first
+    logger.info("discovered %d monthly XLSX workbooks from the index", len(ordered))
+    return ordered if limit is None else ordered[:limit]
 
 
 # Column-keyword detection (English + German headers).
@@ -168,60 +166,16 @@ def load_bund_yields(refresh: bool = True, limit: int | None = None) -> pd.DataF
 
 def _probe() -> None:
     """Diagnostic: dump discovered URLs + one workbook's structure (run on a runner)."""
-    index_html = _get(vcfg.BUND_PRICES_INDEX).decode("utf-8", "replace")
-    month_pages = []
-    seen = set()
-    for m in _MONTH_LINK_RE.finditer(index_html):
-        u = _abs(m.group(1))
-        if u not in seen:
-            seen.add(u); month_pages.append(u)
     print(f"=== index {vcfg.BUND_PRICES_INDEX}")
-    print(f"    html length: {len(index_html)}")
-    print(f"    monthly landing pages found: {len(month_pages)}")
-    for u in month_pages[:5]:
-        print("   ", u)
-    if not month_pages:
-        # RECON: this is a JS-rendered download-search page. Learn the real
-        # mechanism — the backing AJAX/JSON endpoint and any file URLs anywhere
-        # in the markup (scripts/data-attrs included), not just <a href>.
-        print("!! no landing pages — RECON dump of the index page:")
-        for tok in (".xlsx", ".xls", ".csv", ".pdf", "/resource/blob",
-                    "/resource/crblob", "dynamicpp", "StatisticDownload",
-                    "download", ".json", "data-search", "apiUrl", "restUrl",
-                    "endpoint", "tsId", "list?", "search?"):
-            print(f"    token {tok!r}: {index_html.lower().count(tok.lower())}")
-        # Print every URL-ish token that looks like a data file or an API call.
-        url_re = re.compile(
-            r'(?:href|src|data-[\w-]+|content)=["\']([^"\']*'
-            r'(?:resource/(?:cr)?blob|dynamicpp|StatisticDownload|\.xlsx|\.xls|'
-            r'\.csv|\.pdf|download|/api/|\.json)[^"\']*)["\']', re.I)
-        hits, seen2 = [], set()
-        for m in url_re.finditer(index_html):
-            u = m.group(1)
-            if u not in seen2:
-                seen2.add(u); hits.append(u)
-        print(f"\n    URL-ish hits: {len(hits)}")
-        for u in hits[:60]:
-            print("     ", u)
-        # Dump inline JSON/script config that usually holds the search endpoint.
-        for m in re.finditer(r'data-[\w-]*(?:config|search|url|endpoint|api)[\w-]*='
-                             r'["\']([^"\']{4,400})["\']', index_html, re.I):
-            print("    data-attr:", m.group(1)[:400])
-        return
-    # Show ALL file links (any extension) on the newest landing page.
-    lp = month_pages[0]
-    lp_html = _get(lp).decode("utf-8", "replace")
-    all_files = [_abs(b.group(1)) for b in _BLOB_ANY_RE.finditer(lp_html)]
-    print(f"\n=== landing page {lp}")
-    print(f"    file links (any ext): {len(all_files)}")
-    for u in all_files:
-        print("   ", u)
-    urls = discover_workbook_urls(limit=3)
-    print(f"\n=== parseable (xlsx/csv) workbook URLs: {len(urls)} ===")
+    urls = discover_workbook_urls()
+    print(f"    monthly XLSX workbooks discovered: {len(urls)}")
     for u in urls:
-        print(" ", u)
+        print("   ", u)
     if not urls:
-        print("!! no XLSX/CSV — files are likely PDF-only (would need pdf parsing).")
+        print("!! no XLSX links found — dumping any blob file links for tuning:")
+        index_html = _get(vcfg.BUND_PRICES_INDEX).decode("utf-8", "replace")
+        for m in _BLOB_ANY_RE.finditer(index_html):
+            print("   ", _abs(m.group(1)))
         return
     content = _get(urls[0])
     print(f"\n=== workbook {urls[0]} ({len(content)} bytes) ===")
