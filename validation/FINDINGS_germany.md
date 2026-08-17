@@ -81,6 +81,20 @@ compressed even through the oil-shock era. Regime dating (Kim filter over the fu
 history) is a further lens, appended separately when that (expensive) estimation
 completes.
 
+### Atlas overlay — 1972+ monthly (shipped)
+`germany/run_history_overlay.py` produces a small committed JSON
+(`viz/history/germany_hist_tp.json`) that the Atlas attaches as a labelled
+**"Germany — the long view (1972+)"** panel (2y & 10y, monthly), overlaid on the
+daily production line for the 1997+ overlap and never spliced onto it. It uses
+**plain AFNS + the mean-reversion floor** (3.5y half-life; the same expectations-leg
+treatment as the daily series) over the full monthly Bundesbank history — the daily
+shadow-rate quadrature is skipped as far slower and equivalent away from the bound.
+Result: 10y TP averaged **~2.5%** over the 1973–85 high-inflation era, peaking
+**+4.0% (Aug 1981)** and easing to modestly negative latterly. It is a single
+full-sample fit with the expected-rate path anchored to a modern long-run mean, so
+the deep-past *level* is approximate — read the shape and the cross-country contrast,
+not the basis point.
+
 ## Validation summary
 No German SF-Fed-equivalent term-premium benchmark exists, so validation rests on:
 (1) reconstruction accuracy < 0.6 bp vs published Bundesbank spots; (2) the ELB
