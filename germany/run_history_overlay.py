@@ -32,7 +32,7 @@ from us.run_afns_ekf import run_afns
 logger = logging.getLogger(__name__)
 OUT = Path(__file__).resolve().parent.parent / "viz" / "history" / "germany_hist_tp.json"
 MR_HALFLIFE_YEARS = 3.5
-TENORS = (2.0, 10.0)
+TENORS = tuple(float(t) for t in cfg.COMMON_GRID)   # full curve (0.25y..10y) for the splice
 
 
 def build(maxiter: int = 4000, out: Path = OUT) -> dict:

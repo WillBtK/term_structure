@@ -126,14 +126,25 @@ def _extend_nominal_tp_history(countries: dict, canon: pd.DataFrame) -> None:
     JP 10y ← the 1974+ 9y overlay. Only the term-premium measure is extended (there is
     no observed/expected path before the modern curve), and only the backfilled tenors;
     the pre-seam rows are monthly and carry None for other tenors and for obs/exp."""
+    import json as _json
     from model.global_factor import splice_backfill, _load_hist_tp, _month_end
-    # (market, overlay json, {block_tenor: hist_tenor})
-    specs = [("DE", "germany_hist_tp.json", {"10": "10", "2": "2"}),
+    # (market, overlay json, {block_tenor: hist_tenor}). "all" = map every tenor in the
+    # overlay JSON to itself (DE: full term structure back to 1972). JP: only the 10y
+    # node (≤9y term premia already reach 1974 in the canonical set).
+    specs = [("DE", "germany_hist_tp.json", "all"),
              ("JP", "japan_hist_tp.json", {"10": "9"})]
     for cc, fname, tmap in specs:
         block = countries.get(cc, {}).get("instruments", {}).get("nominal")
         if not block:
             continue
+        if tmap == "all":
+            f = HERE / "history" / fname
+            if not f.exists():
+                continue
+            try:
+                tmap = {t: t for t in (_json.loads(f.read_text()).get("tenors") or {})}
+            except Exception:                                     # noqa: BLE001
+                continue
         cc_tp = canon[(canon["country"] == cc) & (canon["instrument"] == "nominal")]
         block_first = pd.Timestamp(block["dates"][0])
         pre_periods = {}                                           # block_tenor -> {Period: pct}
