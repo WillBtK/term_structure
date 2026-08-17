@@ -978,7 +978,7 @@ function lastVal(block, measure, tenor){
   const s=M.lastChild;
   const c=h('div',{class:'card'});
   c.appendChild(h('div',{class:'card-title'},'German Bund cross-sectional fitting noise'));
-  c.appendChild(h('div',{class:'card-note'},'Basis points, monthly. Higher = individual Bunds priced further from a smooth curve (less liquid). Drag the handles below to zoom.'));
+  c.appendChild(h('div',{class:'card-note'},'Basis points, daily. Higher = individual Bunds priced further from a smooth curve (less liquid). History is short (Bundesbank publishes only recent months) and lengthens daily. Drag the handles below to zoom.'));
   const box=h('div'); c.appendChild(box);
   const sliderMount=h('div'); c.appendChild(sliderMount); s.appendChild(c);
   const allPts=nz.x.map((x,i)=>[x,nz.noise[i]]).filter(p=>p[1]!=null);

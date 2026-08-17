@@ -243,22 +243,30 @@ def _attach_us_tips_noise(countries: dict) -> None:
 
 def _attach_germany_bund_noise(countries: dict) -> None:
     """German Bund market-liquidity gauge — the curve-fitting 'noise' (RMS deviation of
-    individual Bund yields from a smooth fit), month-end in bp. Optional/guarded."""
+    individual Bund yields from a smooth fit), DAILY in bp. Optional/guarded.
+
+    Daily (not month-end): the Bundesbank workbook is one cross-section per trading day
+    and the available history is short (the index exposes only the most recent months),
+    so a daily series is both truer to the data and far more legible than ~5 monthly
+    dots. It lengthens day-by-day as the daily job accumulates workbooks."""
     from validation import config as vcfg
     if "DE" not in countries or not vcfg.BUND_NOISE_PARQUET.exists():
         return
     try:
         from validation.bund_liquidity import build_noise
-        m = build_noise(refresh=False, freq="M").dropna(subset=["noise"])
+        m = build_noise(refresh=False, freq="D").dropna(subset=["noise"])
     except Exception:                                              # noqa: BLE001
         return
     if m.empty:
         return
+    m = m.sort_values("date")
     dates = pd.DatetimeIndex(m["date"])
     countries["DE"]["bund_noise"] = {
+        "freq": "daily",
         "x": _xdec(dates), "dates": [str(d.date()) for d in dates],
         "noise": [round(float(v) * 1e4, 2) for v in m["noise"]]}       # decimal -> bp
-    print(f"DE Bund noise gauge: {len(dates)} months, latest "
+    print(f"DE Bund noise gauge: {len(dates)} daily obs "
+          f"{dates[0].date()}..{dates[-1].date()}, latest "
           f"{countries['DE']['bund_noise']['noise'][-1]:.1f} bp")
 
 
