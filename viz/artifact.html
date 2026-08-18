@@ -195,6 +195,30 @@ section.panel{ margin-bottom: 66px; scroll-margin-top: 24px; }
 .callout b{ color:var(--ink); }
 .callout.orange{ border-color: var(--orange); }
 .callout.teal{ border-color: var(--teal); }
+/* inline "ⓘ" info affordance with a hover/focus popover explainer */
+.infodot{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:15px; height:15px; margin-left:7px; border-radius:50%;
+  border:1px solid var(--muted); color:var(--muted);
+  font-family:Georgia,serif; font-style:italic; font-size:11px; line-height:1;
+  cursor:help; position:relative; vertical-align:middle; user-select:none;
+}
+.infodot:hover, .infodot:focus{ border-color:var(--ink); color:var(--ink); outline:none; }
+.infodot .pop{
+  position:absolute; z-index:40; left:50%; top:calc(100% + 8px); transform:translateX(-50%);
+  width:min(320px,78vw); padding:11px 13px; border-radius:8px;
+  background:var(--surface-1); border:1px solid var(--line);
+  box-shadow:0 6px 22px rgba(0,0,0,0.16);
+  font-family:-apple-system,system-ui,sans-serif; font-style:normal; font-weight:400;
+  font-size:12px; line-height:1.5; color:var(--ink-2); text-align:left;
+  opacity:0; visibility:hidden; transition:opacity .12s; pointer-events:none;
+}
+.infodot .pop b{ color:var(--ink); }
+.infodot:hover .pop, .infodot:focus .pop{ opacity:1; visibility:visible; }
+.infodot .pop::before{
+  content:""; position:absolute; left:50%; top:-5px; transform:translateX(-50%) rotate(45deg);
+  width:9px; height:9px; background:var(--surface-1); border-left:1px solid var(--line); border-top:1px solid var(--line);
+}
 table{ border-collapse:collapse; width:100%; font-size:12.5px; }
 th{
   text-align:right; font-weight:600; font-variant-caps:small-caps; letter-spacing:0.03em;
@@ -572,7 +596,7 @@ const M = document.getElementById('main');
 const NAV = document.getElementById('jumpNav');
 // Display order (CSS `order`) so panels render in this sequence regardless of the
 // code order of their IIFEs. Unlisted ids fall to the end.
-const PANEL_ORDER={explorer:10, compare:20, globalfactor:30, benchmarks:40, stagflation:50, stagflationjp:51, liquidity:60, data:70};
+const PANEL_ORDER={explorer:10, compare:20, globalfactor:30, benchmarks:40, stagflation:50, stagflationjp:51, jpregime:52, liquidity:60, data:70};
 function panel(id, eyebrow, title, paras){
   const s=h('section',{class:'panel',id});
   const ord=PANEL_ORDER[id]!=null?PANEL_ORDER[id]:90; s.style.order=ord;
@@ -583,6 +607,11 @@ function panel(id, eyebrow, title, paras){
   s.appendChild(head); M.appendChild(s);
   const a=h('a',{href:'#'+id},title.length>32?title.slice(0,30)+'…':title); a.style.order=ord; NAV.appendChild(a);
   return s;
+}
+// inline "ⓘ" affordance: hover/focus reveals a small popover explainer (html string)
+function infodot(html){
+  const d=h('span',{class:'infodot',tabindex:'0','aria-label':'What is this?',role:'button'},'i');
+  d.appendChild(h('div',{class:'pop',html})); return d;
 }
 document.getElementById('footCredit').textContent = 'Model: AFNS + Christensen–Rudebusch shadow rate, ~3.5y mean-reversion floor. As of '+DATA.meta.asof+'.';
 
@@ -985,6 +1014,56 @@ function lastVal(block, measure, tenor){
   const call=h('div',{class:'callout teal'});
   call.innerHTML='Japan’s 10-year premium ran clearly <b>positive and elevated</b> through the 1970s–80s high-inflation era — the regime the modern (2000+) sample never sees. The two decompositions move <b>together</b> (correlation <b>0.95</b> before 2000), but at <b>different levels</b>: the single-regime model, extrapolated on a low modern-θ anchor, puts the 1974–85 average near <b>+4–5%</b>, while the 2-regime model — which gives the high-inflation era its <i>own</i> mean-reversion (its own θ) — is more modest at <b>~+1.7%</b> (peak ~+3%). That gap <b>is</b> the anchoring uncertainty: the <b>shape and sign are robust, the level is not</b> — the low modern θ inflates the extrapolated level, and the regime-aware model reads lower. Both agree the premium was large and positive then, before collapsing through the deflation/ZIRP decades (negative under QQE/YCC) and normalising toward <b>+2%</b> as the BoJ exits in 2024+ (itself anchor-sensitive for the same reason).';
   s.appendChild(call);
+})();
+
+/* ------------------------------------------------ 3b-JP2. JAPAN REGIME MONITOR (modern, real-time) */
+(function(){
+  const b=DATA.countries.JP && DATA.countries.JP.instruments.nominal;
+  const R=b && b.regime_monitor; if(!R || !R.x || !R.x.length) return;
+  const lo=(R.theta_lo!=null?R.theta_lo+'%':'low'), hiθ=(R.theta_hi!=null?R.theta_hi+'%':'higher');
+  const INFO='<b>What this is.</b> A separate 2-regime Markov-switching term-structure model, fit <b>only on Japan’s modern sample (2000+)</b>. It distinguishes a <b>deep deflation/ZIRP regime</b> (the curve anchored near zero; long-run level θ≈'+lo+') from a <b>higher-rate regime</b> (θ≈'+hiθ+', a mean-reversion <i>attractor</i> — not a literal rate forecast). The line is the model’s probability — <b>given data up to each date</b> — that Japan is in the higher-rate regime. <b>Real-time (filtered)</b> uses only information available at the time, so it never rewrites history as new data arrive; <b>full-sample (smoothed)</b> uses the whole history, cleaner but revising. <b>Why it matters.</b> The regime sets where the term premium mean-reverts (its θ anchor), so a change is an early signal that the modern-sample premium itself may need to re-anchor — the same θ-anchoring caveat behind today’s Japan premium level.';
+  const s=panel('jpregime','Regime monitor','Japan — deep-deflation or higher-rate regime?',
+    ['A real-time gauge from a 2-regime model fit only on Japan’s modern sample (2000+): is the JGB curve anchored in the <b>deep deflation/ZIRP</b> regime, or the <b>higher-rate</b> regime it mean-reverts to a positive level in? Toggle the <b>real-time (filtered)</b> probability — the honest live signal, using only past data — against the <b>full-sample (smoothed)</b> estimate.']);
+  const hh=s.querySelector('h2'); if(hh) hh.appendChild(infodot(INFO));
+  const st={view:'filtered'};
+  const bar=h('div',{class:'ctrlbar'});
+  const g=h('div',{class:'grp'}); g.appendChild(h('span',{class:'eyebrow'},'Estimate'));
+  const seg=h('div',{class:'seg'});
+  [['filtered','Real-time (filtered)'],['smoothed','Full-sample (smoothed)']].forEach(([v,lab])=>{
+    const bt=h('button',null,lab); if(v===st.view)bt.classList.add('active');
+    bt.onclick=()=>{ st.view=v; [...seg.children].forEach(x=>x.classList.toggle('active',x===bt)); render(); };
+    seg.appendChild(bt); });
+  g.appendChild(seg); bar.appendChild(g); s.appendChild(bar);
+  const c=h('div',{class:'card'});
+  c.appendChild(h('div',{class:'card-title'},'Probability Japan is in the higher-rate regime (vs deep deflation / ZIRP)'));
+  c.appendChild(h('div',{class:'card-note'},'2-regime Kim filter on the 2000+ JGB curve. The dashed vertical marks the BoJ’s March-2024 exit from negative rates and yield-curve control.'));
+  const box=h('div'); c.appendChild(box);
+  const call=h('div',{class:'callout teal'}); c.appendChild(call);
+  s.appendChild(c);
+  const X=R.x, half=X.map(()=>0.5), zero=X.map(()=>0);
+  function callout(P){
+    const n=P.length, last=P[n-1], v2=P[Math.max(0,n-25)];
+    const pc=v=>Math.round(v*100)+'%', dt=R.dates[n-1];
+    // entry into the current above-50% run
+    let j=-1; for(let i=n-1;i>=0;i--){ if(P[i]<0.5){ j=i; break; } }
+    const entryYr=Math.floor((j>=0 && j+1<n) ? X[j+1] : X[0]);
+    let lead;
+    if(last>=0.5) lead='On the '+st.view+' estimate Japan has been in the <b>higher-rate regime since ~'+entryYr+'</b> (probability now <b>'+pc(last)+'</b>, as of '+dt+'). The break from deep deflation therefore <b>predates the headlines</b>: the BoJ’s 2024 exit from negative rates and YCC falls <b>within</b> an already-established regime rather than at a fresh break. The deepest-deflation regime the model isolates is <b>2009–2016</b> (the QQE/NIRP trough); Japan sat in the higher-rate regime early on too (2000–2008).';
+    else if((last-v2)>=0.15) lead='As of <b>'+dt+'</b>, the '+st.view+' probability of the higher-rate regime has climbed from <b>'+pc(v2)+'</b> two years ago to <b>'+pc(last)+'</b> — an <b>early, still-tentative</b> sign the deflation regime is breaking.';
+    else lead='As of <b>'+dt+'</b>, the '+st.view+' probability of the higher-rate regime is <b>'+pc(last)+'</b>: the filter still reads Japan as anchored in the deep deflation/ZIRP regime.';
+    return lead+' <span style="opacity:.85">This linear regime filter abstracts from the effective lower bound and is fit on ~25 years, so read it as a <b>directional diagnostic</b> — a companion to the premium, not a calibrated forecast.</span>';
+  }
+  function render(){
+    const CC=COL(), P=(st.view==='filtered'?R.p_filtered:R.p_smoothed);
+    box.innerHTML='';
+    drawStacked(box,{height:250, x:X, yFmt:v=>Math.round(v*100)+'%', xFmt:xYear, xTipFmt:xFmtDay,
+      breaks:[{x:2024.21,label:'BoJ exits NIRP/YCC'}],
+      areas:[{y0:zero, y1:P, color:CC.teal, opacity:0.38, label:'P(higher-rate regime)'}],
+      lines:[{y:half, color:CC.faint, width:1, dash:'4 3', label:'50%'}],
+      line:{y:P, color:CC.teal, width:2.2, label:'P(higher-rate regime)'}});
+    call.innerHTML=callout(P);
+  }
+  render(); CHARTS.push(render);
 })();
 
 /* ------------------------------------------------ 3b-DE. GERMANY — THE LONG VIEW (1972+) */
