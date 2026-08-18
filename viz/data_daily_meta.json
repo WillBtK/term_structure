@@ -169,5 +169,16 @@
       "end": "2026-07-29",
       "n_days": 9962
     }
+  },
+  "anchors": {
+    "JP": {
+      "source": "consensus_shortrate+bridge",
+      "pi_e": "consensus_cpi",
+      "r_star": "implied_from_overlap",
+      "calib_offset_pct": 0.001,
+      "asof": "2026-07-13",
+      "coverage": 8919,
+      "n": 13270
+    }
   }
 }
