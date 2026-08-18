@@ -95,6 +95,12 @@ def build() -> dict:
               f"({block['dates'][0]}..{block['dates'][-1]})")
     full = cutoff <= canon["date"].min()
     res = "daily, full history" if full else f"daily (last {DAILY_YEARS:g}y) + weekly history"
+    # expected-rate anchor provenance (e.g. Japan's survey-anchored endpoint) -> per-market note
+    for cc, am in (meta.get("anchors") or {}).items():
+        b = countries.get(cc, {}).get("instruments", {}).get("nominal")
+        if b is not None and am.get("source") not in (None, "none"):
+            b["anchor"] = {"source": am.get("source"), "pi_e": am.get("pi_e"),
+                           "r_star": am.get("r_star"), "asof": am.get("asof")}
     _extend_nominal_tp_history(countries, canon)
     _attach_us_regime_overlay(countries)
     _attach_japan_regime_overlay(countries)
