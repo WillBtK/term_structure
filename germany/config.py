@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 
 # Common maturity grid (years), shared across all four countries: 3m..10y.
-COMMON_GRID = np.array([0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0], dtype=float)
+COMMON_GRID = np.array([0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 20.0, 30.0], dtype=float)
 
 # ---------------------------------------------------------------------------
 # Effective lower bound (decimal). Germany/euro area: -1.0% central — an ECB

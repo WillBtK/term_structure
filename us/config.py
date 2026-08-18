@@ -17,7 +17,7 @@ import numpy as np
 # Maturity grid (years). Common across all four countries for comparability
 # (top-level README): 3m / 6m / 1y / 2y / 3y / 5y / 7y / 10y.
 # ---------------------------------------------------------------------------
-COMMON_GRID = np.array([0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0], dtype=float)
+COMMON_GRID = np.array([0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 20.0, 30.0], dtype=float)
 
 # ---------------------------------------------------------------------------
 # Effective lower bound for the (later) shadow-rate extension. US = -0.35%,
