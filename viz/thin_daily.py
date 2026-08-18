@@ -98,6 +98,7 @@ def build() -> dict:
     _extend_nominal_tp_history(countries, canon)
     _attach_us_regime_overlay(countries)
     _attach_japan_regime_overlay(countries)
+    _attach_japan_regime_monitor(countries)
     _attach_germany_history(countries)
     _attach_us_benchmarks(countries)
     _attach_us_tips_noise(countries)
@@ -146,6 +147,38 @@ def _attach_japan_regime_overlay(countries: dict) -> None:
         "x": _xdec(idx), "dates": [str(d.date()) for d in idx],
         "tp": [round(float(v), 4) for v in s.values],
         "note": "2-regime Kim-filter model (per-era θ); illustrative in the extrapolated era."}
+
+
+def _attach_japan_regime_monitor(countries: dict) -> None:
+    """Attach Japan's MODERN real-time regime monitor to JP:nominal, if present.
+
+    A separate 2-regime Kim-filter fit on the modern (2000+) sample only — its two
+    regimes separate the deep deflation/ZIRP world from a higher-level 'normalization'
+    world. We ship the FILTERED (real-time, non-revising) probability of the higher
+    regime as the headline signal, plus the smoothed (full-sample) probability as an
+    optional view. Produced offline by scratchpad/run_jp_modern_regime.py."""
+    f = HERE.parent / "scratchpad" / "jp_modern_regime.json"
+    if "JP" not in countries or not f.exists():
+        return
+    try:
+        d = json.loads(f.read_text())
+    except Exception:                                              # noqa: BLE001
+        return
+    dates = d.get("dates") or []
+    pf = d.get("p_hi_filtered") or []
+    if not dates or len(pf) != len(dates):
+        return
+    idx = pd.DatetimeIndex(pd.to_datetime(dates))
+    theta = d.get("theta_L_pct") or []
+    hi = int(d.get("hi", 0))
+    countries["JP"]["instruments"]["nominal"]["regime_monitor"] = {
+        "x": _xdec(idx), "dates": dates,
+        "p_filtered": [round(float(v), 4) for v in pf],
+        "p_smoothed": [round(float(v), 4) for v in (d.get("p_hi_smoothed") or pf)],
+        "theta_hi": (round(float(theta[hi]), 2) if theta else None),
+        "theta_lo": (round(float(theta[1 - hi]), 2) if len(theta) == 2 else None),
+        "start": dates[0],
+        "note": "2-regime Kim filter, Japan modern sample (2000+); filtered = real-time."}
 
 
 def _extend_nominal_tp_history(countries: dict, canon: pd.DataFrame) -> None:
