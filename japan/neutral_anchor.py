@@ -112,8 +112,18 @@ def build_nominal_neutral(index, dir: Path = ANCHOR_DIR):
     else:
         pie, pie_src = pd.Series([BOJ_TARGET_PCT], index=[index.min()]), "boj_target"
 
-    # --- public bridge n = r* + pi^e (percent), each carried forward ---
-    rr_i = _locf(rstar, index) if rstar is not None else pd.Series(np.nan, index=index)
+    # --- real leg r* (percent): Ferreira if present; else, with no Ferreira but both a
+    #     short-rate and a CPI survey, back out a CONSTANT real rate from their overlap
+    #     (r ~= 3m-interbank 6-10y - CPI 6-10y) and hold it through history. ---
+    if rstar is not None:
+        rr_i, rr_src = _locf(rstar, index), "ferreira"
+    elif sr is not None and cpi is not None:
+        rspan = pd.date_range(max(sr.index.min(), cpi.index.min()),
+                              min(sr.index.max(), cpi.index.max()), freq="M")
+        rr_const = float((_locf(sr, rspan) - _locf(cpi, rspan)).mean()) if len(rspan) else np.nan
+        rr_i, rr_src = pd.Series(rr_const, index=index), "implied_from_overlap"
+    else:
+        rr_i, rr_src = pd.Series(np.nan, index=index), "none"
     bridge = rr_i + _locf(pie, index)
 
     src = pd.Series("bridge", index=index)
@@ -135,11 +145,11 @@ def build_nominal_neutral(index, dir: Path = ANCHOR_DIR):
 
     vals = (n / 100.0).to_numpy(dtype=float)                        # percent -> decimal
     asof = max([s.index.max() for s in (sr, cpi, rstar, tankan) if s is not None])
-    meta = {"source": source, "pi_e": pie_src, "calib_offset_pct": round(c, 3),
+    meta = {"source": source, "pi_e": pie_src, "r_star": rr_src, "calib_offset_pct": round(c, 3),
             "asof": str(pd.Timestamp(asof).date()), "coverage": int(np.isfinite(vals).sum()),
             "n": len(index), "src_by_date": src}
-    logger.info("JP neutral anchor: source=%s pi_e=%s offset=%.2f%% asof=%s coverage=%d/%d",
-                source, pie_src, c, meta["asof"], meta["coverage"], len(index))
+    logger.info("JP neutral anchor: source=%s pi_e=%s r*=%s offset=%.2f%% asof=%s coverage=%d/%d",
+                source, pie_src, rr_src, c, meta["asof"], meta["coverage"], len(index))
     return vals, meta
 
 

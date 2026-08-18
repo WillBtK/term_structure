@@ -45,6 +45,20 @@ def test_direct_shortrate_overrides_and_calibrates(tmp_path):
     assert abs(s.loc["2018-07-31"] - 0.016) < 2e-3
 
 
+def test_implied_real_when_no_ferreira(tmp_path):
+    """With no Ferreira file but both a short-rate and a CPI survey, the real leg is
+    backed out from the overlap (r ~= shortrate - CPI) and held through history."""
+    _write(tmp_path, "cpi", [["2016-04-30", 1.0], ["2024-04-30", 1.0]])
+    _write(tmp_path, "shortrate", [["2018-10-31", 0.6], ["2024-10-31", 0.6]])
+    idx = pd.date_range("2016-01-31", "2024-12-31", freq="M")
+    vals, meta = na.build_nominal_neutral(idx, dir=tmp_path)
+    assert meta["r_star"] == "implied_from_overlap"
+    s = pd.Series(vals, index=idx)
+    # implied real = mean(0.6 - 1.0) = -0.4; pre-survey bridge = CPI + real = 1.0 - 0.4 = 0.6%
+    assert abs(s.loc["2016-06-30"] - 0.006) < 5e-4
+    assert abs(s.loc["2020-06-30"] - 0.006) < 5e-4   # inside survey span -> direct 0.6%
+
+
 def test_tankan_tail_extends_cpi(tmp_path):
     # CPI ends 2023; Tankan continues to 2025 -> the tail (level-bridged) maintains pi^e.
     _write(tmp_path, "rstar", [["2018-06-30", 0.0]])
