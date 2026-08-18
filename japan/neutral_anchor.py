@@ -144,7 +144,12 @@ def build_nominal_neutral(index, dir: Path = ANCHOR_DIR):
         source = "bridge"
 
     vals = (n / 100.0).to_numpy(dtype=float)                        # percent -> decimal
-    asof = max([s.index.max() for s in (sr, cpi, rstar, tankan) if s is not None])
+    # "as of" = last release of the point-in-time surveys that pin today's endpoint
+    # (short-rate / CPI / Tankan). Ferreira r* is a slow semi-annual longer-run neutral
+    # published with FORWARD-dated half-year labels (e.g. a 2026H2 row), so it must not
+    # drive the as-of date; use it only when it is the sole source.
+    obs = [s for s in (sr, cpi, tankan) if s is not None]
+    asof = max([s.index.max() for s in (obs or [rstar])])
     meta = {"source": source, "pi_e": pie_src, "r_star": rr_src, "calib_offset_pct": round(c, 3),
             "asof": str(pd.Timestamp(asof).date()), "coverage": int(np.isfinite(vals).sum()),
             "n": len(index), "src_by_date": src}
