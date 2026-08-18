@@ -1,0 +1,48 @@
+name: Refresh neutral-anchor fallbacks
+
+# Self-maintains the PUBLIC fallback rungs of japan.neutral_anchor — Ferreira r*
+# (Fed FEDS Note) and BoJ Tankan 5y inflation — by scraping their official pages on the
+# GitHub runner (open egress) and committing any refreshed CSVs under
+# japan/data/anchors/. Best-effort and non-fatal: a failed scrape keeps the committed
+# file. The proprietary Consensus CSVs are provided manually and are never touched here.
+# These fallbacks only affect the published premium if Consensus is ever absent.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"          # Mondays 06:00 UTC (weekly; the surveys are semi-annual/quarterly)
+  workflow_dispatch: {}          # manual trigger + first-run verification
+
+permissions:
+  contents: write                # commit refreshed CSVs back to the branch
+
+concurrency:
+  group: refresh-anchors
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Fetch Ferreira r* + Tankan 5y (best-effort; prints a preview)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m japan.fetch_neutral
+      - name: Commit refreshed anchor CSVs (if any changed)
+        run: |
+          git config user.name  "atlas-bot"
+          git config user.email "noreply@anthropic.com"
+          if ! git diff --quiet -- japan/data/anchors/ferreira_rstar_jp.csv japan/data/anchors/tankan_infl_5y.csv; then
+            git add japan/data/anchors/ferreira_rstar_jp.csv japan/data/anchors/tankan_infl_5y.csv
+            git commit -m "Refresh neutral-anchor fallbacks (Ferreira r*, Tankan 5y) [skip ci]"
+            git push
+          else
+            echo "no anchor changes"
+          fi
