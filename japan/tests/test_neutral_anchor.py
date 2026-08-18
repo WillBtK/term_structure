@@ -6,6 +6,14 @@ import pytest
 from japan import neutral_anchor as na
 
 
+@pytest.fixture(autouse=True)
+def _no_smoothing(monkeypatch):
+    """The ladder/calibration tests below use minimal constant synthetic series and assert
+    exact levels, so they isolate the ladder logic from the RW endpoint smoother (which is
+    exercised separately in test_rw_smoother_*). Pin SMOOTH off for them."""
+    monkeypatch.setattr(na, "SMOOTH", False)
+
+
 def _write(d, name, rows):
     p = d / na.FILES[name]
     pd.DataFrame(rows, columns=["date", "value"]).to_csv(p, index=False)
@@ -72,3 +80,48 @@ def test_tankan_tail_extends_cpi(tmp_path):
     # offset = mean(CPI - Tankan) over overlap = (1.0 - 1.2) = -0.2, so 2025 pi^e = 1.8-0.2 = 1.6%
     assert abs(s.loc["2022-06-30"] - 0.010) < 1e-6
     assert abs(s.loc["2025-06-30"] - 0.016) < 1e-6
+
+
+# --- RW endpoint smoother (removes the intermittent-survey staircase) ---
+
+def test_rw_smoother_removes_step_and_keeps_edge(monkeypatch):
+    """A single large jump between two flat runs of quarterly reads becomes a smooth ramp
+    (the step is spread), while a long flat trailing run leaves the edge ~the last read."""
+    monkeypatch.setattr(na, "SMOOTH", True)
+    dts = pd.date_range("2023-01-15", periods=9, freq="91D")     # ~quarterly reads
+    reads = pd.Series([0.5, 0.5, 0.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5], index=dts)
+    idx = pd.date_range("2023-01-31", "2025-01-31", freq="M")
+    out = na._rw_smooth(reads, idx)
+    # the raw series steps 100bp in one release; the smoothed monthly path never jumps that hard
+    assert out.diff().abs().max() < 0.60
+    # the ramp across the jump is monotone up and brackets the two levels
+    win = out.loc["2023-07-31":"2024-04-30"]
+    assert (win.diff().dropna() >= -1e-9).all()
+    assert 0.5 < win.iloc[len(win) // 2] < 1.5
+    # with many flat 1.5 reads at the end, the filter converges -> edge ~1.5 (de-noised)
+    assert abs(out.iloc[-1] - 1.5) < 0.03
+
+
+def test_rw_smoother_no_lookahead_at_edge(monkeypatch):
+    """Absent any read beyond date T, the smoothed value at T is unchanged by extending the
+    grid into the future, and the post-T path extrapolates FLAT — the edge uses only past
+    reads (no look-ahead). (Interior points DO get revised when a later read actually arrives;
+    that is the intended ex-post smoother, not a leak.)"""
+    monkeypatch.setattr(na, "SMOOTH", True)
+    reads = pd.Series([0.5, 0.6, 0.7],
+                      index=pd.to_datetime(["2023-01-15", "2023-04-15", "2023-07-15"]))
+    short = na._rw_smooth(reads, pd.date_range("2023-01-31", "2023-07-31", freq="M"))
+    long = na._rw_smooth(reads, pd.date_range("2023-01-31", "2024-06-30", freq="M"))
+    # edge value at 2023-07-31 identical whether or not the grid runs on past it
+    assert abs(short.loc["2023-07-31"] - long.loc["2023-07-31"]) < 1e-9
+    # beyond the last read the path is flat (no future read to bend it)
+    assert long.loc["2023-10-31":].std() < 1e-6
+
+
+def test_rw_smoother_degenerate_falls_back(monkeypatch):
+    """<2 reads -> plain carry-forward (no state-space)."""
+    monkeypatch.setattr(na, "SMOOTH", True)
+    one = pd.Series([1.0], index=pd.to_datetime(["2023-01-15"]))
+    idx = pd.date_range("2023-01-31", "2023-06-30", freq="M")
+    out = na._rw_smooth(one, idx)
+    assert np.allclose(out.to_numpy(), 1.0)

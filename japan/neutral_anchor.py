@@ -43,6 +43,17 @@ logger = logging.getLogger(__name__)
 ANCHOR_DIR = Path(__file__).resolve().parent / "data" / "anchors"
 BOJ_TARGET_PCT = 2.0            # last-resort inflation anchor (BoJ's 2% target)
 STALENESS_DAYS = 550           # carry a Consensus short-rate release this long before -> bridge
+# Endpoint smoothing (random-walk local-level state-space on the intermittent survey reads).
+# The surveys release ~quarterly, so a plain carry-forward makes the endpoint a staircase
+# (e.g. the +42bp step on the 2024-07-08 Consensus release). SMOOTH replaces that with a
+# Kalman smoother over history and the causal filter at the current edge: the interior path
+# is interpolated between reads (no artificial step; single-release noise damped) while the
+# right edge uses only past reads (no look-ahead), so today's value still tracks the latest
+# survey. OBS_STD/DRIFT_STD are in percent; DRIFT_STD is the RW innovation per YEAR (the
+# latent neutral is slow-moving) and OBS_STD the noise attributed to a single survey read.
+SMOOTH = True
+SMOOTH_OBS_STD = 0.15          # % — measurement noise on one survey release
+SMOOTH_DRIFT_STD = 0.28        # %/yr — random-walk drift of the latent neutral
 FILES = {
     "shortrate": "consensus_shortrate_6_10y.csv",   # primary nominal short-rate survey, 2017+
     "cpi":       "consensus_cpi_6_10y.csv",          # inflation survey, 1990+
@@ -75,6 +86,61 @@ def _locf(s: pd.Series, index: pd.DatetimeIndex) -> pd.Series:
     """Carry the last observation forward onto ``index`` (releases are intermittent).
     Dates before the first release stay NaN (the model uses constant-theta there)."""
     return s.reindex(s.index.union(index)).sort_index().ffill().reindex(index)
+
+
+def _rw_smooth(s: pd.Series, index: pd.DatetimeIndex,
+               obs_std: float = SMOOTH_OBS_STD, drift_std: float = SMOOTH_DRIFT_STD) -> pd.Series:
+    """Random-walk local-level Kalman filter + RTS smoother of an intermittent survey series
+    onto ``index``. The latent neutral follows ``x_t = x_{t-1} + w`` (``Var(w)=drift_std**2``
+    per YEAR); each release is a noisy read ``y = x + v`` (``Var(v)=obs_std**2``). Returns the
+    SMOOTHED mean over the interior (interpolating between reads, damping single-release noise)
+    and, because the RTS recursion adds no information beyond the last read, the CAUSAL FILTER
+    value at/after the last release — so the current edge uses only past reads (no look-ahead)
+    and still tracks the latest survey. Dates before the first release stay NaN (constant-theta).
+
+    Falls back to plain carry-forward for a degenerate series (<2 reads)."""
+    obs = s.dropna().sort_index()
+    if len(obs) < 2:
+        return _locf(s, index)
+    grid = obs.index.union(pd.DatetimeIndex(index)).sort_values().unique()
+    grid = pd.DatetimeIndex(grid)
+    y = pd.Series(np.nan, index=grid)
+    y.loc[obs.index] = obs.to_numpy()
+    yv = y.to_numpy()
+    t_years = grid.view("int64") / 8.64e13 / 365.25          # ns -> days -> years
+    q, r = float(drift_std) ** 2, float(obs_std) ** 2
+    n = len(grid)
+    xp = np.empty(n); Pp = np.empty(n)                        # one-step-ahead prediction
+    xf = np.empty(n); Pf = np.empty(n)                        # filtered
+    x, P = float(obs.iloc[0]), r                             # init at the first read
+    prev = t_years[0]
+    for i in range(n):
+        dt = t_years[i] - prev if i else 0.0
+        x_pred, P_pred = x, P + q * max(dt, 0.0)             # RW predict
+        xp[i], Pp[i] = x_pred, P_pred
+        yi = yv[i]
+        if np.isfinite(yi):                                  # update on a release
+            K = P_pred / (P_pred + r)
+            x, P = x_pred + K * (yi - x_pred), (1.0 - K) * P_pred
+        else:
+            x, P = x_pred, P_pred
+        xf[i], Pf[i] = x, P
+        prev = t_years[i]
+    xs = xf.copy()                                           # RTS backward smoother
+    for i in range(n - 2, -1, -1):
+        C = Pf[i] / Pp[i + 1] if Pp[i + 1] > 0 else 0.0
+        xs[i] = xf[i] + C * (xs[i + 1] - xp[i + 1])
+    out = pd.Series(xs, index=grid).reindex(pd.DatetimeIndex(index))
+    out[pd.DatetimeIndex(index) < obs.index[0]] = np.nan     # keep pre-first-read NaN
+    return out
+
+
+def _align(s: "pd.Series | None", index: pd.DatetimeIndex) -> pd.Series:
+    """Align an intermittent survey series onto ``index``: RW smoother when ``SMOOTH`` (removes
+    the release-date staircase), else plain carry-forward. Inert on ``None`` (all-NaN)."""
+    if s is None:
+        return pd.Series(np.nan, index=index)
+    return _rw_smooth(s, index) if SMOOTH else _locf(s, index)
 
 
 def build_nominal_neutral(index, dir: Path = ANCHOR_DIR):
@@ -116,7 +182,7 @@ def build_nominal_neutral(index, dir: Path = ANCHOR_DIR):
     #     short-rate and a CPI survey, back out a CONSTANT real rate from their overlap
     #     (r ~= 3m-interbank 6-10y - CPI 6-10y) and hold it through history. ---
     if rstar is not None:
-        rr_i, rr_src = _locf(rstar, index), "ferreira"
+        rr_i, rr_src = _align(rstar, index), "ferreira"
     elif sr is not None and cpi is not None:
         rspan = pd.date_range(max(sr.index.min(), cpi.index.min()),
                               min(sr.index.max(), cpi.index.max()), freq="M")
@@ -124,12 +190,12 @@ def build_nominal_neutral(index, dir: Path = ANCHOR_DIR):
         rr_i, rr_src = pd.Series(rr_const, index=index), "implied_from_overlap"
     else:
         rr_i, rr_src = pd.Series(np.nan, index=index), "none"
-    bridge = rr_i + _locf(pie, index)
+    bridge = rr_i + _align(pie, index)
 
     src = pd.Series("bridge", index=index)
     c = 0.0
     if sr is not None:
-        sr_i = _locf(sr, index)
+        sr_i = _align(sr, index)
         ov = sr_i.dropna().index.intersection(bridge.dropna().index)
         c = float((sr_i[ov] - bridge[ov]).mean()) if len(ov) else 0.0
         bridge = bridge + c                                         # level-calibrate bridge to survey
