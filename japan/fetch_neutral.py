@@ -40,16 +40,27 @@ TANKAN_NOTE = os.environ.get(
     "TANKAN_URL", "https://www.boj.or.jp/en/statistics/tk/bukka/index.htm")
 
 
-def _find_data_href(page_url: str, exts=(".csv", ".xlsx", ".xls")) -> "str | None":
-    """Fetch a landing page and return the first absolute link to a data file."""
+def _find_data_href(page_url: str, exts=(".csv", ".xlsx", ".xls"), _depth: int = 1) -> "str | None":
+    """Fetch a landing page and return the first absolute link to a data file. If none is
+    directly linked, follow up to a few 'data/comprehensive/release' sub-links one level."""
+    from urllib.parse import urljoin
     r = requests.get(page_url, headers=_UA, timeout=_TIMEOUT)
     r.raise_for_status()
     hrefs = re.findall(r'href=["\']([^"\']+)["\']', r.text, flags=re.I)
     cand = [h for h in hrefs if h.lower().split("?")[0].endswith(exts)]
-    if not cand:
-        return None
-    from urllib.parse import urljoin
-    return urljoin(page_url, cand[0])
+    if cand:
+        return urljoin(page_url, cand[0])
+    if _depth > 0:
+        subs = [urljoin(page_url, h) for h in hrefs
+                if re.search(r"(comprehensive|dataset|/data/|release|bukka)", h, re.I)][:6]
+        for su in subs:
+            try:
+                hit = _find_data_href(su, exts, _depth=0)
+                if hit:
+                    return hit
+            except Exception:                                     # noqa: BLE001
+                continue
+    return None
 
 
 def _period_to_date(x) -> "pd.Timestamp | None":
@@ -97,7 +108,8 @@ def fetch_ferreira() -> bool:
         df = (pd.read_excel(io.BytesIO(raw.content)) if url.lower().split("?")[0].endswith(("xlsx", "xls"))
               else pd.read_csv(io.StringIO(raw.content.decode("utf-8", "replace"))))
         cols = {str(c).strip().lower(): c for c in df.columns}
-        jp = next((cols[k] for k in cols if k in ("japan", "jpn", "jp") or "japan" in k), None)
+        # Ferreira uses 2-letter economy codes (JA=Japan, EA=euro area, SZ=Switzerland, ...).
+        jp = next((cols[k] for k in cols if k in ("japan", "jpn", "jp", "ja") or "japan" in k), None)
         pcol = next((cols[k] for k in cols if k in ("date", "period", "time", "year") or "date" in k or "period" in k),
                     df.columns[0])
         if jp is None:
