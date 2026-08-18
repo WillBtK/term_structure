@@ -64,20 +64,27 @@ def _find_data_href(page_url: str, exts=(".csv", ".xlsx", ".xls"), _depth: int =
 
 
 def _period_to_date(x) -> "pd.Timestamp | None":
-    """Parse a Ferreira period label -> a month-end date: '2024H1'/'2024:H1'/'2024.5'
-    -> Jun-30; '2024H2'/'2024' -> Dec-31; else pandas date parse."""
+    """Parse a Ferreira half-year period label -> a month-end date. Handles
+    '2024H1'/'2024:H1'/'2024:1'/'2024-S1'/'2024.5' (-> Jun-30), '2024H2'/'2024'/'2024.0'
+    (-> Dec-31), quarter decimals '.25'/'.75', 'YYYYMM' ints, and pandas-parseable dates."""
     s = str(x).strip()
-    m = re.match(r"^(\d{4})\s*[:\-]?\s*[Hh]?\s*([12])$", s)
+    m = re.match(r"^(\d{4})\s*[:\-_/]?\s*[HhSsQq]?\s*([12])$", s)          # 2024H1 / 2024:1 / 2024-S2
     if m:
         y, half = int(m.group(1)), int(m.group(2))
         return pd.Timestamp(y, 6, 30) if half == 1 else pd.Timestamp(y, 12, 31)
-    if re.match(r"^\d{4}(\.0)?$", s):
-        return pd.Timestamp(int(float(s)), 12, 31)
-    if re.match(r"^\d{4}\.5$", s):
-        return pd.Timestamp(int(float(s)), 6, 30)
+    m = re.match(r"^(\d{4})\.(\d+)$", s)                                   # decimal year: 2024.0/.25/.5/.75
+    if m:
+        y, frac = int(m.group(1)), float("0." + m.group(2))
+        month = {0.0: 12, 0.25: 3, 0.5: 6, 0.75: 9}.get(round(frac, 2))
+        if month:
+            return pd.Timestamp(y, month, 1) + pd.offsets.MonthEnd(0)
+    if re.match(r"^\d{4}$", s):                                            # bare year -> year-end
+        return pd.Timestamp(int(s), 12, 31)
+    if re.match(r"^\d{6}$", s):                                            # YYYYMM
+        return pd.Timestamp(int(s[:4]), int(s[4:6]), 1) + pd.offsets.MonthEnd(0)
     try:
         return pd.Timestamp(pd.to_datetime(s))
-    except Exception:                                              # noqa: BLE001
+    except Exception:                                                      # noqa: BLE001
         return None
 
 
@@ -116,6 +123,8 @@ def fetch_ferreira() -> bool:
             logger.warning("fetch_neutral: no Japan column in Ferreira file (cols=%s)", list(df.columns)[:12])
             return False
         idx = df[pcol].map(_period_to_date)
+        logger.info("fetch_neutral: Ferreira col=%s period=%s; period sample=%s -> parsed %d/%d",
+                    jp, pcol, list(map(str, df[pcol].head(4).tolist())), int(idx.notna().sum()), len(idx))
         s = pd.Series(pd.to_numeric(df[jp], errors="coerce").to_numpy(), index=idx)
         s = s[s.index.notna()]
         return _write_if_ok("ferreira_rstar_jp.csv", s)
