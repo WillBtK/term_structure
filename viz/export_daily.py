@@ -150,7 +150,17 @@ def build_canonical() -> pd.DataFrame:
         if vm == "ycc":
             from japan import config as j
             var_mult_fn = j.ycc_downweight
-        frame = filter_forward(prod, panel, dt=DT_DAILY, var_mult_fn=var_mult_fn)
+        endpoint = None
+        if cc == "JP" and inst == "nominal":
+            # Neutral-rate shifting endpoint for Japan's expected-rate path (fixes the
+            # deflation-era theta anchor). Inert (all-NaN -> constant-theta) until the
+            # survey/r* CSVs are committed under japan/data/anchors/. See japan.neutral_anchor.
+            from japan.neutral_anchor import build_nominal_neutral
+            endpoint, ameta = build_nominal_neutral(panel.index)
+            meta.setdefault("anchors", {})["JP"] = {k: v for k, v in ameta.items()
+                                                    if k != "src_by_date"}
+        frame = filter_forward(prod, panel, dt=DT_DAILY, var_mult_fn=var_mult_fn,
+                               endpoint=endpoint)
         frame = frame.rename(columns={"observed_yield": "observed",
                                       "expected_rate": "expected"})
         frame["country"] = cc

@@ -49,6 +49,11 @@ def run_japan_production(start: str = cfg.SAMPLE_START, end=None,
     """
     panel = build_yield_panel(grid=cfg.COMMON_GRID, freq="M", start=start)
     var_mult_fn = cfg.ycc_downweight if downweight_ycc else None
+    # Neutral-rate shifting endpoint (japan.neutral_anchor); inert until the survey/r*
+    # CSVs are committed. Aligned to the monthly estimation dates.
+    from japan.neutral_anchor import build_nominal_neutral
+    endpoint, _ = build_nominal_neutral(panel.index)
     return run_production_tp(start=start, end=end, panel=panel, elb=elb,
                              estimate_elb=estimate_elb, maxiter=maxiter,
-                             n_boot=n_boot, seed=seed, var_mult_fn=var_mult_fn)
+                             n_boot=n_boot, seed=seed, var_mult_fn=var_mult_fn,
+                             endpoint=endpoint)

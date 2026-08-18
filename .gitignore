@@ -36,3 +36,8 @@ viz/data.json
 viz/global_factor_meta.json
 viz/params/global_factor.json
 scheduler/supabase_stage/
+
+# Committed neutral-rate anchor INPUTS (survey / r* CSVs + README) — not caches;
+# these must be versioned so the daily CI and a fresh clone reproduce the anchor.
+!japan/data/anchors/
+!japan/data/anchors/**

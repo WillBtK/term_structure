@@ -74,6 +74,7 @@ def expected_rate_yields(
     theta: np.ndarray,
     rho: np.ndarray,
     grid: np.ndarray,
+    endpoint: "np.ndarray | None" = None,
 ) -> np.ndarray:
     """Average expected short rate under P (the expectations component).
 
@@ -100,6 +101,9 @@ def expected_rate_yields(
     dev = states - theta  # (T, n)
     const = float(rho @ theta)
 
+    ep = None if endpoint is None else np.asarray(endpoint, dtype=float).ravel()
+    if ep is not None:
+        ep = np.where(np.isfinite(ep), ep, const)               # NaN rows -> no shift
     out = np.empty((states.shape[0], grid.size), dtype=float)
     for j, tau in enumerate(grid):
         if tau <= 0:
@@ -108,6 +112,8 @@ def expected_rate_yields(
         avg_transition = Kinv @ (I - expm(-K * tau)) / tau  # (n, n)
         loading = rho @ avg_transition  # (n,)
         out[:, j] = const + dev @ loading
+        if ep is not None:                                      # shifting endpoint (see floored version)
+            out[:, j] += (ep - const) * (1.0 - loading[0])
     return out
 
 
@@ -141,6 +147,7 @@ def expected_floored_short_rate_yields(
     rho: np.ndarray,
     grid: np.ndarray,
     n_per_year: int = 48,
+    endpoint: "np.ndarray | None" = None,
 ) -> np.ndarray:
     """Average expected **floored** short rate under P — the expectations leg of
     the *shadow-rate* term premium.
@@ -181,6 +188,16 @@ def expected_floored_short_rate_yields(
     dev = states - theta                                        # (T, n)
     const = float(rho @ theta)
     mu = const + dev @ mrow.T                                   # (T, Kk): E^P[s_{t+u}]
+    if endpoint is not None:
+        # Shifting-endpoint anchor (Kozicki-Tinsley): re-target the steady-state
+        # shadow short rate rho'theta to a per-date ``endpoint`` (e.g. a survey/r*+pi*
+        # neutral), by shifting the LEVEL-factor mean by delta_t = endpoint_t - rho'theta.
+        # Adds delta_t*(1 - rho'e^{-Ku}·e_L): 0 at u=0 (today's short rate untouched) and
+        # -> delta_t as u->inf (long-run reverts to ``endpoint``). Leaves Q/fitted yields.
+        ep = np.asarray(endpoint, dtype=float).ravel()          # (T,)
+        ep = np.where(np.isfinite(ep), ep, const)               # NaN rows -> no shift
+        delta = ep - const                                      # (T,)
+        mu = mu + delta[:, None] * (1.0 - mrow[:, 0][None, :])
 
     floored = np.empty_like(mu)
     pos = sigP > 0

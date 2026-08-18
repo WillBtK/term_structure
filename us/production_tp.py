@@ -85,7 +85,7 @@ class ProductionParams:
 
 
 def _assemble_tp(states, fitted, K, theta, Sigma, elb, grid, dates,
-                 n_per_year: int = 24, observed=None) -> pd.DataFrame:
+                 n_per_year: int = 24, observed=None, endpoint=None) -> pd.DataFrame:
     """Canonical tidy term-premium frame from a shadow fit + a P-dynamics K.
 
     ``fitted`` are the shadow (ELB) fitted yields (T,m); the expectations leg is
@@ -109,7 +109,8 @@ def _assemble_tp(states, fitted, K, theta, Sigma, elb, grid, dates,
     fitted = np.asarray(fitted, dtype=float)
     grid = np.asarray(grid, dtype=float)
     expected = tp.expected_floored_short_rate_yields(
-        states, K, theta, Sigma, elb, sr.RHO, grid, n_per_year=n_per_year)
+        states, K, theta, Sigma, elb, sr.RHO, grid, n_per_year=n_per_year,
+        endpoint=endpoint)   # per-date neutral-rate anchor (None -> constant-theta)
     premium_fitted = fitted - expected
     obs = None if observed is None else np.asarray(observed, dtype=float)
     rows = []
@@ -128,7 +129,7 @@ def _assemble_tp(states, fitted, K, theta, Sigma, elb, grid, dates,
 
 
 def filter_forward(prod: ProductionParams, panel: pd.DataFrame,
-                   dt: float = 1.0 / 12, var_mult_fn=None) -> pd.DataFrame:
+                   dt: float = 1.0 / 12, var_mult_fn=None, endpoint=None) -> pd.DataFrame:
     """**Fast daily path**: decompose a yield panel with *cached* params — no
     estimation. This is the operation run every day to publish the term premium.
 
@@ -147,7 +148,7 @@ def filter_forward(prod: ProductionParams, panel: pd.DataFrame,
                                  n_per_year=prod.n_per_year, var_mult=var_mult)
     return _assemble_tp(xs, fits, prod.K_bc, prod.theta_for_expectations(),
                         np.diag(prod.params.sigma), prod.elb, grid, panel.index,
-                        n_per_year=prod.n_per_year, observed=Y)
+                        n_per_year=prod.n_per_year, observed=Y, endpoint=endpoint)
 
 
 MR_HALFLIFE_YEARS = 3.5   # calibrated (US, vs SF Fed C&R) mean-reversion half-life
@@ -159,7 +160,8 @@ def run_production_tp(start: str = "1987-01-01", end=None, maxiter: int = 5000,
                       panel=None, elb: float | None = None,
                       estimate_elb: bool = False, var_mult_fn=None,
                       persistence: str = "mrfloor",
-                      mr_halflife: float = MR_HALFLIFE_YEARS) -> dict:
+                      mr_halflife: float = MR_HALFLIFE_YEARS,
+                      endpoint=None) -> dict:
     """Estimate the production term premium (modern-sample shadow AFNS).
 
     Country-agnostic: pass another country's `panel` + `elb` (and
@@ -218,7 +220,8 @@ def run_production_tp(start: str = "1987-01-01", end=None, maxiter: int = 5000,
         K_expect = K
 
     ours = _assemble_tp(states, fitted, K_expect, theta, Sigma, elb, grid, dates,
-                        n_per_year=n_per_year, observed=observed)   # headline (realised)
+                        n_per_year=n_per_year, observed=observed,
+                        endpoint=endpoint)   # headline (realised); endpoint = neutral anchor if any
     ours_uncorr = _assemble_tp(states, fitted, K, theta, Sigma, elb, grid, dates,
                                n_per_year=n_per_year, observed=observed)  # raw ML comparison
     prod = ProductionParams(params=r["params"], K_bc=K_expect, elb=elb,
