@@ -46,6 +46,14 @@ PROD_START = "1999-01-01"     # euro era (modern production TP)
 BUNDESBANK_API = os.environ.get(
     "BUNDESBANK_API", "https://api.statistiken.bundesbank.de/rest/data/BBSIS")
 
+# Mirror of the same series on the public time-series database. The SDMX host
+# sits behind a bot-challenge ("Enodia") that answers automated clients with a
+# 303 to /.enodia/challenge; this endpoint serves the identical series and is
+# not challenged, so it is the fallback whenever the API path fails.
+BUNDESBANK_TSDB = os.environ.get(
+    "BUNDESBANK_TSDB", "https://www.bundesbank.de/statistic-rmi/StatisticDownload")
+BUNDESBANK_FLOW = "BBSIS"
+
 # key template: {FREQ}.I.ZST.{CODE}.EUR.S1311.B.A604.{POS}.R.A.A._Z._Z.A
 _SECTOR = "EUR.S1311.B.A604"
 _TAIL = "R.A.A._Z._Z.A"

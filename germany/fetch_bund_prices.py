@@ -4,17 +4,28 @@ securities" (the raw material for the Bund liquidity 'noise' gauge).
 Unlike the term-structure curve (SDMX flow BBSIS), the per-security reference prices
 and yields are a **service download**: one monthly workbook per month, linked directly
 from the index page at opaque per-file blob URLs. Each month exposes both an Excel file
-(``YYYY-MM-excel-data.xlsx``) and a PDF (``YYYY-MM-data.pdf``); we take the XLSX. The
-index shows the most recent ~5 months, so the fetcher accumulates the union into a
-parquet cache (history grows month-by-month as the daily job runs). This fetcher scrapes
-the index for the ``-excel-data.xlsx`` blobs, parses each workbook to a tidy
-``(date, isin, maturity, yield)`` panel, and caches the union.
+(``YYYY-MM-excel-data.xlsx``) and a PDF (``YYYY-MM-data.pdf``); we take the XLSX. This
+fetcher scrapes the index for the ``-excel-data.xlsx`` blobs, parses each workbook to a
+tidy ``(date, isin, maturity, yield)`` panel, and unions it into the store.
 
-Egress: Bundesbank is only reachable from the daily GitHub job (open egress), not the
-dev sandbox — so this is exercised in CI. Run ``python -m germany.fetch_bund_prices
---probe`` on a runner to dump the discovered file URLs and one workbook's structure
-(used to pin the column mapping); ``--refresh`` (default in the daily job) rebuilds the
-cache.
+HISTORY IS RETAINED, NOT RE-FETCHABLE. The index exposes only the most recent ~5
+months, and no Bundesbank source reachable from the pipeline backfills the rest:
+
+  * the SDMX per-ISIN yield flow ``BBSSY`` drops a security roughly four years after
+    it matures (verified 2026-08: the disseminated set spans maturities 2022-2056;
+    ``DE0001135051``, the Bund 4.125% of 2008, returns HTTP 404, and on 2005-06-15
+    only 10 of the 121 series carry a value — the survivors, not the contemporaneous
+    cross-section);
+  * the Kapitalmarktstatistik monthly supplements are aggregate tables with no
+    per-security rows.
+
+So the union is written to ``vcfg.BUND_PRICES_STORE`` — a VERSIONED file the daily CI
+job commits — and every run merges the fresh months into it. A trading day that scrolls
+off the index survives only because it was captured while it was there.
+
+Run ``python -m germany.fetch_bund_prices --probe`` to dump the discovered file URLs
+and one workbook's structure (used to pin the column mapping); ``--refresh`` (the daily
+job's default) scrapes the exposed months and merges them into the store.
 
 STATUS: the index/workbook layout is confirmed via the --probe run (files linked
 directly from the index; XLSX available); the column mapping uses keyword detection
@@ -147,34 +158,73 @@ def parse_workbook(content: bytes) -> pd.DataFrame:
     return out.dropna(subset=["date", "maturity", "yield"])
 
 
+_PANEL_COLS = ["date", "isin", "maturity", "yield", "name"]
+
+
+def _read_store() -> pd.DataFrame:
+    """The accumulated per-ISIN archive, or an empty frame when there is none."""
+    path = vcfg.BUND_PRICES_STORE
+    if path.exists():
+        try:
+            return pd.read_parquet(path)
+        except Exception as exc:                                    # noqa: BLE001
+            logger.warning("unreadable Bund store %s: %s", path, exc)
+    return pd.DataFrame(columns=_PANEL_COLS)
+
+
+def _merge(*frames: pd.DataFrame) -> pd.DataFrame:
+    """Union of cross-sections, newest parse winning on a (date, isin) collision."""
+    parts = [f for f in frames if f is not None and len(f)]
+    if not parts:
+        return pd.DataFrame(columns=_PANEL_COLS)
+    out = pd.concat(parts, ignore_index=True)
+    # keep="last" so the freshly scraped workbook supersedes an older parse of the
+    # same trading day (revisions), while every day only IT has survives untouched.
+    return (out.sort_values(["date", "isin"])
+               .drop_duplicates(["date", "isin"], keep="last")
+               .reset_index(drop=True))
+
+
 def load_bund_yields(refresh: bool = True, limit: int | None = None) -> pd.DataFrame:
-    """Union of parsed monthly workbooks -> tidy ``(date, isin, maturity, yield)`` panel,
-    cached to parquet; falls back to the cache on any network failure."""
-    path = vcfg.BUND_PRICES_RAW_PARQUET
-    if not refresh and path.exists():
-        return pd.read_parquet(path)
+    """Tidy ``(date, isin, maturity, yield)`` panel of the per-ISIN cross-section.
+
+    This ACCUMULATES. The Bundesbank index publishes only the most recent ~5
+    monthly workbooks, and its per-ISIN yield archive (SDMX flow ``BBSSY``) retains
+    a security only about four years past maturity — so a date that scrolls off the
+    index cannot be re-fetched from anywhere. Each run therefore unions the freshly
+    scraped months into the versioned store (``BUND_PRICES_STORE``, committed by
+    CI) and returns the union, not just what the index happened to expose today.
+    """
+    store = _read_store()
+    cache = vcfg.BUND_PRICES_RAW_PARQUET
+    if not refresh:
+        if len(store):
+            return store
+        return pd.read_parquet(cache) if cache.exists() else store
+    scraped = []
     try:
-        urls = discover_workbook_urls(limit=limit)
-        frames = []
-        for u in urls:
+        for u in discover_workbook_urls(limit=limit):
             try:
-                frames.append(parse_workbook(_get(u)))
+                scraped.append(parse_workbook(_get(u)))
             except Exception as exc:                                # noqa: BLE001
                 logger.warning("parse failed %s: %s", u, exc)
-        panel = (pd.concat(frames, ignore_index=True).drop_duplicates(["date", "isin"])
-                 if frames else pd.DataFrame(columns=["date", "isin", "maturity", "yield"]))
-        if len(panel):
+    except Exception as exc:                                        # noqa: BLE001
+        logger.warning("index fetch failed (%s); using the accumulated store", exc)
+        if not len(store):
+            if cache.exists():
+                return pd.read_parquet(cache)
+            raise
+    panel = _merge(store, *scraped)
+    if len(panel):
+        before = len(store)
+        for path in (vcfg.BUND_PRICES_STORE, cache):
             path.parent.mkdir(parents=True, exist_ok=True)
             panel.to_parquet(path)
-            logger.info("Bund per-ISIN yields: %d rows, %s..%s, %d ISINs",
-                        len(panel), panel["date"].min().date(), panel["date"].max().date(),
-                        panel["isin"].nunique())
-        return panel
-    except Exception as exc:                                        # noqa: BLE001
-        if path.exists():
-            logger.warning("fetch failed (%s); using cached per-ISIN panel", exc)
-            return pd.read_parquet(path)
-        raise
+        logger.info("Bund per-ISIN yields: %d rows (+%d new), %s..%s, %d ISINs",
+                    len(panel), len(panel) - before,
+                    panel["date"].min().date(), panel["date"].max().date(),
+                    panel["isin"].nunique())
+    return panel
 
 
 def _probe() -> None:

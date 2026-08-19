@@ -23,7 +23,7 @@ on:
   workflow_dispatch: {}         # manual trigger (any branch)
 
 permissions:
-  contents: read
+  contents: write        # commit the accumulating Bund per-ISIN store
 
 concurrency:
   group: daily-term-premium
@@ -57,3 +57,18 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           SUPABASE_ATLAS_BUCKET: ${{ secrets.SUPABASE_ATLAS_BUCKET }}
         run: python -m scheduler.supabase_export
+      - name: Commit the accumulating Bund per-ISIN store (if it grew)
+        # The Bundesbank index publishes only the most recent ~5 monthly workbooks and
+        # its per-ISIN yield archive drops a security ~4 years past maturity, so a
+        # trading day that scrolls off cannot be re-fetched. Retaining the union here
+        # is the ONLY way the Bund liquidity gauge ever accumulates a history.
+        run: |
+          git config user.name  "atlas-bot"
+          git config user.email "noreply@anthropic.com"
+          git add germany/data/bund_prices/ 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "Accumulate Bund per-ISIN cross-section [skip ci]"
+            git push
+          else
+            echo "no new Bund cross-sections"
+          fi

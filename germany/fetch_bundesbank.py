@@ -26,8 +26,35 @@ logger = logging.getLogger(__name__)
 _DATE_RE = re.compile(r"^(\d{4}-\d{2}(?:-\d{2})?),([-0-9.]*)")
 
 
+def _has_observations(text: str) -> bool:
+    """True when the payload actually carries dated rows (not an error page)."""
+    return any(_DATE_RE.match(line) for line in io.StringIO(text))
+
+
+def _download_tsdb(series_key: str, timeout: int = 60) -> str:
+    """GET one series from the public time-series database (the un-challenged
+    mirror of the SDMX flow). Same ``YYYY-MM[-DD],value,flag`` body."""
+    import urllib.parse
+    import urllib.request
+    qs = urllib.parse.urlencode({
+        "tsId": f"{cfg.BUNDESBANK_FLOW}.{series_key}",
+        "its_csvFormat": "en", "its_fileFormat": "csv", "mode": "its",
+    })
+    req = urllib.request.Request(f"{cfg.BUNDESBANK_TSDB}?{qs}",
+                                 headers={"Accept": "text/csv"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read().decode("utf-8-sig")
+
+
 def _download_csv(series_key: str, timeout: int = 60) -> str:
-    """GET one BBSIS series as CSV (English). Raises on network/HTTP failure."""
+    """GET one BBSIS series as CSV (English).
+
+    Tries the SDMX API first, then the time-series-database mirror. The API host
+    is fronted by a bot challenge that answers automated clients with a 303 to
+    ``/.enodia/challenge`` — a *successful* HTTP response carrying no data — so a
+    clean status code is not enough: the payload must contain dated rows before
+    we accept it. Raises only when both routes fail.
+    """
     url = f"{cfg.BUNDESBANK_API}/{series_key}"
     params = {"format": "csv", "lang": "en"}
     headers = {"Accept": "text/csv"}
@@ -35,14 +62,16 @@ def _download_csv(series_key: str, timeout: int = 60) -> str:
         import requests
         r = requests.get(url, params=params, headers=headers, timeout=timeout)
         r.raise_for_status()
-        return r.content.decode("utf-8-sig")
-    except Exception:
-        import urllib.parse
-        import urllib.request
-        full = url + "?" + urllib.parse.urlencode(params)
-        req = urllib.request.Request(full, headers=headers)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read().decode("utf-8-sig")
+        text = r.content.decode("utf-8-sig")
+        if _has_observations(text):
+            return text
+        logger.warning("SDMX API returned no observations for %s "
+                       "(bot challenge?); falling back to the TSDB mirror",
+                       series_key)
+    except Exception as exc:
+        logger.warning("SDMX API failed for %s (%s); falling back to the "
+                       "TSDB mirror", series_key, exc)
+    return _download_tsdb(series_key, timeout=timeout)
 
 
 def parse_series(csv_text: str, freq: str = "M") -> pd.Series:

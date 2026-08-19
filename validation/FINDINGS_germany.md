@@ -135,10 +135,47 @@ service index page (`…/810710/…`) as `YYYY-MM-excel-data.xlsx`; each workboo
 **one sheet per trading day** (named `DD.MM.YYYY`) with columns
 `ISIN | Coupon | Description | Maturity | Residual life | Issue volume | Price |
 Yield in % | Dirty price`. The trading date is the **sheet name**, not a column.
-The index exposes ~5 recent months, so the cache accumulates month-by-month (deep
-history back-fill via the PDF archive is a deferred follow-up). Bundesbank is
-egress-blocked from the dev sandbox, so the fetch runs in the daily GitHub job;
-confirmed end-to-end via CI probes.
+The index exposes only ~5 recent months.
+
+**History can be retained, but not recovered (searched 2026-08-19).** The
+back-fill follow-up is closed as *not possible from any Bundesbank source we can
+reach*, and the honest read is that the deep history does not exist to be fetched:
+
+* **SDMX flow `BBSSY`** ("Yields by ISIN", key
+  `BBSSY.D.{REN|KCP|KDP}.EUR.{class}.{ISIN}.A`, class = the `A6xx` original-maturity
+  bucket) carries the full daily history of each security it disseminates — but it
+  **drops a security roughly four years after it matures**. The disseminated set is
+  121 ISINs spanning maturities **2022–2056**; nothing earlier. `DE0001135051` (Bund
+  4⅛% of 2008) returns HTTP 404, as do the other gap serials in the `DE00011135xx`
+  block. Querying the wildcard cross-section for **2005-06-15** returns values on
+  only **10** of the 121 series — the long bonds that happen to still be alive today,
+  i.e. a survivor sample, not the ~50–60-security cross-section that actually traded
+  that day. Fitting a noise measure to survivors would not be the same statistic.
+* **Kapitalmarktstatistik** (Statistisches Beiheft 2, PDFs back to the 1990s) is
+  aggregate — no per-security rows (checked the 2008-08 issue: 72 pages, zero ISINs).
+* The monthly workbook blob URLs are opaque CMS hashes with a constant trailing
+  segment, so older months are not addressable by pattern; `archive.org` is
+  egress-blocked.
+
+So the gauge's history is whatever we **capture and keep**. That was the second
+finding: `load_bund_yields` wrote only the freshly scraped months over the cache
+(no union), and the cache was gitignored on ephemeral CI runners — so the "history
+grows month-by-month" design had never actually accumulated anything, and the panel
+had been a rolling ~5-month window since day one. Fixed: the union is now written to
+a **versioned** store, `germany/data/bund_prices/individual_yields.parquet`, which the
+daily job commits (`daily-update.yml`), seeded 2026-08-19 with 7,687 rows /
+2026-04-01–2026-08-18 / 162 ISINs. Depth accrues at ~1 month per month from here; the
+panel stays hidden in the Atlas until the series is long enough to read.
+
+**Bot challenge on the SDMX host.** `api.statistiken.bundesbank.de` is fronted by an
+"Enodia" verification wall that answers automated clients with a 303 to
+`/.enodia/challenge`; it trips on burst traffic and, while tripped, took the German
+*curve* fetcher (flow `BBSIS`) down with it. `germany/fetch_bundesbank._download_csv`
+now treats a response carrying no dated rows as a failure and falls back to the
+un-challenged time-series-database mirror
+(`www.bundesbank.de/statistic-rmi/StatisticDownload?tsId=BBSIS.<key>&…`), which serves
+the identical series. Verified end-to-end: daily Svensson parameters, 10,610 rows,
+1997-08-01–2026-08-18.
 
 **Key correctness fix** — the workbook mixes nominal Bunds/Bobls/Schätze
 (DBR/OBL/BKO) with a few **inflation-linked** issues (`DBRI … I/L`). Linkers quote

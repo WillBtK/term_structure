@@ -64,3 +64,61 @@ def test_parse_workbook_skips_non_date_sheets():
     df = parse_workbook(_build_workbook(days))
     assert set(df["date"].dt.strftime("%Y-%m-%d")) == {"2026-08-05"}
     assert len(df) == 2
+
+
+# ---------------------------------------------------------------------------
+# Accumulation. The index exposes only the most recent ~5 monthly workbooks and no
+# reachable Bundesbank source backfills what scrolls off, so load_bund_yields must
+# UNION the scrape into the versioned store rather than replace it. This is the
+# invariant that broke silently before: the fetcher wrote only what it had just
+# scraped, so the "history" never grew past the rolling window.
+# ---------------------------------------------------------------------------
+import germany.fetch_bund_prices as fbp
+from validation import config as vcfg
+
+
+def _panel(dates, isins, yld=0.02):
+    return pd.DataFrame([
+        {"date": pd.Timestamp(d), "isin": i, "maturity": pd.Timestamp("2030-01-01"),
+         "yield": yld, "name": ""}
+        for d in dates for i in isins])
+
+
+def test_merge_unions_and_prefers_the_fresh_parse():
+    old = _panel(["2026-01-02", "2026-01-03"], ["DE0001102408"], yld=0.01)
+    new = _panel(["2026-01-03", "2026-01-06"], ["DE0001102408"], yld=0.02)
+    out = fbp._merge(old, new)
+    assert len(out) == 3                                  # 01-02, 01-03, 01-06
+    got = out.set_index("date")["yield"]
+    assert got[pd.Timestamp("2026-01-02")] == 0.01        # only the store had it
+    assert got[pd.Timestamp("2026-01-03")] == 0.02        # fresh parse wins
+    assert got[pd.Timestamp("2026-01-06")] == 0.02
+
+
+def test_load_keeps_days_that_scrolled_off_the_index(tmp_path, monkeypatch):
+    monkeypatch.setattr(vcfg, "BUND_PRICES_STORE", tmp_path / "store.parquet")
+    monkeypatch.setattr(vcfg, "BUND_PRICES_RAW_PARQUET", tmp_path / "cache.parquet")
+    # first run sees January; a later run sees only February (January has scrolled off)
+    monkeypatch.setattr(fbp, "discover_workbook_urls", lambda limit=None: ["u1"])
+    monkeypatch.setattr(fbp, "_get", lambda url, timeout=60: b"")
+    monkeypatch.setattr(fbp, "parse_workbook",
+                        lambda _c: _panel(["2026-01-02"], ["DE0001102408"]))
+    first = fbp.load_bund_yields(refresh=True)
+    assert set(first["date"]) == {pd.Timestamp("2026-01-02")}
+
+    monkeypatch.setattr(fbp, "parse_workbook",
+                        lambda _c: _panel(["2026-02-02"], ["DE0001102408"]))
+    second = fbp.load_bund_yields(refresh=True)
+    assert set(second["date"]) == {pd.Timestamp("2026-01-02"), pd.Timestamp("2026-02-02")}
+
+
+def test_index_failure_falls_back_to_the_store(tmp_path, monkeypatch):
+    monkeypatch.setattr(vcfg, "BUND_PRICES_STORE", tmp_path / "store.parquet")
+    monkeypatch.setattr(vcfg, "BUND_PRICES_RAW_PARQUET", tmp_path / "cache.parquet")
+    _panel(["2026-01-02"], ["DE0001102408"]).to_parquet(tmp_path / "store.parquet")
+
+    def boom(limit=None):
+        raise RuntimeError("index unreachable")
+    monkeypatch.setattr(fbp, "discover_workbook_urls", boom)
+    out = fbp.load_bund_yields(refresh=True)
+    assert set(out["date"]) == {pd.Timestamp("2026-01-02")}

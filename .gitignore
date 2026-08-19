@@ -41,3 +41,10 @@ scheduler/supabase_stage/
 # these must be versioned so the daily CI and a fresh clone reproduce the anchor.
 !japan/data/anchors/
 !japan/data/anchors/**
+
+# Committed Bund per-ISIN cross-section STORE — an accumulating archive, not a
+# cache. The Bundesbank index exposes only the most recent ~5 monthly workbooks
+# and does not retain matured securities, so history exists only if we keep it:
+# every daily CI run unions the fresh months into this file and commits it.
+!germany/data/bund_prices/
+!germany/data/bund_prices/**

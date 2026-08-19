@@ -51,3 +51,45 @@ def test_reconstruct_from_bundesbank_params_matches_manual():
                              mask_by_availability=False)
     expect2 = svensson_yield(2.0, 4.05, -1.80, 28.2, -29.7, 1.63, 1.75) / 100.0
     assert panel.iloc[0][2.0] == pytest.approx(expect2, abs=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# The SDMX API host is fronted by a bot challenge that answers automated clients
+# with a redirect to an HTML verification page — a 200 carrying no observations.
+# _download_csv must recognise that as a failure and fall through to the
+# time-series-database mirror rather than handing an empty frame downstream.
+# ---------------------------------------------------------------------------
+CHALLENGE_HTML = (
+    '<!doctype html><html><head><title>Enodia Verification</title>'
+    '<script src="/.enodia/static/sha256.js"></script></head><body></body></html>'
+)
+
+
+def test_download_falls_back_when_the_api_returns_no_observations(monkeypatch):
+    from germany import fetch_bundesbank as fb
+
+    class _Resp:
+        content = CHALLENGE_HTML.encode()
+        def raise_for_status(self): pass
+
+    import requests
+    monkeypatch.setattr(requests, "get", lambda *a, **k: _Resp())
+    monkeypatch.setattr(fb, "_download_tsdb", lambda key, timeout=60: FIXTURE)
+    out = fb._download_csv("M.I.ZST.B0.EUR.S1311.B.A604._Z.R.A.A._Z._Z.A")
+    assert out is FIXTURE
+    assert not fb._has_observations(CHALLENGE_HTML)
+    assert fb._has_observations(FIXTURE)
+
+
+def test_download_keeps_the_api_response_when_it_carries_data(monkeypatch):
+    from germany import fetch_bundesbank as fb
+
+    class _Resp:
+        content = FIXTURE.encode()
+        def raise_for_status(self): pass
+
+    import requests
+    monkeypatch.setattr(requests, "get", lambda *a, **k: _Resp())
+    monkeypatch.setattr(fb, "_download_tsdb",
+                        lambda key, timeout=60: pytest.fail("mirror must not be used"))
+    assert fb._download_csv("M.I.ZST.B0.EUR.S1311.B.A604._Z.R.A.A._Z._Z.A") == FIXTURE

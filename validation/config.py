@@ -126,4 +126,12 @@ BUND_PRICES_INDEX = os.environ.get(
     "https://www.bundesbank.de/dynamic/action/en/service/federal-securities/"
     "prices-and-yields/810710/prices-and-yields-of-listed-federal-securities")
 BUND_PRICES_RAW_PARQUET = DATA_DIR / "bund_individual_yields.parquet"
+# Accumulating, VERSIONED store of the per-ISIN cross-section. The index page
+# exposes only the most recent ~5 monthly workbooks, and the Bundesbank's per-ISIN
+# yield archive (SDMX flow BBSSY) drops a security roughly four years after it
+# matures — so history cannot be re-fetched, only retained. Each run unions the
+# freshly scraped months into this file; CI commits it.
+BUND_PRICES_STORE = (Path(__file__).resolve().parent.parent
+                     / "germany" / "data" / "bund_prices"
+                     / "individual_yields.parquet")
 BUND_NOISE_PARQUET = DATA_DIR / "bund_noise_daily.parquet"
