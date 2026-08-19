@@ -249,9 +249,13 @@ and `viz/artifact.html`, and republishes the Atlas. See `scheduler/README.md`.
 1. **US** — DONE. Modern production TP (1987+ shadow AFNS + BRW) validated vs
    SF Fed; separate 1961+ historical/regime exhibit. See `validation/FINDINGS_phase5.md`.
 2. **Germany** — DONE. Bundesbank Svensson data (`/germany`), reconstruction
-   < 0.6 bp vs published spots; euro-era (1999+) production TP; the ELB is well
-   identified and validates the −1.0% (Praet) calibration. See
-   `validation/FINDINGS_germany.md`.
+   < 0.6 bp vs published spots; the ELB is well identified and validates the −1.0%
+   (Praet) calibration. Production is fit on the **regime-clean 1984+ sample** — a
+   2-regime Kim filter on the full 1972+ curve dates the permanent level break at
+   **1983-11** (anchor 11.9% → 2.5%, one switch in 647 months), so monetary union is
+   invisible to the rate regime and the old 1999 start discarded 180 months of
+   same-regime data. Latest 10y TP **+0.58%** (was +1.39% on the 1999+ fit). See
+   `validation/FINDINGS_germany.md` and `validation/FINDINGS_regime_dating.md`.
 3. **Japan** — DONE. MoF JGB spot yields (`/japan`), ragged panel; ML ELB
    −0.20% (validates the NIRP anchor); YCC measurement-downweight on the pegged
    10y/7y. Production is fit on the **regime-clean 2000-05+ sample** — a 2-regime
@@ -267,9 +271,14 @@ and `viz/artifact.html`, and republishes the Atlas. See `scheduler/README.md`.
    sample-mean θ for the expectations leg). See `validation/FINDINGS_japan.md`
    and `validation/FINDINGS_mean_reversion.md`.
 4. **UK** — DONE. BoE Government Liability Curve (`/uk`, direct spot rates,
-   1970→2026), mild fixed ELB (weakly identified). Modern production TP on the
-   inflation-targeting era (1992+); 10y TP ~1.5% (among the highest, reflecting
-   gilt/fiscal premia). See `validation/FINDINGS_uk.md`.
+   1970→2026), mild fixed ELB (weakly identified). Production is fit on the
+   **regime-clean 1995-11+ sample**: the Kim filter puts the last sustained spell in
+   the high-anchor regime at 1982-07…1995-10, so the gilt curve re-anchored three
+   years *after* inflation targeting was announced and the old 1992-10 start sat 37
+   months inside the old regime. Applies to the index-linked curve too, so the
+   inflation-risk premium is not a sample artefact. 10y TP **+1.66%** nominal /
+   **+1.34%** real. See `validation/FINDINGS_uk.md` and
+   `validation/FINDINGS_regime_dating.md`.
 5. **Switzerland** — DONE. SNB `rendoblim` CHF spot curve (`/switzerland`,
    direct spot rates, 1988+, ragged long end from 1997-12), fixed ELB −0.75%
    (the revealed SNB floor). 10y term premium the **lowest of the five** (deepest
@@ -277,7 +286,10 @@ and `viz/artifact.html`, and republishes the Atlas. See `scheduler/README.md`.
 6. **Canada** — DONE. Bank of Canada fitted **zero-coupon** curve (`/canada`,
    `lookup_yield_curve.php` CSV, direct spot yields 0.25–30y, 1986+, 30y from 1991),
    shadow-rate + BRW on the 1991+ inflation-targeting sample; ELB calibrated near 0%
-   and ML-refined (weakly identified — Canada only grazed the bound). 6th market in
+   and ML-refined (weakly identified — Canada only grazed the bound). The regime
+   filter **cannot test** this start: the curve begins only five years before the 1991
+   policy change, and the fit returns unidentified anchors (31–39%) that move between
+   restarts, so the date rests on the policy record. 6th market in
    the atlas, and included in the global-cycle factor (a deep, liquid G7 market).
 
 ### Inflation-linked extension (US + UK real curves)

@@ -56,7 +56,36 @@ discarded window is the *high*-premium one, so extending the sample lifts the sa
 mean anchor and is expected to **lower** the current estimated premium. This is a
 substantive change, not a cosmetic one.
 
-**Production sample moved to 1984-01.**
+**Production sample moved to 1984-01** — re-estimated on 511 monthly obs. Realised
+effect, against the directional prediction above:
+
+| | old (1999-01) | new (1984-01) |
+|---|---|---|
+| long-run **short-rate** anchor (`theta_L + theta_S`) | 1.39 % | **2.84 %** |
+| ML lower bound | −0.776 % | **−0.742 %** |
+| yield-fit MAD | 8.97 bp | **10.65 bp** |
+| **latest 10y term premium** | **+1.39 %** | **+0.58 %** |
+
+The premium falls **81 bp**, in the predicted direction and for the predicted reason.
+The ML lower bound barely moves, which is a stability check rather than a null: the
+bound is identified off the negative-rate era, present in both windows, so adding
+fifteen years at the *high*-rate end should not disturb it — and does not. The cost is
+a worse in-sample fit (8.97 → 10.65 bp): one parameter set now spans 8 % Bund yields in
+1984 and −0.8 % in 2020. That is the trade — lower variance on the weakly-identified
+persistence, paid for in measurement error — and the published premium is the
+*realised* one (observed yield minus expected path), so the fitted yield does not enter
+it directly.
+
+**A caveat this exposes, which the regime filter cannot address.** The 1984+ sample
+implies a long-run short rate of **2.84 %**, above most estimates of euro-area neutral
+(nearer 2 %). Regime-cleanliness and a correct anchor are different properties: r\* has
+drifted down *secularly within* the post-1984 regime (Del Negro et al.), and a 42-year
+sample mean can be regime-clean and still too high for today's structural conditions.
+The principled fix already exists in this codebase — the **shifting-endpoint neutral
+anchor** built for Japan (Kozicki-Tinsley / Kim-Orphanides), which re-anchors the
+expected-rate path at decomposition time without re-estimating. Germany is now the
+market that most needs it. Not applied here; it needs its own survey / r\* input series
+and is the top follow-up.
 
 ## UK — the curve re-anchored three years after the policy announcement
 
@@ -103,6 +132,15 @@ should not be reported. Four independent tells, all pointing the same way:
   regime by "higher `theta_L`" is meaningless here.
 * `p_stay` 0.962 / 0.989, well below Germany's 0.999 / 0.998.
 
+**Confirmed by multi-start.** Four restarts on identical data land somewhere different
+from the single-start fit — anchors **39.0 % / 10.6 %** against **31.6 % / 14.2 %**, and
+a "break" at **2012-07** against **2011-01**, eighteen months apart. `kappa_L` is
+0.0000 / 0.0012 in both, so `theta_L_identified` is **false for both regimes** either
+way. The restarts also reach a *lower* likelihood (22 989.6 vs 23 203.3), which says the
+same thing from another angle: restarts only fire when convergence fails, each perturbs
+from the last, and the search wanders because the surface is flat. This is
+non-identification, not a near-miss local optimum.
+
 The reason is the sample. The BoC curve begins in **1986** and inflation targeting was
 adopted in **February 1991**, leaving ~60 monthly observations before the event under
 test — against 11 years of the old regime for Germany and 26 for Japan. Five years
@@ -112,6 +150,30 @@ artefacts of the 31 % anchor and carry no information.
 
 **Canada's 1991 start is unchanged**, and rests on the policy record. The honest
 verdict is *cannot be tested with the data we have* — neither confirmed nor refuted.
+
+## Downstream effects
+
+**The global cycle is essentially unchanged.** Refitting the 1-factor DFM on the new
+term premia gives correlation **0.99999** against the old factor on every
+term-premium combination (latest G at 10y −0.25 → −0.26), with each market's loading
+and global share moving by at most 0.1 pp — Germany holds at 92.2 %. That is a result,
+not an absence of one: the DFM standardises each market's series, and Germany's change
+is close to a constant offset, which is exactly what a common factor should absorb.
+PC1 still explains 92.7 % of cross-market variance at 10y.
+
+**The German 1972+ historical splice stays continuous.** The level-match offsets
+recompute at build time; measured at the 1997-08 daily-data boundary the spliced line
+moves **−2.7 bp**, i.e. ordinary daily variation rather than a seam.
+
+**A pipeline trap found on the way.** `viz.global_factor` is a separate step, and
+`thin_daily` only *reads* whatever factor parquet is on disk. Running
+`export_daily → thin_daily` directly produced a page with new country series beside a
+cycle fitted on the superseded ones — and it looked convincing: correlation 1.00000,
+identical `phi`, identical loadings, which reads as "the cycle is robust to the
+re-cut". It was visible only because the DFM's *inputs* were diffed and came back
+bit-identical to twelve decimals, which no genuine refit produces. `thin_daily` now
+compares the factor's mtime against the canonical dataset's and warns loudly when the
+factor is older.
 
 ## Two method fixes this exercise forced
 
