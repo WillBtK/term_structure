@@ -30,6 +30,8 @@ import pandas as pd
 from validation import config as cfg
 from validation.fred_api import fred_get, fred_series
 
+from validation.noise_core import residual_se
+
 logger = logging.getLogger(__name__)
 
 _TIPS_CATEGORY = 82                       # FRED "Treasury Inflation-Indexed Securities"
@@ -37,8 +39,14 @@ _NS_LAMBDA = 0.7                          # fixed Nelson-Siegel decay (Diebold-L
 _MIN_RESID_MAT = 1.5                      # weight -> 0 below here (near-maturity TIPS blow up)
 _TAPER_HI = 2.5                           # weight -> 1 above here; smooth taper across [1.5, 2.5]
 _MAX_RESID_MAT = 25.0
-_MIN_BONDS = 5                            # need > n_params(=3) bonds for a meaningful RMS
-_MIN_EFF_BONDS = 4.0                      # min effective (weighted) bond count for a fit
+# The shared fit carries five parameters (four Svensson factors plus the coupon), so a
+# meaningful residual needs comfortably more securities than the three-factor fit did.
+# That is a real cost at the start of the sample: the TIPS market did not reach eight
+# effective securities until April 2003, so readings before then are dropped rather
+# than reported. They were never worth much — a three-parameter fit to six bonds is
+# closer to interpolation than to estimation — but the history does shorten.
+_MIN_BONDS = 8
+_MIN_EFF_BONDS = 8.0                      # min effective (weighted) bond count for a fit
 
 
 def _bond_weight(tau: np.ndarray) -> np.ndarray:
@@ -53,6 +61,22 @@ def _bond_weight(tau: np.ndarray) -> np.ndarray:
 
 # --------------------------------------------------------------------------- io
 _DUE_RE = re.compile(r"Due\s+(\d{1,2})/(\d{1,2})/(\d{4})")
+# FRED titles carry the coupon as a mixed fraction, e.g.
+#   "10-Year 3-3/8% Treasury Inflation-Indexed Note, Due 1/15/2007"
+#   "10-Year 2% Treasury Inflation-Indexed Note, Due 1/15/2014"
+# It is needed because yield to maturity is not a function of maturity alone, so a
+# curve through a mixed-coupon cross-section is mis-specified (see noise_core).
+_COUPON_RE = re.compile(r"(\d+)(?:-(\d+)/(\d+))?%")
+
+
+def parse_coupon(title: str) -> float:
+    """Annual coupon in percent from a FRED TIPS series title; NaN if absent."""
+    m = _COUPON_RE.search(title or "")
+    if not m:
+        return float("nan")
+    whole, num, den = m.groups()
+    frac = float(num) / float(den) if num and den else 0.0
+    return float(whole) + frac
 
 
 def list_tips_series() -> pd.DataFrame:
@@ -68,6 +92,7 @@ def list_tips_series() -> pd.DataFrame:
             continue
         mo, dy, yr = (int(x) for x in m.groups())
         rows.append({"series": s["id"], "maturity": pd.Timestamp(yr, mo, dy),
+                     "coupon": parse_coupon(s["title"]),
                      "obs_start": pd.Timestamp(s["observation_start"]),
                      "obs_end": pd.Timestamp(s["observation_end"])})
     df = pd.DataFrame(rows).sort_values("maturity").reset_index(drop=True)
@@ -96,6 +121,7 @@ def fetch_tips_yields(refresh: bool = False) -> pd.DataFrame:
                 continue
             frames.append(pd.DataFrame({"date": s.index, "series": row["series"],
                                         "maturity": row["maturity"],
+                                        "coupon": row["coupon"],
                                         "yield": s.to_numpy() / 100.0}))   # pct -> decimal
         df = pd.concat(frames, ignore_index=True)
         df.to_parquet(path)
@@ -110,32 +136,13 @@ def fetch_tips_yields(refresh: bool = False) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------------- noise measure
-def _ns_design(tau: np.ndarray, lam: float = _NS_LAMBDA) -> np.ndarray:
-    """Nelson-Siegel (Diebold-Li) regressors [1, slope-load, curvature-load] at tenors
-    ``tau`` for a fixed decay ``lam`` (so the curve fit is ordinary least squares)."""
-    lt = lam * tau
-    s = (1.0 - np.exp(-lt)) / lt
-    c = s - np.exp(-lt)
-    return np.column_stack([np.ones_like(tau), s, c])
-
-
-def _rms_residual(tau: np.ndarray, y: np.ndarray, w: np.ndarray | None = None) -> float:
-    """Weighted RMS residual of a fixed-λ Nelson-Siegel WLS fit to (tau, y) — the
-    cross-sectional 'noise'. Weights ``w`` (default from ``_bond_weight``) taper
-    near-maturity bonds smoothly, so basket-composition changes don't step the series;
-    the fit and the RMS use the SAME weights so a down-weighted outlier distorts neither.
-    NaN if too few (effective) bonds."""
-    if tau.size < _MIN_BONDS:
-        return np.nan
-    if w is None:
-        w = _bond_weight(tau)
-    if w.sum() < _MIN_EFF_BONDS:
-        return np.nan
-    X = _ns_design(tau)
-    sw = np.sqrt(w)
-    beta, *_ = np.linalg.lstsq(X * sw[:, None], y * sw, rcond=None)   # WLS
-    resid = y - X @ beta
-    return float(np.sqrt(np.sum(w * resid ** 2) / w.sum()))
+# The fit is validation/noise_core.residual_se, shared with the UST and Bund gauges:
+# a Svensson form profiled over a grid of decays, the coupon regressed out, and a
+# degrees-of-freedom correction. It replaced a single-fixed-decay Nelson-Siegel with a
+# plain RMS, which on cross-sections priced exactly off a known curve — true noise zero
+# — reported several bp of its own error as illiquidity. The TIPS-specific part is the
+# taper: near-maturity issues fade out continuously so a bond crossing the exclusion
+# floor cannot step the series, and the same weights scale the fit AND the residual.
 
 
 def build_noise(refresh: bool = False, freq: str = "M") -> pd.DataFrame:
@@ -148,6 +155,7 @@ def build_noise(refresh: bool = False, freq: str = "M") -> pd.DataFrame:
         return out if freq == "D" else _to_monthly(out)
     raw = fetch_tips_yields(refresh=refresh)
     raw = raw.dropna(subset=["yield"])
+    has_coupon = "coupon" in raw.columns and raw["coupon"].notna().any()
     recs = []
     for dt, g in raw.groupby("date"):
         resid_mat = (g["maturity"] - dt).dt.days.to_numpy() / 365.25
@@ -156,9 +164,14 @@ def build_noise(refresh: bool = False, freq: str = "M") -> pd.DataFrame:
         if tau.size < _MIN_BONDS:
             continue
         w = _bond_weight(tau)
+        if w.sum() < _MIN_EFF_BONDS:
+            continue
+        cpn = g["coupon"].to_numpy()[keep] if has_coupon else None
+        if cpn is not None and not np.isfinite(cpn).all():
+            cpn = None                       # a partial coupon column is worse than none
         # effective (weighted) bond count — an integer n_bonds would step whenever a
         # tapering bond crosses the floor; the effective count moves continuously.
-        recs.append({"date": dt, "noise": _rms_residual(tau, y, w),
+        recs.append({"date": dt, "noise": residual_se(tau, y, coupon=cpn, weights=w),
                      "n_bonds": round(float(w.sum()), 2)})
     daily = pd.DataFrame(recs).dropna().sort_values("date").reset_index(drop=True)
     daily.to_parquet(path)

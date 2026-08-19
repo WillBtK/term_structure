@@ -3,7 +3,8 @@ import numpy as np
 import pandas as pd
 
 from validation.bund_liquidity import (noise_from_panel, drop_inflation_linked,
-                                        _ns_design, _rms_residual)
+                                        _ns_design, _MIN_BONDS)
+from validation.noise_core import residual_se
 
 
 def _panel_on_curve(date, mats_years, betas, lam=0.5, noise_sd=0.0, seed=0):
@@ -37,9 +38,9 @@ def test_injected_noise_is_recovered():
                          noise_sd=sd, seed=42)
     out = noise_from_panel(df)
     rms = out["noise"].iloc[0]
-    # RMS residual recovers the injected scatter to within ~40% (finite sample,
-    # 3 dof absorbed by the fit).
-    assert 0.6 * sd < rms < 1.4 * sd
+    # The degrees-of-freedom correction means the estimate is now centred on the
+    # injected scatter rather than biased below it.
+    assert 0.7 * sd < rms < 1.3 * sd
 
 
 def test_too_few_bonds_dropped():
@@ -49,21 +50,19 @@ def test_too_few_bonds_dropped():
 
 
 def test_maturity_window_filters():
-    # 5 in-window + 3 out-of-window (too short / too long); only in-window counted,
-    # and here 5 < default min_bonds(6) so the date is dropped -> empty.
-    mats = [0.2, 0.5, 2, 5, 10, 20, 28, 40]
+    # 6 in-window + 4 outside it (too short / too long). Only the in-window bonds are
+    # counted, and 6 is below _MIN_BONDS, so the date is dropped entirely.
+    mats = [0.2, 0.5, 2, 5, 10, 20, 25, 28, 40, 45]
     df = _panel_on_curve("2018-03-30", mats, betas=[0.01, 0, 0], noise_sd=0.0005)
-    out = noise_from_panel(df)
-    assert out.empty
-    # widen min_bonds acceptance by adding more in-window bonds
-    mats2 = [2, 3, 4, 5, 7, 10, 15, 20]           # 8 in-window
-    df2 = _panel_on_curve("2018-03-30", mats2, betas=[0.01, 0, 0], noise_sd=0.0005)
-    out2 = noise_from_panel(df2)
-    assert len(out2) == 1 and out2["n_bonds"].iloc[0] == 8
+    assert noise_from_panel(df).empty
+    mats2 = [2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25]           # 12 in-window
+    out2 = noise_from_panel(_panel_on_curve("2018-03-30", mats2, betas=[0.01, 0, 0],
+                                            noise_sd=0.0005))
+    assert len(out2) == 1 and out2["n_bonds"].iloc[0] == 12
 
 
-def test_rms_residual_nan_when_too_few():
-    assert np.isnan(_rms_residual(np.array([1.0, 2.0]), np.array([0.01, 0.02])))
+def test_residual_se_nan_when_too_few():
+    assert np.isnan(residual_se(np.array([1.0, 2.0]), np.array([0.01, 0.02])))
 
 
 def test_drop_inflation_linked_removes_dbri_and_il():
@@ -86,7 +85,7 @@ def test_linker_contamination_inflates_noise():
     """A linker whose yield sits far off the nominal curve blows up the RMS; dropping
     it restores a small noise — the exact artefact drop_inflation_linked prevents."""
     d = pd.Timestamp("2026-08-14")
-    mats = np.array([2, 3, 5, 7, 10, 15, 20, 30], float)
+    mats = np.array([2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25, 30], float)
     ny = _ns_design(mats) @ np.array([0.025, -0.003, 0.004])   # nominal on an NS curve
     rows = [{"date": d, "isin": f"DE{i:012d}", "name": "DBR x",
              "maturity": d + pd.Timedelta(days=int(t * 365.25)), "yield": float(y)}

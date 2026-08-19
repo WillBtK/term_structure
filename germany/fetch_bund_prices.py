@@ -86,79 +86,157 @@ def discover_workbook_urls(limit: int | None = None) -> list[str]:
     return ordered if limit is None else ordered[:limit]
 
 
-# Column-keyword detection (English + German headers). The trading DATE is not a
-# column — each sheet is one trading day, named "DD.MM.YYYY" (see parse_workbook).
+# Column detection. The Bundesbank changed the workbook layout between the June and
+# July 2026 files, and the old one is still in the window:
+#
+#   new (2026-07 onward, 9 cols):  ISIN | Coupon | Description | Maturity | Residual
+#                                  life | Issue volume | Price | Yield in % | Dirty price
+#   old (through 2026-06, 11 cols): the ISIN is SPLIT ACROSS THREE CELLS
+#                                  ("DE000" | "114183" | "6"), the coupon column has no
+#                                  header at all, the maturity is dd.mm.yyyy text, and
+#                                  the header itself is spread over three rows.
+#
+# Reading the old layout with the new one's rules silently produced ISINs like "114183"
+# and descriptions of "DE000" — which also made drop_inflation_linked a no-op on those
+# months, since it matches on the description. So the ISIN is reconstructed by CONTENT
+# (concatenate cells until they form a valid ISIN) and the rest is found through a
+# header joined across the header rows, with the coupon falling back to the column
+# immediately after the ISIN block — true in both layouts.
+_ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
 _ISIN_KEYS = ("isin",)
 _YIELD_KEYS = ("yield", "rendite")
 _MAT_KEYS = ("maturity", "redemption", "fälligkeit", "faelligkeit")
+_COUPON_KEYS = ("coupon", "kupon")
 _DESC_KEYS = ("description", "bezeichnung", "name")
+_HEADER_SPAN = 2                  # rows below the ISIN header that still carry labels
 
 
-def _find_col(cols, keys):
-    for c in cols:
-        cl = str(c).strip().lower()
-        if any(k in cl for k in keys):
-            return c
+def _cell(v) -> str:
+    """Cell as text, without the float formatting that turns 114183 into '114183.0'."""
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return ""
+    if isinstance(v, float) and float(v).is_integer():
+        return str(int(v))
+    return str(v).strip()
+
+
+def _isin_span(rows, c_hdr: int, max_parts: int = 3):
+    """``(start_column, width)`` of the cells that together form the ISIN.
+
+    Decided by CONTENT, not by the header position: in the old layout the "ISIN 1)"
+    label sits over the SECOND of the three cells ("DE000" | "114183" | "6"), so the
+    block can begin one column to the left of its own header.
+    """
+    need = max(3, len(rows) // 2)
+    for start in (c_hdr - 1, c_hdr):
+        if start < 0:
+            continue
+        for k in range(1, max_parts + 1):
+            hits = sum(1 for r in rows
+                       if _ISIN_RE.match("".join(_cell(v) for v in r[start:start + k])))
+            if hits >= need:
+                return start, k
+    return c_hdr, 1
+
+
+def _joined_header(raw: pd.DataFrame, hdr: int) -> list[str]:
+    """One label per column, joining the header row with the rows just below it — the
+    old layout spreads 'Residual life', 'Price as of' and the like across three rows."""
+    lo, hi = max(hdr - 1, 0), min(hdr + _HEADER_SPAN + 1, len(raw))
+    return [" ".join(_cell(raw.iat[r, c]) for r in range(lo, hi)).strip().lower()
+            for c in range(raw.shape[1])]
+
+
+def _find_col(cols, keys, skip=()):
+    for i, c in enumerate(cols):
+        if i in skip:
+            continue
+        if any(k in str(c).strip().lower() for k in keys):
+            return i
     return None
 
 
 def parse_workbook(content: bytes) -> pd.DataFrame:
-    """Parse one monthly workbook to tidy ``(date, isin, maturity, yield)`` (yield decimal).
+    """Parse one monthly workbook to tidy ``(date, isin, maturity, yield, name, coupon)``
+    (yield decimal, coupon in percent).
 
-    Layout (confirmed via --probe): one sheet per trading day, named ``DD.MM.YYYY``;
-    each sheet has a title row, then a header row (``ISIN | Coupon | Description |
-    Maturity | Residual life | Issue volume | Price | Yield in % | Dirty price``), then
-    one row per outstanding security. The trading date is the SHEET NAME, not a column.
-    Header row and columns are found by keyword so minor layout drift is tolerated.
-    Returns an empty frame (logged) if no sheet yields the expected columns."""
+    One sheet per trading day, named ``DD.MM.YYYY`` — the trading date is the SHEET
+    NAME, not a column. Both published layouts are handled (see the notes above): the
+    ISIN is rebuilt from however many cells it spans, and the remaining fields are found
+    through a header joined across the header rows. Sheets that yield no valid ISINs are
+    skipped with a warning rather than silently producing junk.
+    """
     xls = pd.ExcelFile(io.BytesIO(content))
     frames = []
     for sheet in xls.sheet_names:
-        # The sheet name is the trading day; skip non-date sheets (notes/cover).
         sheet_date = pd.to_datetime(str(sheet).strip(), format="%d.%m.%Y", errors="coerce")
         if pd.isna(sheet_date):
-            continue
+            continue                                   # cover/notes sheet
         raw = xls.parse(sheet, header=None, dtype=object)
-        # find the header row: the first row mentioning ISIN
         hdr = None
         for i in range(min(15, len(raw))):
-            rowvals = [str(v).lower() for v in raw.iloc[i].tolist()]
-            if any("isin" in v for v in rowvals):
-                hdr = i; break
+            if any("isin" in _cell(v).lower() for v in raw.iloc[i].tolist()):
+                hdr = i
+                break
         if hdr is None:
             continue
-        df = xls.parse(sheet, header=hdr)
-        df.columns = [str(c).strip() for c in df.columns]
-        c_isin = _find_col(df.columns, _ISIN_KEYS)
-        c_yield = _find_col(df.columns, _YIELD_KEYS)
-        c_mat = _find_col(df.columns, _MAT_KEYS)
-        c_desc = _find_col(df.columns, _DESC_KEYS)
-        if not (c_isin and c_yield and c_mat):
-            logger.warning("sheet %r missing cols (isin=%s yield=%s mat=%s)",
-                           sheet, c_isin, c_yield, c_mat)
+        header = _joined_header(raw, hdr)
+        c_isin = _find_col(header, _ISIN_KEYS)
+        if c_isin is None:
             continue
-        cols = [c_isin, c_mat, c_yield] + ([c_desc] if c_desc else [])
-        sub = df[cols].copy()
-        sub.columns = ["isin", "maturity", "yield"] + (["name"] if c_desc else [])
-        if not c_desc:
-            sub["name"] = ""
-        sub.insert(0, "date", sheet_date)
-        frames.append(sub)
+        body = raw.iloc[hdr + 1:].reset_index(drop=True)
+        rows = [r.tolist() for _, r in body.iterrows()]
+        c_isin, width = _isin_span(rows, c_isin)
+        isin_cols = set(range(c_isin, c_isin + width))
+
+        c_yield = _find_col(header, _YIELD_KEYS, skip=isin_cols)
+        c_mat = _find_col(header, _MAT_KEYS, skip=isin_cols)
+        c_desc = _find_col(header, _DESC_KEYS, skip=isin_cols)
+        c_cpn = _find_col(header, _COUPON_KEYS, skip=isin_cols)
+        if c_cpn is None and c_isin + width < raw.shape[1]:
+            # The old layout leaves the coupon column unlabelled; in both layouts it is
+            # the column immediately after the ISIN block.
+            c_cpn = c_isin + width
+        if c_yield is None or c_mat is None:
+            logger.warning("sheet %r: no yield/maturity column (yield=%s mat=%s)",
+                           sheet, c_yield, c_mat)
+            continue
+
+        recs = []
+        for r in rows:
+            isin = "".join(_cell(v) for v in r[c_isin:c_isin + width])
+            if not _ISIN_RE.match(isin):
+                continue                               # header remnant / footnote row
+            recs.append({
+                "date": sheet_date, "isin": isin,
+                "maturity": _cell(r[c_mat]),
+                "yield": r[c_yield],
+                "name": _cell(r[c_desc]) if c_desc is not None else "",
+                "coupon": r[c_cpn] if c_cpn is not None else np.nan,
+            })
+        if not recs:
+            logger.warning("sheet %r: header found but no valid ISINs parsed", sheet)
+            continue
+        frames.append(pd.DataFrame(recs))
+
+    cols = ["date", "isin", "maturity", "yield", "name", "coupon"]
     if not frames:
-        return pd.DataFrame(columns=["date", "isin", "maturity", "yield", "name"])
+        return pd.DataFrame(columns=cols)
     out = pd.concat(frames, ignore_index=True)
-    out["name"] = out["name"].astype(str).str.strip()
-    out["maturity"] = pd.to_datetime(out["maturity"], errors="coerce", dayfirst=True)
+    out["maturity"] = pd.to_datetime(out["maturity"], errors="coerce", dayfirst=True,
+                                     format="mixed")
     out["yield"] = pd.to_numeric(out["yield"], errors="coerce")
+    # The coupon is carried because yield to maturity is not a function of maturity
+    # alone — two bonds redeeming the same day with different coupons trade at different
+    # YTMs — so the noise fit regresses it out (validation/noise_core).
+    out["coupon"] = pd.to_numeric(out["coupon"], errors="coerce")
     # Bundesbank yields are in PERCENT -> decimal. Guard against already-decimal.
-    yv = out["yield"].abs()
-    if yv.dropna().median() > 1.0:
+    if out["yield"].abs().dropna().median() > 1.0:
         out["yield"] = out["yield"] / 100.0
-    out["isin"] = out["isin"].astype(str).str.strip()
-    return out.dropna(subset=["date", "maturity", "yield"])
+    return out.dropna(subset=["date", "maturity", "yield"])[cols]
 
 
-_PANEL_COLS = ["date", "isin", "maturity", "yield", "name"]
+_PANEL_COLS = ["date", "isin", "maturity", "yield", "name", "coupon"]
 
 
 def _read_store() -> pd.DataFrame:

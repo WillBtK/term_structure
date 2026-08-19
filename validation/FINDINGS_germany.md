@@ -177,15 +177,45 @@ un-challenged time-series-database mirror
 the identical series. Verified end-to-end: daily Svensson parameters, 10,610 rows,
 1997-08-01–2026-08-18.
 
-**Key correctness fix** — the workbook mixes nominal Bunds/Bobls/Schätze
-(DBR/OBL/BKO) with a few **inflation-linked** issues (`DBRI … I/L`). Linkers quote
-**real** yields ~2% below the nominal curve, so a single cross-sectional fit read
-them as ~200 bp residuals and the raw "noise" ballooned to **~41 bp** — an artefact,
-not illiquidity. `drop_inflation_linked` removes them (by `DBRI`/`I/L` marker),
-bringing the gauge to **~5 bp** — the single-digit level expected for the world's most
-liquid sovereign curve (diagnosed on 2026-08-14: 71 bonds → RMS 41 bp; 63 nominal →
-RMS 5.3 bp; the 3 DBRI linkers carried −189…−202 bp residuals). Tested offline
-(`validation/tests/test_bund_liquidity.py`, `germany/tests/test_fetch_bund_prices.py`).
+**Two correctness fixes, and what they were costing (2026-08-19).**
+
+*Layout drift silently corrupted two-thirds of the panel.* The Bundesbank changed the
+workbook layout between the June and July 2026 files. In the older one the ISIN is split
+across **three cells** (`DE000` | `114183` | `6`), the coupon column carries no header,
+the maturity is `dd.mm.yyyy` text, and the header itself spans three rows. Parsed with
+the new layout's rules, those months produced ISINs like `114183` and a description of
+`DE000` for every security — which silently disabled `drop_inflation_linked`, since it
+matches on the description. Real-yield linkers therefore sat in a nominal fit and the
+gauge stood at a **~42 bp median through April-June, dropping to ~4.9 bp on 1 July** —
+a fabricated regime shift, precisely at the layout change. The parser now rebuilds the
+ISIN by CONTENT (concatenating cells until they form a valid ISIN, starting either at or
+one column left of its own header) and locates the rest through a header joined across
+the header rows; `drop_inflation_linked` also matches the older German spelling
+(`Bund 15 index.`) alongside `DBRI` / `I/L`. Both layouts are pinned by fixtures in
+`germany/tests/test_fetch_bund_prices.py`.
+
+*The estimator was inventing several basis points of its own.* The gauge fitted a
+3-factor Nelson-Siegel at one pinned decay and took a plain RMS. Validating the US
+Treasury gauge against synthetic cross-sections priced exactly off a known curve — true
+noise zero — showed that specification reporting 2-9 bp of pure method error, varying
+with the shape of the curve, plus ~2 bp more from the mixed-coupon cross-section (yield
+to maturity is not a function of maturity alone), less a small downward RMS bias. The
+shared fit is now `validation/noise_core.residual_se`: Svensson profiled over a decay
+grid, the coupon regressed out, degrees-of-freedom corrected.
+
+Effect on the published series, over 2026-04-01..2026-08-18 (97 trading days):
+
+| | mean | median | max | latest |
+|---|---|---|---|---|
+| shipped (mis-parsed data, old fit) | 29.7 bp | 42.1 | 47.8 | 4.9 |
+| re-parsed data, old fit | 4.78 bp | 4.84 | 5.25 | 4.9 |
+| re-parsed data, corrected fit | **1.68 bp** | 1.67 | 2.02 | **1.5** |
+
+So the Bund cross-section is really about **1.7 bp** wide, not 5 — roughly four fifths of
+the old reading was the estimator's own misfit — and the April-June plateau was never
+illiquidity at all. The earlier diagnosis in this file (71 bonds → 41 bp raw, 63 nominal
+→ 5.3 bp) was made on a new-layout workbook and stands; what it could not see was that
+the same filter was inert on the older months.
 
 **Wiring** — `build_noise` is refreshed daily (`scheduler/daily_update.py`), staged to
 Supabase as source `bund_noise` (`scheduler/supabase_export.py`), attached to

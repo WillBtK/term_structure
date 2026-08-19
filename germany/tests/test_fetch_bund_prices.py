@@ -9,6 +9,7 @@ sheet name, maps the columns, and converts percent yields to decimal.
 import io
 
 import pandas as pd
+import pytest
 
 from germany.fetch_bund_prices import parse_workbook
 
@@ -122,3 +123,71 @@ def test_index_failure_falls_back_to_the_store(tmp_path, monkeypatch):
     monkeypatch.setattr(fbp, "discover_workbook_urls", boom)
     out = fbp.load_bund_yields(refresh=True)
     assert set(out["date"]) == {pd.Timestamp("2026-01-02")}
+
+
+# ---------------------------------------------------------------------------
+# The Bundesbank changed the workbook layout between the June and July 2026 files.
+# Reading the OLD one with the new one's rules produced ISINs like "114183" and
+# descriptions of "DE000" — which silently disabled drop_inflation_linked (it matches on
+# the description), leaving real-yield linkers in a nominal fit and standing the gauge
+# up at ~40 bp for those months against ~5 bp either side. Both layouts are pinned here.
+# ---------------------------------------------------------------------------
+def _build_old_layout(rows, date="01.04.2026"):
+    """The pre-July workbook: the ISIN is SPLIT ACROSS THREE CELLS, the coupon column
+    carries no header, the maturity is dd.mm.yyyy text, and the header spans three rows.
+    ``rows``: [(isin, coupon, description, maturity_ddmmyyyy, yield_pct), ...]"""
+    bio = io.BytesIO()
+    with pd.ExcelWriter(bio, engine="openpyxl") as xl:
+        data = [
+            [None, f"Prices and yields of listed Federal securities as of {date}"]
+            + [None] * 9,
+            [None, None, None, None, None, None, "Residual", "Issue", "Price 3)", "", ""],
+            [None, "ISIN 1)", None, None, "Description 2)  4)", "Maturity",
+             "life", "volume", "as of", "Yield", '"Dirty price"'],
+            [None, None, None, None, None, "date", "y/m", "€ billion", date, None, ""],
+        ]
+        for isin, coup, desc, mat, yld in rows:
+            data.append([isin[:5], isin[5:11], int(isin[11]), coup, desc, mat,
+                         "0 / 0", 20.0, 99.9, yld, 100.0])
+        pd.DataFrame(data).to_excel(xl, sheet_name=date, header=False, index=False)
+    return bio.getvalue()
+
+
+OLD_ROWS = [
+    ("DE0001141836", 0.0, "BO S 183", "10.04.2030", 2.090051),
+    ("DE0001030567", 0.1, "Bund 15 index.", "15.04.2033", -0.440504),
+    ("DE0001102408", 2.5, "Bund 26", "15.08.2036", 2.401658),
+]
+
+
+def test_parses_the_pre_july_layout_with_the_split_isin():
+    df = parse_workbook(_build_old_layout(OLD_ROWS))
+    assert len(df) == 3
+    # the ISIN is rebuilt whole from its three cells, not truncated to the middle one
+    assert set(df["isin"]) == {"DE0001141836", "DE0001030567", "DE0001102408"}
+    row = df.set_index("isin").loc["DE0001102408"]
+    assert row["name"] == "Bund 26"                    # not "DE000"
+    assert row["coupon"] == pytest.approx(2.5)
+    assert row["maturity"] == pd.Timestamp("2036-08-15")   # dd.mm.yyyy, not mm/dd
+    assert row["yield"] == pytest.approx(0.02401658)
+    assert df["date"].unique().tolist() == [pd.Timestamp("2026-04-01")]
+
+
+def test_the_old_layout_linker_marker_is_recognised():
+    """The old layout spells linkers 'Bund 15 index.', the new one 'DBRI ... I/L'. If
+    only the new spelling matched, those months would keep real-yield bonds in a
+    nominal fit — the exact failure that stood the shipped gauge up at ~40 bp."""
+    from validation.bund_liquidity import drop_inflation_linked
+    df = parse_workbook(_build_old_layout(OLD_ROWS))
+    kept = drop_inflation_linked(df)
+    assert set(kept["isin"]) == {"DE0001141836", "DE0001102408"}
+
+
+def test_both_layouts_yield_the_same_schema():
+    new = parse_workbook(_build_workbook({
+        "01.04.2026": [("DE0001102408", 2.5, "DBR 2.5 08/15/36", "2036-08-15", 2.401658)],
+    }))
+    old = parse_workbook(_build_old_layout(OLD_ROWS[:1]))
+    assert list(new.columns) == list(old.columns)
+    assert new["isin"].str.match(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$").all()
+    assert old["isin"].str.match(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$").all()

@@ -45,87 +45,23 @@ import logging
 import numpy as np
 import pandas as pd
 
+from validation.noise_core import residual_se
+
 logger = logging.getLogger(__name__)
 
 _MIN_RESID_MAT = 1.0       # below 1y the yield is very sensitive to the price tick
 _MAX_RESID_MAT = 30.0
 _MIN_BONDS = 10            # need comfortably more bonds than the 6 fitted parameters
 
-# Decay grid for the self-fit. The Bund and TIPS gauges fit a 3-factor Nelson-Siegel at
-# ONE fixed decay, which turned out to carry a real functional-form floor: on synthetic
-# cross-sections priced exactly off a Svensson curve — true noise zero — that fit still
-# reports 2-9 bp, varying with the shape of the curve, which then reads as illiquidity.
-# Fitting the full 4-factor Svensson and PROFILING over a small grid of decay pairs
-# keeps every fit linear (OLS given the decays) while cutting that floor to 0.1-0.7 bp.
-_LAMBDA1_GRID = (0.25, 0.35, 0.5, 0.7, 0.9, 1.2, 1.6)
-_LAMBDA2_GRID = (0.04, 0.06, 0.09, 0.13, 0.19, 0.28, 0.40)
+# The curve-free fit lives in validation/noise_core: profiled-decay Svensson with a
+# coupon regressor and a degrees-of-freedom correction, shared with the Bund and TIPS
+# gauges. Only the curve-referenced residual below is specific to this market.
 
 
-def _svensson_design(tau: np.ndarray, lam1: float, lam2: float) -> np.ndarray:
-    """Svensson regressors [1, slope, curvature1, curvature2] at fixed decays, so the
-    fit given the decays is ordinary least squares."""
-    tau = np.asarray(tau, dtype=float)
-    cols = [np.ones_like(tau)]
-    for i, lam in enumerate((lam1, lam2)):
-        lt = np.maximum(lam * tau, 1e-9)
-        s = (1.0 - np.exp(-lt)) / lt
-        if i == 0:
-            cols.append(s)
-        cols.append(s - np.exp(-lt))
-    return np.column_stack(cols)
-
-
-def _rms(x: np.ndarray, n_params: int = 0) -> float:
-    """Residual standard error with a degrees-of-freedom correction.
-
-    Plain RMS is biased DOWN by sqrt((n-p)/n) — about 11% for five parameters on two
-    dozen bonds — so a day with fewer bonds would look spuriously calmer. Dividing by
-    the residual degrees of freedom makes the level comparable across days, and across
-    the fitted and curve-referenced measures (the latter fits nothing, so p = 0).
-    """
+def _rms(x: np.ndarray) -> float:
+    """Plain RMS — correct for the curve-referenced measure, which fits nothing."""
     x = np.asarray(x, dtype=float)
-    dof = x.size - n_params
-    if dof <= 0:
-        return np.nan
-    return float(np.sqrt(np.sum(x ** 2) / dof))
-
-
-def _self_fit_residual(tau: np.ndarray, y: np.ndarray,
-                       coupon: np.ndarray | None = None) -> float:
-    """Residual SE of the best fixed-decay Svensson fit to the observed yields.
-
-    Two departures from the single-fixed-decay Nelson-Siegel the Bund and TIPS gauges
-    use, both measured on cross-sections priced exactly off a known curve (true noise
-    zero, so anything reported is the method's own error):
-
-    * profiling over a grid of DECAY pairs instead of pinning one decay — a single
-      fixed decay leaves 2-9 bp of functional-form misfit that moves with the shape of
-      the curve and reads as illiquidity;
-    * a COUPON regressor. Yield to maturity is not a function of maturity alone: two
-      bonds maturing the same day with different coupons have different YTMs, so any
-      smooth curve through a mixed-coupon cross-section is mis-specified. On the
-      synthetic panel that coupon effect alone accounted for 2.3 bp; absorbing it
-      linearly leaves 0.6 bp. (The curve-referenced measure never has this problem —
-      it compares each bond with ITSELF priced off the curve, so the coupon cancels.)
-    """
-    tau = np.asarray(tau, dtype=float)
-    y = np.asarray(y, dtype=float)
-    add_coupon = coupon is not None and np.ptp(np.asarray(coupon, dtype=float)) > 1e-9
-    n_params = 4 + int(add_coupon)
-    dof = tau.size - n_params
-    if dof <= 0:
-        return np.nan
-    best = np.inf
-    for lam1 in _LAMBDA1_GRID:
-        for lam2 in _LAMBDA2_GRID:
-            if lam2 >= lam1:
-                continue
-            X = _svensson_design(tau, lam1, lam2)
-            if add_coupon:
-                X = np.column_stack([X, np.asarray(coupon, dtype=float)])
-            beta, *_ = np.linalg.lstsq(X, y, rcond=None)
-            best = min(best, float(np.sum((y - X @ beta) ** 2)))
-    return float(np.sqrt(best / dof))
+    return float(np.sqrt(np.mean(x ** 2))) if x.size else np.nan
 
 
 def gsw_model_yields(day: pd.DataFrame, params: pd.Series) -> np.ndarray:
@@ -180,7 +116,8 @@ def noise_from_panel(panel: pd.DataFrame, gsw_params: pd.DataFrame | None = None
             continue
         g = g.loc[keep]
         tau, y = tau[keep], g["yield"].to_numpy()
-        rec = {"date": dt, "noise": _self_fit_residual(tau, y, g["coupon"].to_numpy()),
+        rec = {"date": dt,
+               "noise": residual_se(tau, y, coupon=g["coupon"].to_numpy()),
                "n_bonds": int(keep.sum())}
         if gsw_params is not None and dt in gsw_params.index:
             resid = y - gsw_model_yields(g, gsw_params.loc[dt])

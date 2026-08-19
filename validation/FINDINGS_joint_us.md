@@ -241,3 +241,30 @@ degrades the fit it was meant to improve. The `tips_liquidity` loader and the
 experiment, not as a production input. Ship expected inflation, the real term premium,
 and the IRP **level** from `--liq --survey`; treat the IRP's high-frequency dynamics as
 gated on paid arbitrage-basis data (a deliberate non-dependency).
+
+### Estimator correction (2026-08-19) — and why the negative result stands
+
+The TIPS gauge originally fitted a 3-factor Nelson-Siegel at one pinned decay and took
+a plain RMS. Validating the new US *nominal* Treasury gauge against synthetic
+cross-sections priced exactly off a known curve — true noise zero, so anything reported
+is the method's own error — showed that specification carrying 2-9 bp of functional-form
+misfit that varies with the shape of the curve, plus ~2 bp from the mixed-coupon
+cross-section (yield to maturity is not a function of maturity alone). Both are now
+handled by the shared fit in `validation/noise_core`: Svensson profiled over a decay
+grid, the coupon (parsed out of the FRED series title) regressed out, and a
+degrees-of-freedom correction so thin cross-sections stop looking calm.
+
+What changed, over the common sample:
+
+* **correlation with the old series 0.945 daily, 0.951 monthly** — the same signal;
+* **stress is intact**: December 2008 45.2 → 38.8 bp, November 2008 36.3 → 28.4;
+* **calm is much calmer**: the quietest months fall from 2.0-3.7 bp to 0.8-1.0. That is
+  the floor coming out, and it roughly doubles the gauge's dynamic range;
+* **the history shortens, 2000-01 → 2003-04** (807 days dropped). Five parameters need
+  more securities than three, and the TIPS market did not reach eight effective issues
+  until April 2003. Those early readings were a three-parameter fit to six bonds — closer
+  to interpolation than estimation — so little is lost, but the start date moves.
+
+The negative result above is unaffected in direction: the correction sharpens a
+dispersion measure, it does not give it the persistent-level content the IRP needs. The
+production recommendation stays `--liq --survey`.
