@@ -35,7 +35,6 @@ logger = logging.getLogger(__name__)
 ENDPOINTS = [
     "https://www.treasurydirect.gov/GA-FI/FedInvest/selectSecurityPriceDate",
     "https://savingsbonds.gov/GA-FI/FedInvest/selectSecurityPriceDate",
-    "https://www.treasurydirect.gov/GA-FI/FedInvest/todaySecurityPriceDate",
 ]
 
 # Columns as published: CUSIP | SECURITY TYPE | RATE | MATURITY DATE | CALL DATE |
@@ -122,9 +121,10 @@ def fetch_day(date: pd.Timestamp) -> pd.DataFrame:
     return pd.DataFrame(columns=["date", "cusip", "kind", "coupon", "maturity", "price"])
 
 
-# Only NOMINAL coupon securities belong in the nominal noise fit: bills have no coupon
-# and quote on a discount basis, TIPS quote off an inflation-adjusted principal, and
-# FRNs have no fixed cashflow schedule. Each is excluded by security type.
+# Security types published (confirmed live): MARKET BASED BILL / BOND / FRN / NOTE and
+# TIPS. Only fixed-coupon NOMINAL notes and bonds belong in the nominal noise fit —
+# bills carry no coupon and quote on a discount basis, TIPS price off an
+# inflation-adjusted principal, and FRNs have no fixed cashflow schedule.
 _NOMINAL_KINDS = ("NOTE", "BOND")
 
 
@@ -136,6 +136,59 @@ def nominal_coupon_bonds(panel: pd.DataFrame) -> pd.DataFrame:
     keep = k.str.contains("|".join(_NOMINAL_KINDS), regex=True)
     keep &= ~k.str.contains("TIPS|INFLATION|FLOATING|FRN|STRIP", regex=True)
     return panel.loc[keep].copy()
+
+
+def business_days(start, end) -> pd.DatetimeIndex:
+    """Weekdays in [start, end]. Market holidays simply return no table and are skipped."""
+    return pd.bdate_range(pd.Timestamp(start), pd.Timestamp(end))
+
+
+def load_prices(start=None, end=None, refresh: bool = False,
+                cache_only: bool = False) -> pd.DataFrame:
+    """Per-security price panel over a date range, cached to parquet.
+
+    Unlike the Bundesbank workbooks, this endpoint accepts an ARBITRARY past date, so
+    history here is back-fillable rather than merely retainable: a missing window can
+    always be re-requested. The cache therefore exists to avoid re-fetching, not to
+    preserve anything — only days absent from it are requested.
+    """
+    from validation import config as vcfg
+    path = vcfg.UST_PRICES_PARQUET
+    cached = pd.read_parquet(path) if path.exists() else \
+        pd.DataFrame(columns=["date", "cusip", "kind", "coupon", "maturity", "price"])
+    if cache_only:
+        return cached
+    start = start or (cached["date"].max() + pd.Timedelta(days=1)
+                      if len(cached) else vcfg.UST_PRICES_START)
+    end = end or pd.Timestamp.utcnow().normalize().tz_localize(None)
+    have = (set(pd.to_datetime(cached["date"]).unique())
+            if len(cached) and not refresh else set())
+    want = [d for d in business_days(start, end) if d not in have]
+    if not want:
+        return cached
+    logger.info("FedInvest: fetching %d trading days %s..%s",
+                len(want), want[0].date(), want[-1].date())
+    got, empty = [], 0
+    for i, d in enumerate(want, 1):
+        df = fetch_day(d)
+        if len(df):
+            got.append(df)
+        else:
+            empty += 1
+        if i % 250 == 0:
+            logger.info("  %d/%d days (%d without a table)", i, len(want), empty)
+    if not got:
+        logger.warning("FedInvest returned no data for any of %d requested days", len(want))
+        return cached
+    panel = (pd.concat([cached, *got], ignore_index=True)
+             .drop_duplicates(["date", "cusip"], keep="last")
+             .sort_values(["date", "maturity"]).reset_index(drop=True))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    panel.to_parquet(path)
+    logger.info("FedInvest panel: %d rows, %s..%s, %d securities",
+                len(panel), panel["date"].min().date(), panel["date"].max().date(),
+                panel["cusip"].nunique())
+    return panel
 
 
 def _probe(n_days: int = 3) -> None:
@@ -156,12 +209,26 @@ def _probe(n_days: int = 3) -> None:
         except Exception as exc:                                    # noqa: BLE001
             print(f"  FAIL {url}  {type(exc).__name__}: {str(exc)[:120]}")
 
-    print("\n=== history depth (first date that returns a price table) ===")
-    for year in (1990, 1995, 2000, 2005, 2010, 2015, 2020):
-        d = pd.Timestamp(f"{year}-06-15")
-        df = fetch_day(d)
-        nom = nominal_coupon_bonds(df)
-        print(f"  {d.date()}  rows={len(df):4d}  nominal notes/bonds={len(nom):4d}")
+    print("\n=== archive start (bisect on a table being returned) ===")
+    lo, hi = pd.Timestamp("1995-01-04"), pd.Timestamp("2012-01-04")
+    while (hi - lo).days > 20:
+        mid = lo + (hi - lo) / 2
+        window = business_days(mid, mid + pd.Timedelta(days=10))
+        if any(len(fetch_day(d)) for d in window):
+            hi = mid
+        else:
+            lo = mid
+    print(f"  first data lands between {lo.date()} and {hi.date()}")
+
+    print("\n=== end-to-end noise on a recent day ===")
+    from us.fetch_gsw import load_gsw_params
+    from validation.ust_liquidity import noise_from_panel
+    day = nominal_coupon_bonds(fetch_day(probe_date))
+    gsw = load_gsw_params(refresh=True)
+    out = noise_from_panel(day, gsw_params=gsw)
+    print(out.assign(bp=lambda d: (d["noise"] * 1e4).round(2),
+                     bp_gsw=lambda d: (d["noise_gsw"] * 1e4).round(2))
+          [["date", "bp", "bp_gsw", "n_bonds"]].to_string(index=False))
 
 
 def _main() -> None:

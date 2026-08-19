@@ -48,3 +48,10 @@ scheduler/supabase_stage/
 # every daily CI run unions the fresh months into this file and commits it.
 !germany/data/bund_prices/
 !germany/data/bund_prices/**
+
+# Versioned DERIVED series (not caches): the US Treasury noise gauge. The raw price
+# panel behind it stays a gitignored, rebuildable cache — but re-crawling a decade of
+# FedInvest on every ephemeral CI run is not viable, so the daily series is committed
+# and the job only appends new days.
+!us/data_store/
+!us/data_store/**

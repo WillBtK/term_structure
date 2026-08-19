@@ -5,7 +5,11 @@ name: Probe FedInvest per-security prices
 # Treasury "noise" gauge have to be established on a runner. Delete once pinned.
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Back-fill start date"
+        default: "2010-01-04"
 
 permissions:
   contents: read
@@ -13,7 +17,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,8 +25,18 @@ jobs:
           python-version: "3.11"
           cache: pip
       - name: Install dependencies
-        run: pip install -r requirements.txt lxml html5lib
+        run: pip install -r requirements.txt html5lib
       - name: Probe
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m us.fetch_fedinvest --probe
+      - name: Back-fill the noise series and report
+        timeout-minutes: 120
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m validation.ust_liquidity --start ${{ inputs.start || '2010-01-04' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ust-noise
+          path: |
+            us/data_store/ust_noise_daily.parquet

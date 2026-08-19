@@ -117,6 +117,21 @@ TIPS_NOISE_RAW_PARQUET = DATA_DIR / "tips_individual_yields.parquet"
 TIPS_NOISE_PARQUET = DATA_DIR / "tips_noise_daily.parquet"
 
 # ---------------------------------------------------------------------------
+# US NOMINAL Treasury liquidity "noise" gauge (validation/ust_liquidity.py) — the
+# Hu-Pan-Wang measure on its original cross-section, from TreasuryDirect FedInvest
+# per-security end-of-day PRICES (us/fetch_fedinvest.py) put on a yield basis by
+# model/bond_math.py. The endpoint serves any past date, so the raw price panel is a
+# rebuildable CACHE (gitignored, ~25 MB) — unlike the Bund workbooks, nothing is lost
+# if it is discarded. Only the derived daily noise series is versioned, so the daily
+# CI job appends the newest days instead of re-crawling a decade every run.
+# ---------------------------------------------------------------------------
+UST_PRICES_START = os.environ.get("UST_PRICES_START", "2010-01-04")
+UST_PRICES_PARQUET = DATA_DIR / "ust_individual_prices.parquet"
+UST_NOISE_PARQUET = DATA_DIR / "ust_noise_daily.parquet"
+UST_NOISE_STORE = (Path(__file__).resolve().parent.parent
+                   / "us" / "data_store" / "ust_noise_daily.parquet")
+
+# ---------------------------------------------------------------------------
 # German Bund liquidity "noise" gauge (validation/bund_liquidity.py) from the
 # Bundesbank per-ISIN "Prices and yields of listed Federal securities" monthly
 # workbooks (germany/fetch_bund_prices.py). Bundesbank index URL overridable.
