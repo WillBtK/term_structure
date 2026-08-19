@@ -20,19 +20,29 @@ from japan import config as cfg
 logger = logging.getLogger(__name__)
 
 
-def _download(timeout: int = 90) -> str:
-    """Fetch jgbcm_all.csv and decode Shift-JIS. Falls back to the raw cache."""
+def _download_one(url: str, cache, timeout: int = 90) -> "str | None":
+    """Fetch a MoF CSV, cache it (Shift-JIS bytes), and return decoded text. On a fetch
+    failure, fall back to the cache; return None if neither is available."""
     try:
         import requests
-        content = requests.get(cfg.MOF_JGB_URL, timeout=timeout).content
-        cfg.RAW_CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
-        cfg.RAW_CSV_PATH.write_bytes(content)
+        content = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout).content
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_bytes(content)
         return content.decode("shift_jis", errors="replace")
-    except Exception as exc:
-        if cfg.RAW_CSV_PATH.exists():
-            logger.warning("download failed (%s); using cached raw CSV", exc)
-            return cfg.RAW_CSV_PATH.read_bytes().decode("shift_jis", errors="replace")
-        raise
+    except Exception as exc:                                        # noqa: BLE001
+        if cache.exists():
+            logger.warning("MoF download failed (%s); using cached %s", exc, cache.name)
+            return cache.read_bytes().decode("shift_jis", errors="replace")
+        logger.warning("MoF download failed (%s) and no cache for %s", exc, cache.name)
+        return None
+
+
+def _download(timeout: int = 90) -> str:
+    """Fetch the full-history jgbcm_all.csv (falls back to the raw cache)."""
+    txt = _download_one(cfg.MOF_JGB_URL, cfg.RAW_CSV_PATH, timeout)
+    if txt is None:
+        raise RuntimeError("MoF jgbcm_all.csv unavailable and no cache")
+    return txt
 
 
 def parse_jgb_csv(csv_text: str) -> pd.DataFrame:
@@ -66,10 +76,25 @@ def parse_jgb_csv(csv_text: str) -> pd.DataFrame:
 
 
 def load_yields(refresh: bool = True) -> pd.DataFrame:
-    """Full MoF JGB yield frame (all tenors, decimal). Cached to parquet."""
+    """Full MoF JGB yield frame (all tenors, decimal). Cached to parquet.
+
+    Merges the ~monthly full-history file (jgbcm_all.csv) with the daily-updated
+    current-year file (jgbcm.csv), preferring the current-year rows on overlap, so the
+    panel reaches the latest business day rather than the prior month-end."""
     if not refresh and cfg.YIELDS_PARQUET_PATH.exists():
         return pd.read_parquet(cfg.YIELDS_PARQUET_PATH)
-    df = parse_jgb_csv(_download())
+    hist = parse_jgb_csv(_download())
+    frames = [hist]
+    cur_txt = _download_one(cfg.MOF_JGB_CURRENT_URL, cfg.RAW_CURRENT_CSV_PATH)
+    if cur_txt:
+        try:
+            cur = parse_jgb_csv(cur_txt)
+            if len(cur):
+                frames.append(cur)
+        except Exception as exc:                                   # noqa: BLE001
+            logger.warning("MoF current-year parse failed (%s); history only", exc)
+    df = pd.concat(frames)
+    df = df[~df.index.duplicated(keep="last")].sort_index()        # current-year wins on overlap
     cfg.DATA_DIR.mkdir(parents=True, exist_ok=True)
     df.to_parquet(cfg.YIELDS_PARQUET_PATH)
     logger.info("MoF JGB yields: %d rows %s..%s", len(df),

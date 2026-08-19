@@ -30,6 +30,12 @@ import pandas as pd
 MOF_JGB_URL = os.environ.get(
     "MOF_JGB_URL",
     "https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv")
+# The full-history file above is regenerated ~monthly (ends at the prior month-end);
+# the CURRENT-YEAR file is updated every business day and carries the latest daily
+# observations. We fetch both and prefer the current-year rows on overlap.
+MOF_JGB_CURRENT_URL = os.environ.get(
+    "MOF_JGB_CURRENT_URL",
+    "https://www.mof.go.jp/jgbs/reference/interest_rate/jgbcm.csv")
 
 # Column order after the date in jgbcm_all.csv (years).
 MOF_TENORS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 25, 30, 40]
@@ -114,6 +120,7 @@ def ycc_downweight(dates, grid) -> np.ndarray:
 # Cache paths (contents gitignored; directory tracked).
 DATA_DIR = Path(__file__).resolve().parent / "data"
 RAW_CSV_PATH = DATA_DIR / "jgbcm_all.csv"
+RAW_CURRENT_CSV_PATH = DATA_DIR / "jgbcm_current.csv"
 YIELDS_PARQUET_PATH = DATA_DIR / "mof_jgb_yields.parquet"
 
 

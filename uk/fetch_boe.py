@@ -107,6 +107,32 @@ def parse_spot_workbook(xls_bytes: bytes) -> pd.DataFrame:
     return df[~df.index.duplicated(keep="last")].sort_index()
 
 
+def _latest_current_month(kind: str) -> list:
+    """Fetch the BoE 'latest' zip and parse the current-month daily workbook for ``kind``
+    ('GLC <Kind> daily data current month.xlsx'). Best-effort: returns [] on any failure
+    so a hiccup falls back to the archive alone."""
+    try:
+        import requests
+        url = discover_zip_url(cfg.BOE_LATEST_ZIP)
+        content = requests.get(url, headers=_BROWSER_HEADERS, timeout=_TIMEOUT).content
+        cfg.RAW_DIR.mkdir(parents=True, exist_ok=True)
+        (cfg.RAW_DIR / cfg.BOE_LATEST_ZIP).write_bytes(content)
+        out = []
+        with zipfile.ZipFile(io.BytesIO(content)) as z:
+            for name in z.namelist():
+                low = name.lower()
+                if kind in low and "current month" in low and low.endswith((".xlsx", ".xls")):
+                    fr = parse_spot_workbook(z.read(name))
+                    if not fr.empty:
+                        out.append(fr)
+                        logger.info("BoE %s current-month file -> %s (last %s)", kind, name,
+                                    fr.index.max().date())
+        return out
+    except Exception as exc:                                       # noqa: BLE001
+        logger.warning("BoE %s current-month fetch failed (%s); archive only", kind, exc)
+        return []
+
+
 def load_curve(kind: str = "nominal", refresh: bool = False,
                freq: str = "M") -> pd.DataFrame:
     """Full BoE curve (all maturities, decimal), concatenated across era workbooks.
@@ -125,6 +151,8 @@ def load_curve(kind: str = "nominal", refresh: bool = False,
                     frames.append(fr)
     if not frames:
         raise RuntimeError(f"No spot-curve sheets parsed from BoE {kind} zip.")
+    if _is_daily(freq):
+        frames += _latest_current_month(kind)          # append the intra-month daily file
     df = pd.concat(frames).sort_index()
     df = df[~df.index.duplicated(keep="last")]
     df = df.reindex(sorted(df.columns), axis=1)

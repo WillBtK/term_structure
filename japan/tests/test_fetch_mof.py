@@ -41,6 +41,36 @@ def test_parse_units_and_ragged():
     assert df.loc[pd.Timestamp(2024, 3, 19), 40.0] == pytest.approx(0.021)
 
 
+# Current-year file (jgbcm.csv): different title incl. year/month, and a trailing
+# Japanese note line + blank line that must be skipped.
+CURRENT_FIXTURE = (
+    "国債金利情報 (令和8年8月),,,,,,,,,,,,,,,(単位 : %)\n"
+    + _HDR + "\n"
+    "R8.7.31,1.255,1.507,1.658,1.876,2.044,2.19,2.343,2.517,2.658,2.7,3.0,3.2,3.3,3.4,3.5\n"
+    "R8.8.18,1.431,1.691,1.844,2.038,2.177,2.332,2.477,2.642,2.79,2.8,3.1,3.3,3.4,3.5,3.6\n"
+    ",,,,,,,,,,,,,,,\n"
+    "※最新のcsvデータがダウンロードできない場合、ブラウザのキャッシュを削除してください\n"
+)
+
+
+def test_current_year_parse_skips_note_and_blank():
+    cur = parse_jgb_csv(CURRENT_FIXTURE)
+    assert list(cur.index) == [pd.Timestamp(2026, 7, 31), pd.Timestamp(2026, 8, 18)]
+    assert cur.loc[pd.Timestamp(2026, 8, 18), 10.0] == pytest.approx(0.028)
+
+
+def test_history_plus_current_merge_prefers_current():
+    """The load_yields merge rule: concat history + current-year, keep='last' on
+    duplicate dates so the daily current-year file wins and extends the panel."""
+    hist = parse_jgb_csv(FIXTURE)                       # ends 2024-03-19
+    cur = parse_jgb_csv(CURRENT_FIXTURE)               # 2026-07-31, 2026-08-18
+    merged = pd.concat([hist, cur])
+    merged = merged[~merged.index.duplicated(keep="last")].sort_index()
+    assert merged.index.max() == pd.Timestamp(2026, 8, 18)     # extended to the daily edge
+    # an overlapping date would take the current-year value (keep='last'); check ordering
+    assert merged.index.is_monotonic_increasing and merged.index.is_unique
+
+
 def test_ycc_downweight_schedule():
     grid = cfg.COMMON_GRID
     dates = pd.to_datetime(["2015-06-30", "2019-08-31", "2023-09-30", "2025-06-30"])

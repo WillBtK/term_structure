@@ -40,6 +40,11 @@ BOE_INFLATION_ZIP = "glcinflationmonthedata.zip"
 BOE_NOMINAL_ZIP_D = "glcnominalddata.zip"
 BOE_REAL_ZIP_D = "glcrealddata.zip"
 BOE_INFLATION_ZIP_D = "glcinflationddata.zip"
+# The daily-archive zips above are refreshed ~monthly (they end at the prior month-end).
+# The "latest" zip carries the CURRENT-MONTH daily workbooks ("GLC <kind> daily data
+# current month.xlsx"), updated by noon the next business day. We merge it onto the
+# archive so the daily curve reaches the latest business day.
+BOE_LATEST_ZIP = "latest-yield-curve-data.zip"
 
 # The spot-curve sheet inside each workbook, and the label marking the maturity
 # (in years) header row.
