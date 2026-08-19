@@ -181,7 +181,13 @@ def build_noise(refresh: bool = False, freq: str = "M",
     from us.fetch_gsw import load_gsw_params
     raw = nominal_coupon_bonds(load_prices(start=start, end=end))
     if len(raw):
-        raw = raw[pd.to_datetime(raw["date"]) >= pd.Timestamp(start)]
+        # load_prices returns the whole cache, not just the requested window. Bound it
+        # to the window so a chunked back-fill run recomputes only its own days.
+        dts = pd.to_datetime(raw["date"])
+        keep = dts >= pd.Timestamp(start)
+        if end is not None:
+            keep &= dts <= pd.Timestamp(end)
+        raw = raw[keep]
     try:
         gsw = load_gsw_params(refresh=False)
     except Exception as exc:                                        # noqa: BLE001

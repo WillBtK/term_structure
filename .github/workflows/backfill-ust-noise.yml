@@ -1,0 +1,59 @@
+name: Back-fill the US Treasury noise series
+
+# The FedInvest endpoint serves one trading day per request, so a decade is ~2,500
+# sequential requests — several hours, past any sane job timeout, and not something to
+# parallelise against a public Treasury endpoint. So the back-fill is CHUNKED: each run
+# fills one window and commits the derived daily series, and the store accumulates
+# across runs. Re-running a window already covered is cheap (cached days are skipped).
+#
+# Only the derived noise series is committed; the raw price panel stays a rebuildable
+# cache, since any past date can always be re-requested.
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Window start (YYYY-MM-DD)"
+        required: true
+        default: "2010-01-04"
+      end:
+        description: "Window end (YYYY-MM-DD)"
+        required: true
+        default: "2013-12-31"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backfill-ust-noise          # windows must not race to commit the same store
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt html5lib
+      - name: Back-fill ${{ inputs.start }} .. ${{ inputs.end }}
+        timeout-minutes: 300
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m validation.ust_liquidity --start "${{ inputs.start }}" --end "${{ inputs.end }}"
+      - name: Commit the noise series
+        run: |
+          git config user.name  "atlas-bot"
+          git config user.email "noreply@anthropic.com"
+          git pull --rebase origin main || true
+          git add us/data_store/ 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "Back-fill UST noise ${{ inputs.start }}..${{ inputs.end }} [skip ci]"
+            git push origin HEAD:main
+          else
+            echo "no new UST noise days"
+          fi
