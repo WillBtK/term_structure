@@ -685,6 +685,37 @@ function ptsFor(block, measure, tenor){
   const arr=block[measure][tenor]; if(!arr) return [];
   return block.x.map((x,i)=>[x,arr[i]]).filter(p=>p[1]!=null);
 }
+/* ---- forward zero rates, derived from the reported curve (no re-estimation) ----
+   Every series here is a continuously compounded zero rate, so the forward between two
+   reported maturities is exact and LINEAR:
+       f(t1,t2) = (y2*t2 - y1*t1)/(t2 - t1)
+   Linearity is what makes this free: the decomposition is additive, so the forward term
+   premium equals forward(actual) - forward(expected). Both legs must exist on the
+   market's grid — we never interpolate a leg into existence. */
+const TKEY=v=>String(+v);
+function fwdArr(block, measure, start, tenor){
+  const s=+start, t=+tenor, src=block[measure]; if(!src) return null;
+  const a2=src[TKEY(s+t)]; if(!a2) return null;
+  if(s<=0) return a2;                                   // spot
+  const a1=src[TKEY(s)]; if(!a1) return null;
+  const w2=(s+t)/t, w1=s/t;
+  return a2.map((v,i)=>(v==null||a1[i]==null)?null:v*w2-a1[i]*w1);
+}
+function fwdPts(block, measure, start, tenor){
+  const a=fwdArr(block,measure,start,tenor); if(!a) return [];
+  return block.x.map((x,i)=>[x,a[i]]).filter(p=>p[1]!=null);
+}
+/* tenors that can START a forward (something exists beyond them), and the lengths
+   available from a given start — both taken strictly from the market's own grid. */
+function fwdStarts(block){
+  const ts=block.tenors.map(Number).sort((a,b)=>a-b);
+  return ts.filter(s=>ts.some(t=>t>s));
+}
+function fwdTenors(block, start){
+  const s=+start, ts=block.tenors.map(Number).sort((a,b)=>a-b), have=new Set(block.tenors);
+  return s<=0 ? block.tenors.slice() : ts.filter(t=>t>0&&have.has(TKEY(s+t))).map(TKEY);
+}
+function fwdLabel(start, tenor){ return (+start)<=0 ? tenor+'y' : start+'y'+tenor+'y'; }
 function lastVal(block, measure, tenor){
   const a=block[measure][tenor]; if(!a) return null;
   for(let i=a.length-1;i>=0;i--) if(a[i]!=null) return a[i];
@@ -725,7 +756,7 @@ function lastVal(block, measure, tenor){
   panel('explorer','Explore','Curve explorer — a tenor through time and the whole curve, side by side',
     ['Pick a market, instrument, tenor and measure. The <b>left</b> chart is that tenor through time; the <b>right</b> chart is the entire term structure on whatever date you hover (latest by default). Both respond to the measure: the <b>actual yield</b>, the <b>expected-rate path</b>, the <b>term premium</b>, or the <b>contribution</b> view — a stacked decomposition where the expected rate (bottom) and term premium sum to the actual yield, the premium stacking above when positive and dropping below zero when negative. Daily throughout; drag the range handles to zoom. The <b>orange region</b> flags dates before the model’s estimation sample (extrapolated parameters).']);
   const s=M.lastChild;
-  const EX={cc:'US', inst:'nominal', tenor:'10', meas:'tp', style:'stack', lo:0, hi:0, hoverX:null, annot:true};
+  const EX={cc:'US', inst:'nominal', start:'0', tenor:'10', meas:'tp', style:'stack', lo:0, hi:0, hoverX:null, annot:true};
   function block(){ return DATA.countries[EX.cc].instruments[EX.inst]; }
   function tenors(){ return block().tenors; }
 
@@ -738,6 +769,12 @@ function lastVal(block, measure, tenor){
       [...segCc.children].forEach(x=>x.classList.toggle('active',x.textContent===cc)); syncControls(); full(); };
     segCc.appendChild(btn); }); gCc.appendChild(segCc); bar.appendChild(gCc);
   const gIn=h('div',{class:'grp'}); gIn.appendChild(h('span',{class:'eyebrow'},'Instrument')); const segIn=h('div',{class:'seg'}); gIn.appendChild(segIn); bar.appendChild(gIn);
+  const gFwd=h('div',{class:'grp'}); gFwd.appendChild(h('span',{class:'eyebrow'},'Starting'));
+  const selFwd=h('select',{class:'select-control'}); selFwd.style.minWidth='90px';
+  selFwd.onchange=()=>{ EX.start=selFwd.value;
+    const av=fwdTenors(block(),EX.start); if(!av.includes(EX.tenor)) EX.tenor=av.includes('10')?'10':av[av.length-1];
+    syncControls(); render(); };
+  gFwd.appendChild(selFwd); bar.appendChild(gFwd);
   const gTen=h('div',{class:'grp'}); gTen.appendChild(h('span',{class:'eyebrow'},'Tenor'));
   const selTen=h('select',{class:'select-control'}); selTen.style.minWidth='90px'; selTen.onchange=()=>{ EX.tenor=selTen.value; render(); }; gTen.appendChild(selTen); bar.appendChild(gTen);
   const gM=h('div',{class:'grp'}); gM.appendChild(h('span',{class:'eyebrow'},'Measure')); const segM=h('div',{class:'seg'});
@@ -769,16 +806,23 @@ function lastVal(block, measure, tenor){
     Object.keys(DATA.countries[EX.cc].instruments).forEach(k=>{ const btn=h('button',null,k==='real'?'Inflation-linked':'Nominal'); if(k===EX.inst)btn.classList.add('active');
       btn.onclick=()=>{ EX.inst=k; if(!block().tenors.includes(EX.tenor)) EX.tenor=block().tenors.includes('10')?'10':block().tenors[block().tenors.length-2]; syncControls(); full(); };
       segIn.appendChild(btn); });
-    selTen.innerHTML=''; tenors().forEach(t=> selTen.appendChild(h('option',{value:t}, t+'y'))); selTen.value=EX.tenor;
+    selFwd.innerHTML='';
+    selFwd.appendChild(h('option',{value:'0'},'Spot'));
+    fwdStarts(block()).forEach(st=> selFwd.appendChild(h('option',{value:TKEY(st)}, 'in '+TKEY(st)+'y')));
+    if(![...selFwd.options].some(o=>o.value===EX.start)) EX.start='0';
+    selFwd.value=EX.start;
+    const av=fwdTenors(block(),EX.start);
+    if(!av.includes(EX.tenor)) EX.tenor=av.includes('10')?'10':av[av.length-1];
+    selTen.innerHTML=''; av.forEach(t=> selTen.appendChild(h('option',{value:t}, t+'y'))); selTen.value=EX.tenor;
     syncStyle();
   }
-  function arr(meas,tenor){ return block()[meas][tenor]||[]; }
+  function arr(meas,tenor){ return fwdArr(block(),meas,EX.start,tenor)||[]; }
 
   function renderTs(){
     const b=block(); const xArr=b.x, xlo=xArr[EX.lo], xhi=xArr[EX.hi];
     const inW=i=> xArr[i]>=xlo-1e-6 && xArr[i]<=xhi+1e-6;
     const label = EX.meas==='contrib' ? 'expected rate + term premium' : MEASLAB[EX.meas];
-    tsTitle.textContent=`${DATA.countries[EX.cc].name}${EX.inst==='real'?' (real)':''} · ${EX.tenor}y · ${label}`;
+    tsTitle.textContent=`${DATA.countries[EX.cc].name}${EX.inst==='real'?' (real)':''} · ${fwdLabel(EX.start,EX.tenor)}${(+EX.start)>0?' forward':''} · ${label}`;
     tsNote.textContent = EX.meas==='contrib'
       ? (EX.style==='stack'?'Percent. Stacked: expected rate (bottom) + term premium = actual yield. The premium stacks above when positive and drops below zero when negative. Drag to zoom.':'Expected rate, term premium and actual yield as separate lines, percent. Drag to zoom.')
       : 'Daily, percent. Orange = pre-estimation-sample (extrapolated); grey = policy episodes; dashed = structural breaks. Drag the handles below to zoom.';
@@ -827,10 +871,10 @@ function lastVal(block, measure, tenor){
     } else {
       let series;
       if(EX.meas==='contrib') series=[
-        {label:'Expected rate',color:COL().teal,pts:ptsFor(b,'exp',EX.tenor)},
-        {label:'Term premium',color:COL().orange,pts:ptsFor(b,'tp',EX.tenor)},
-        {label:'Actual yield',color:COL().blue,pts:ptsFor(b,'obs',EX.tenor)}];
-      else series=[{label:MEASLAB[EX.meas],color:COL()[measColor[EX.meas]],pts:ptsFor(b,EX.meas,EX.tenor)}];
+        {label:'Expected rate',color:COL().teal,pts:fwdPts(b,'exp',EX.start,EX.tenor)},
+        {label:'Term premium',color:COL().orange,pts:fwdPts(b,'tp',EX.start,EX.tenor)},
+        {label:'Actual yield',color:COL().blue,pts:fwdPts(b,'obs',EX.start,EX.tenor)}];
+      else series=[{label:MEASLAB[EX.meas],color:COL()[measColor[EX.meas]],pts:fwdPts(b,EX.meas,EX.start,EX.tenor)}];
       series=series.map(sr=>({...sr,pts:sr.pts.filter(p=>p[0]>=xlo-1e-6&&p[0]<=xhi+1e-6)}));
       if(series.length>1) tsLegend.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
       drawLine(tsBox,{height:250, yZero:EX.meas==='tp', yFmt:v=>fmt(v,2)+'%', xFmt:xYear, xTipFmt:xFmtDay, bands, breaks, series, onHover:hoverCb, onLeave:()=>{}});
@@ -892,8 +936,8 @@ function lastVal(block, measure, tenor){
   const PAL=['blue','orange','teal','purple','crimson'];
   const MEAS={obs:'actual yield',exp:'expected rate',tp:'term premium'};
   const CM={rows:[
-    {type:'level', A:{cc:'US',inst:'nominal',tenor:'10',meas:'tp'}},
-    {type:'level', A:{cc:'DE',inst:'nominal',tenor:'10',meas:'tp'}},
+    {type:'level', A:{cc:'US',inst:'nominal',start:'0',tenor:'10',meas:'tp'}},
+    {type:'level', A:{cc:'DE',inst:'nominal',start:'0',tenor:'10',meas:'tp'}},
   ]};
   // longest nominal series = reference timeline for the slider
   let refCC=DATA.order[0];
@@ -902,22 +946,33 @@ function lastVal(block, measure, tenor){
   CM.xlo=refBlk.x[0]; CM.xhi=refBlk.x[refBlk.x.length-1];
 
   function instsFor(cc){ const C=DATA.countries[cc].instruments; const out=['nominal']; if(C.real){ out.push('real','be'); } return out; }
-  function tenorsFor(cc,inst){ const C=DATA.countries[cc].instruments;
+  function baseTenors(cc,inst){ const C=DATA.countries[cc].instruments;
     if(inst==='be'){ const r=(C.real||{}).tenors||[]; return C.nominal.tenors.filter(t=>r.includes(t)); }
     return (C[inst]||{}).tenors||[]; }
+  // forward-aware: a start is usable if something lies beyond it, and a forward length is
+  // usable only if BOTH legs are reported on this market's grid (never interpolated).
+  function startsFor(cc,inst){ const ts=baseTenors(cc,inst).map(Number).sort((a,b)=>a-b);
+    return ts.filter(st=>ts.some(t=>t>st)); }
+  function tenorsFor(cc,inst,start){ const base=baseTenors(cc,inst), st=+(start||0);
+    if(st<=0) return base;
+    const have=new Set(base);
+    return base.map(Number).filter(t=>t>0&&have.has(TKEY(st+t))).map(TKEY); }
   function instLabel(inst){ return inst==='be'?'Breakeven':inst==='real'?'Inflation-linked':'Nominal'; }
-  function fixSpec(sp){ // keep inst/tenor valid for the chosen market
+  function fixSpec(sp){ // keep inst/start/tenor valid for the chosen market
     if(!instsFor(sp.cc).includes(sp.inst)) sp.inst='nominal';
-    const tens=tenorsFor(sp.cc,sp.inst); if(!tens.includes(sp.tenor)) sp.tenor=tens.includes('10')?'10':tens[tens.length-1]; }
+    if(sp.start==null) sp.start='0';
+    if(sp.start!=='0' && !startsFor(sp.cc,sp.inst).map(TKEY).includes(sp.start)) sp.start='0';
+    const tens=tenorsFor(sp.cc,sp.inst,sp.start);
+    if(!tens.includes(sp.tenor)) sp.tenor=tens.includes('10')?'10':tens[tens.length-1]; }
   function rawSeries(sp){
     const C=DATA.countries[sp.cc].instruments;
     if(sp.inst==='be'){ const n=C.nominal, r=C.real; if(!r) return null;
-      const an=n[sp.meas][sp.tenor]||[], ar=r[sp.meas][sp.tenor]||[];
+      const an=fwdArr(n,sp.meas,sp.start,sp.tenor)||[], ar=fwdArr(r,sp.meas,sp.start,sp.tenor)||[];
       const rm=new Map(); r.dates.forEach((d,i)=>{ if(ar[i]!=null) rm.set(d,ar[i]); });
       const out={x:[],v:[],dates:[]};
       n.dates.forEach((d,i)=>{ if(an[i]!=null && rm.has(d)){ out.dates.push(d); out.x.push(n.x[i]); out.v.push(an[i]-rm.get(d)); } });
       return out; }
-    const b=C[sp.inst]; if(!b) return null; const a=b[sp.meas][sp.tenor]||[];
+    const b=C[sp.inst]; if(!b) return null; const a=fwdArr(b,sp.meas,sp.start,sp.tenor)||[];
     const out={x:[],v:[],dates:[]}; b.dates.forEach((d,i)=>{ if(a[i]!=null){ out.dates.push(d); out.x.push(b.x[i]); out.v.push(a[i]); } });
     return out; }
   function rowPts(row){
@@ -926,7 +981,7 @@ function lastVal(block, measure, tenor){
       const pts=[]; A.dates.forEach((d,i)=>{ if(mb.has(d)) pts.push([A.x[i], A.v[i]-mb.get(d)]); }); return pts; }
     const R=rawSeries(row.A); if(!R) return []; return R.x.map((x,i)=>[x,R.v[i]]); }
   function specLabel(sp){ const inst=sp.inst==='be'?'breakeven ':sp.inst==='real'?'real ':''; const m={obs:'yield',exp:'exp.',tp:'TP'}[sp.meas];
-    return `${sp.cc} ${sp.tenor}y ${inst}${m}`; }
+    return `${sp.cc} ${fwdLabel(sp.start||'0',sp.tenor)} ${inst}${m}`; }
   function rowLabel(row){ return row.type==='spread' ? specLabel(row.A)+' − '+specLabel(row.B) : specLabel(row.A); }
 
   // two-column layout: chart (narrower) on the left, the series builder stacked
@@ -941,7 +996,7 @@ function lastVal(block, measure, tenor){
   // right: compact, vertically-stacked series pickers + add button
   right.appendChild(h('div',{class:'cmp-build-head'},'Series'));
   const builder=h('div'); right.appendChild(builder);
-  const addBtn=h('button',{class:'addrow'},'+ Add series'); addBtn.onclick=()=>{ if(CM.rows.length<5){ CM.rows.push({type:'level',A:{cc:'US',inst:'nominal',tenor:'10',meas:'obs'}}); redraw(); } };
+  const addBtn=h('button',{class:'addrow'},'+ Add series'); addBtn.onclick=()=>{ if(CM.rows.length<5){ CM.rows.push({type:'level',A:{cc:'US',inst:'nominal',start:'0',tenor:'10',meas:'obs'}}); redraw(); } };
   const addWrap=h('div'); addWrap.style.margin='2px 0'; addWrap.appendChild(addBtn); right.appendChild(addWrap);
 
   function sel(opts, val, onch, labels){ const e=h('select',{class:'select-control'});
@@ -950,7 +1005,9 @@ function lastVal(block, measure, tenor){
     return [
       sel(DATA.order, sp.cc, v=>{ sp.cc=v; fixSpec(sp); onchange(); }),
       sel(instsFor(sp.cc), sp.inst, v=>{ sp.inst=v; fixSpec(sp); onchange(); }, instLabel),
-      sel(tenorsFor(sp.cc,sp.inst), sp.tenor, v=>{ sp.tenor=v; onchange(); }, t=>t+'y'),
+      sel(['0'].concat(startsFor(sp.cc,sp.inst).map(TKEY)), sp.start||'0',
+          v=>{ sp.start=v; fixSpec(sp); onchange(); }, v=>v==='0'?'Spot':'in '+v+'y'),
+      sel(tenorsFor(sp.cc,sp.inst,sp.start), sp.tenor, v=>{ sp.tenor=v; onchange(); }, t=>t+'y'),
       sel(['obs','exp','tp'], sp.meas, v=>{ sp.meas=v; onchange(); }, m=>({obs:'Actual',exp:'Expected',tp:'Term premium'}[m])),
     ];
   }
