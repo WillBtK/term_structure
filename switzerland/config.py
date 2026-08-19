@@ -18,13 +18,20 @@ from pathlib import Path
 import numpy as np
 
 # SNB data-portal cubes of Swiss Confederation spot rates (Svensson method).
-# ``rendoblim`` = monthly, ``rendoblid`` = daily (same estimated NSS curve; the
-# daily cube's D0 also carries rating buckets AAA/AA/A which we drop). Daily
-# ("2002 methodology") runs to ~2025-07.
+# ``rendeiduebd`` = daily, ``rendeiduebm`` = monthly. These SUPERSEDE the old
+# ``rendoblid``/``rendoblim`` cubes, which SNB froze at 2025-07-31 (last published
+# 2025-09-01) — the fetch kept succeeding against a dead cube, silently serving a
+# year-old curve. The successor is verified to be the same series: over the 7,534
+# overlapping days every shared tenor matches the old cube to 0.000 bp. It also
+# carries a NATIVE 10y (the old cube published 15y instead, so 10y had to be
+# interpolated). Layout differs: D0 = bond category (we take ``CHF`` = Swiss
+# Confederation bond issues), D1 = maturity code (``1J``..``30J``).
 SNB_CUBE_URL = os.environ.get(
-    "SNB_CUBE_URL", "https://data.snb.ch/api/cube/rendoblim/data/csv/en")
+    "SNB_CUBE_URL", "https://data.snb.ch/api/cube/rendeiduebm/data/csv/en")
 SNB_CUBE_URL_D = os.environ.get(
-    "SNB_CUBE_URL_D", "https://data.snb.ch/api/cube/rendoblid/data/csv/en")
+    "SNB_CUBE_URL_D", "https://data.snb.ch/api/cube/rendeiduebd/data/csv/en")
+# D0 code selecting the Swiss Confederation curve in the successor cubes.
+SNB_CONFED_CODE = os.environ.get("SNB_CONFED_CODE", "CHF")
 
 # Estimation grid (years). SNB publishes 1-10, 15, 20, 30y; we take the liquid
 # spread. 30y is ragged (joins 1997-12) — handled by the EKF's per-date masking.

@@ -26,6 +26,7 @@ import logging
 import os
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger("scheduler.supabase_export")
@@ -130,6 +131,13 @@ def maybe_upload(exports: dict) -> bool:
     for table, (path, _) in exports.items():
         df = pd.read_csv(path)
         df["date"] = df["date"].astype(str)
+        # NaN/inf are not JSON-representable, and the canonical frame is legitimately
+        # ragged (a tenor absent for a date -> NaN). Send them as SQL NULL instead of
+        # letting the whole table's upsert fail. (This silently killed every term_premia
+        # upsert: the JSON encoder raised "Out of range float values are not JSON
+        # compliant" and the handler below mislabelled it as a missing table.)
+        df = df.replace([np.inf, -np.inf], np.nan)
+        df = df.astype(object).where(pd.notna(df), None)
         try:
             # chunked upsert (idempotent on the table's primary key)
             for i in range(0, len(df), 5000):
@@ -138,9 +146,11 @@ def maybe_upload(exports: dict) -> bool:
                     on_conflict=",".join(keys[table])).execute()
         except Exception as exc:                                    # noqa: BLE001
             # A missing table is fine: the DB tables are optional (the Atlas is
-            # published to Storage independently). Log and keep going.
-            logger.warning("skipping table %r (create it in Supabase to enable): %s",
-                           table, exc)
+            # published to Storage independently). Log and keep going — but say plainly
+            # when the cause is NOT a missing table so real failures stay visible.
+            missing = "does not exist" in str(exc).lower() or "not find the table" in str(exc).lower()
+            logger.warning("skipping table %r (%s): %s", table,
+                           "create it in Supabase to enable" if missing else "UPSERT FAILED", exc)
             continue
         any_ok = True
         logger.info("upserted %d rows -> %s", len(df), table)

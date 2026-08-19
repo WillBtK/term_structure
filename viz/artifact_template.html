@@ -790,6 +790,14 @@ function lastVal(block, measure, tenor){
       badge.appendChild(infodot(INFO));
       tsNote.appendChild(badge);
     }
+    // staleness badge — this market's source has stopped updating relative to the others
+    if(b.stale && b.stale.last){
+      const st=b.stale, SINFO='<b>Stale data.</b> This market’s curve ends <b>'+st.last+'</b>, <b>'+st.days_behind+' days</b> behind the most recent market in the Atlas. The upstream publisher has not released newer data (or has moved the series). Everything shown is real — it is simply not current, so cross-market comparisons at the right-hand edge are not like-for-like.';
+      tsNote.appendChild(document.createTextNode(' '));
+      const sb=h('span',{class:'anchor-badge',style:'color:#c0392b'}, '· stale — ends '+st.last);
+      sb.appendChild(infodot(SINFO));
+      tsNote.appendChild(sb);
+    }
     // timely H.15 nowcast (provisional tail past the ~1-week-lagged GSW batch)
     if(b.nowcast && b.nowcast.to){
       const nc=b.nowcast, NCINFO='<b>Timely nowcast (provisional).</b> The Fed’s GSW zero-coupon curve — this model’s input — publishes on a ~1-week lag. The most recent <b>'+(nc.n_days||1)+' business day(s)</b> ('+nc.from+' → '+nc.to+') are nowcast from the next-business-day <b>H.15 Treasury Constant Maturities</b> ('+(nc.source||'H.15')+'): only the H.15 day-to-day <b>change</b> is used, anchored to GSW’s last level (par-vs-zero and on-the-run richness cancel). These points are provisional and are overwritten when the official GSW batch lands.';

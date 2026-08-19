@@ -48,9 +48,15 @@ def _download(freq: str = "M") -> str:
 
 
 def parse_snb_csv(text: str, freq: str = "M") -> pd.DataFrame:
-    """Parse a rendoblim (monthly) / rendoblid (daily) long CSV into a
-    date x maturity(years) frame (DECIMAL). The daily cube's ``D0`` also carries
-    rating buckets (AAA/AA/A) — we keep only the ``<n>J`` maturity codes."""
+    """Parse an SNB spot-rate long CSV into a date x maturity(years) frame (DECIMAL).
+
+    Handles both cube layouts:
+      * successor ``rendeiduebd``/``rendeiduebm`` — ``Date;D0;D1;Value`` where D0 is the
+        bond category (``CHF`` = Swiss Confederation, plus cantons/banks/corporates) and
+        D1 is the maturity code. We select the Confederation category.
+      * legacy ``rendoblid``/``rendoblim`` — ``Date;D0;Value`` with D0 the maturity code
+        (its daily cube also carried rating buckets AAA/AA/A, which we drop).
+    """
     lines = text.splitlines()
     hdr = next(i for i, l in enumerate(lines)
                if l.replace('"', "").strip().startswith("Date;"))
@@ -59,7 +65,12 @@ def parse_snb_csv(text: str, freq: str = "M") -> pd.DataFrame:
                      dtype=str, keep_default_na=False)
     df.columns = [c.strip().strip('"') for c in df.columns]
     df = df[df["Date"].str.strip() != ""].copy()
-    df["d0"] = df["D0"].str.strip()
+    if "D1" in df.columns:                                        # successor layout
+        code = getattr(cfg, "SNB_CONFED_CODE", "CHF")
+        df = df[df["D0"].str.strip() == code].copy()
+        df["d0"] = df["D1"].str.strip()
+    else:                                                         # legacy layout
+        df["d0"] = df["D0"].str.strip()
     df = df[df["d0"].str.match(_MATURITY_RE)].copy()              # drop rating rows
     if _is_daily(freq):
         df["date"] = pd.to_datetime(df["Date"].str.strip(), format="%Y-%m-%d")

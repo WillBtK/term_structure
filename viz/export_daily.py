@@ -74,9 +74,11 @@ def _panel_daily(kind: str) -> pd.DataFrame:
     if kind == "ch_nominal":
         from switzerland.fetch_snb import load_yields
         from switzerland import config as sw
-        # The SNB *daily* cube (rendoblid) publishes 1-9,15,20,30y but omits 10y;
-        # the fitted Svensson curve is smooth, so interpolate the COMMON_GRID
-        # points (only 10y is missing) across the maturity axis per date (PCHIP).
+        # The successor SNB daily cube (rendeiduebd) publishes 1-10,20,30y — every
+        # COMMON_GRID tenor natively, so the PCHIP step below is now a no-op pass-through
+        # (it interpolates exactly at the nodes). It is kept as a guard: the predecessor
+        # cube omitted 10y and had to be interpolated, and this keeps the build robust if
+        # SNB ever drops a tenor again.
         full = load_yields(freq="D")                     # all available daily maturities
         full = full[full.index >= pd.Timestamp(sw.SAMPLE_START)].dropna(how="all")
         return _interp_to_grid(full, sw.COMMON_GRID)

@@ -30,6 +30,8 @@ import os
 # ISO week). Set DAILY_YEARS >= the full span (or VIZ_FULL_DAILY=1) to keep the
 # entire history daily — the payload is still well under the 16 MB artifact cap.
 DAILY_YEARS = float(os.environ.get("VIZ_DAILY_YEARS", "100"))
+# Days behind the freshest market before a series is badged "stale" in the Atlas.
+STALE_DAYS = int(os.environ.get("VIZ_STALE_DAYS", "14"))
 FULL_DAILY = os.environ.get("VIZ_FULL_DAILY", "1") == "1"
 
 
@@ -101,6 +103,17 @@ def build() -> dict:
         if b is not None and am.get("source") not in (None, "none"):
             b["anchor"] = {"source": am.get("source"), "pi_e": am.get("pi_e"),
                            "r_star": am.get("r_star"), "asof": am.get("asof")}
+    # staleness: flag any market/instrument lagging the freshest one by > STALE_DAYS, so a
+    # dead upstream source (which keeps returning HTTP 200) is visible rather than silent.
+    _ends = {k: m.get("end") for k, m in (meta.get("instruments") or {}).items() if m.get("end")}
+    if _ends:
+        _newest = max(_ends.values())
+        for key, end in _ends.items():
+            cc, inst = key.split(":")
+            behind = (pd.Timestamp(_newest) - pd.Timestamp(end)).days
+            b = countries.get(cc, {}).get("instruments", {}).get(inst)
+            if b is not None and behind > STALE_DAYS:
+                b["stale"] = {"last": end, "days_behind": int(behind)}
     # timely H.15 nowcast span (provisional tail past the lagged GSW batch) -> per-block flag
     for key, nc in (meta.get("nowcast") or {}).items():
         cc, inst = key.split(":")

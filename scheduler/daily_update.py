@@ -102,14 +102,50 @@ def rebuild_viz() -> None:
     _run_step("viz.build_artifact")
 
 
+STALE_DAYS = 14          # calendar days behind the freshest market before we shout
+
+
+def audit_staleness(threshold_days: int = STALE_DAYS) -> dict:
+    """Compare every market/instrument's last data date against the freshest one and log
+    a loud warning for any that lag by more than ``threshold_days``.
+
+    A source that goes dead does NOT fail the fetch — the SNB served a frozen cube for a
+    year with HTTP 200 — so silence is not evidence of freshness. This is the check that
+    turns a silent freeze into a visible one. Returns {key: days_behind} for the stale."""
+    import json as _json
+    meta_path = ROOT / "viz" / "data_daily_meta.json"
+    if not meta_path.exists():
+        return {}
+    meta = _json.loads(meta_path.read_text())
+    ends = {k: m.get("end") for k, m in (meta.get("instruments") or {}).items() if m.get("end")}
+    if not ends:
+        return {}
+    import datetime as _dt
+    parsed = {k: _dt.date.fromisoformat(v) for k, v in ends.items()}
+    newest = max(parsed.values())
+    stale = {}
+    for k, d in sorted(parsed.items(), key=lambda kv: kv[1]):
+        behind = (newest - d).days
+        if behind > threshold_days:
+            stale[k] = behind
+            logger.warning("STALE DATA: %s ends %s — %d days behind the freshest market (%s). "
+                           "Check whether the upstream source moved or stopped publishing.",
+                           k, d, behind, newest)
+    logger.info("staleness audit: newest %s; %d/%d series stale (>%dd)",
+                newest, len(stale), len(parsed), threshold_days)
+    return stale
+
+
 def run(fetch: bool = True) -> dict:
     t0 = time.time()
     status = refresh_sources() if fetch else {"(skipped fetch)": "ok"}
     rebuild_viz()
+    stale = audit_staleness()
     dt = time.time() - t0
     ok = sum(v == "ok" for v in status.values())
-    logger.info("daily update done in %.0fs — %d/%d sources ok", dt, ok, len(status))
-    return {"elapsed_s": round(dt, 1), "sources": status}
+    logger.info("daily update done in %.0fs — %d/%d sources ok%s", dt, ok, len(status),
+                f", {len(stale)} STALE" if stale else "")
+    return {"elapsed_s": round(dt, 1), "sources": status, "stale": stale}
 
 
 def _main() -> None:
