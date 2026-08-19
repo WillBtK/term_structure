@@ -34,8 +34,8 @@
         30.0
       ],
       "start": "1961-06-14",
-      "end": "2026-07-31",
-      "n_days": 16246
+      "end": "2026-08-17",
+      "n_days": 16257
     },
     "US:real": {
       "label": "US TIPS (real)",
@@ -51,8 +51,8 @@
         20.0
       ],
       "start": "2004-01-02",
-      "end": "2026-08-07",
-      "n_days": 5653
+      "end": "2026-08-17",
+      "n_days": 5659
     },
     "UK:nominal": {
       "label": "UK gilts (nominal)",
@@ -70,8 +70,8 @@
         20.0
       ],
       "start": "1979-01-02",
-      "end": "2026-07-31",
-      "n_days": 12026
+      "end": "2026-08-17",
+      "n_days": 12037
     },
     "UK:real": {
       "label": "UK index-linked (real)",
@@ -86,8 +86,8 @@
         20.0
       ],
       "start": "1985-01-02",
-      "end": "2026-07-31",
-      "n_days": 10508
+      "end": "2026-08-17",
+      "n_days": 10519
     },
     "DE:nominal": {
       "label": "German Bunds (nominal)",
@@ -107,8 +107,8 @@
         30.0
       ],
       "start": "1997-08-07",
-      "end": "2026-08-14",
-      "n_days": 7366
+      "end": "2026-08-18",
+      "n_days": 7368
     },
     "JP:nominal": {
       "label": "Japanese JGBs (nominal)",
@@ -126,8 +126,8 @@
         30.0
       ],
       "start": "1974-09-24",
-      "end": "2026-07-31",
-      "n_days": 13270
+      "end": "2026-08-18",
+      "n_days": 13281
     },
     "CH:nominal": {
       "label": "Swiss Confederation (nominal)",
@@ -145,8 +145,8 @@
         30.0
       ],
       "start": "1988-01-04",
-      "end": "2025-07-31",
-      "n_days": 7534
+      "end": "2026-07-31",
+      "n_days": 7783
     },
     "CA:nominal": {
       "label": "Canada (nominal)",
@@ -170,15 +170,29 @@
       "n_days": 9962
     }
   },
+  "nowcast": {
+    "US:nominal": {
+      "source": "H.15 CMT (FRED DGS/DFII)",
+      "from": "2026-08-17",
+      "to": "2026-08-17",
+      "n_days": 1
+    },
+    "US:real": {
+      "source": "H.15 CMT (FRED DGS/DFII)",
+      "from": "2026-08-17",
+      "to": "2026-08-17",
+      "n_days": 1
+    }
+  },
   "anchors": {
     "JP": {
       "source": "consensus_shortrate+bridge",
       "pi_e": "consensus_cpi",
-      "r_star": "implied_from_overlap",
-      "calib_offset_pct": 0.001,
+      "r_star": "ferreira",
+      "calib_offset_pct": 0.279,
       "asof": "2026-07-13",
-      "coverage": 8919,
-      "n": 13270
+      "coverage": 8930,
+      "n": 13281
     }
   }
 }
