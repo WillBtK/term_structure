@@ -171,6 +171,10 @@ section.panel{ margin-bottom: 66px; scroll-margin-top: 24px; }
 .card-title{ font-size:14px; font-weight:600; margin-bottom:2px; }
 .card-note{ font-size:12.5px; color:var(--muted); margin-bottom:14px; }
 .card-note.eqnote{ min-height:3.1em; }          /* equalise the two side-by-side chart cards */
+/* running body copy inside a card (method write-ups) — wider measure than card-note */
+.prose{ font-size:13.5px; line-height:1.62; color:var(--muted); margin:0 0 14px; }
+.prose p{ margin:0 0 10px; } .prose p:last-child{ margin-bottom:0; }
+.prose b{ color:var(--ink); }
 .wideslider{ margin:16px 2px 2px; }             /* shared time-range slider under a dual chart pair */
 .grid-2{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
 .grid-3{ display:grid; grid-template-columns: repeat(3,1fr); gap:14px; }
@@ -230,6 +234,13 @@ td{ padding:5px 9px; border-bottom:1px solid var(--line-2); text-align:right; wh
     font-family: ui-monospace,monospace; font-variant-numeric:tabular-nums; }
 td:first-child{ font-family:"Iowan Old Style",Georgia,serif; }
 tr:last-child td{ border-bottom:none; }
+/* a cell carrying a sentence rather than a number: the default td is monospace and
+   nowrap, which is right for figures and unreadable for prose. */
+th.tprose{ text-align:left; }
+td.tprose{ font-family:"Iowan Old Style",Georgia,serif; font-size:12.5px; text-align:left;
+           white-space:normal; line-height:1.52; color:var(--muted); min-width:300px;
+           padding-top:8px; padding-bottom:8px; }
+td.tprose b{ color:var(--ink); }
 .twrap{ overflow-x:auto; }
 .sign-pos{ color: var(--blue); }
 .sign-neg{ color: var(--orange); }
@@ -597,7 +608,7 @@ const M = document.getElementById('main');
 const NAV = document.getElementById('jumpNav');
 // Display order (CSS `order`) so panels render in this sequence regardless of the
 // code order of their IIFEs. Unlisted ids fall to the end.
-const PANEL_ORDER={explorer:10, compare:20, globalfactor:30, benchmarks:40, stagflation:50, stagflationjp:51, jpregime:52, liquidity:60, data:70};
+const PANEL_ORDER={explorer:10, compare:20, globalfactor:30, benchmarks:40, regimes:49, stagflation:50, stagflationjp:51, jpregime:52, liquidity:60, data:70};
 function panel(id, eyebrow, title, paras){
   const s=h('section',{class:'panel',id});
   const ord=PANEL_ORDER[id]!=null?PANEL_ORDER[id]:90; s.style.order=ord;
@@ -1024,6 +1035,49 @@ function lastVal(block, measure, tenor){
   rangeSlider(sliderMount, refBlk.x, refBlk.dates, (lo,hi)=>{ CM.xlo=lo; CM.xhi=hi; render(); });
 })();
 
+/* ------------------------------------------------ 3a. REGIMES — why sample choice is the estimate */
+(function(){
+  const INFO='<b>The short version.</b> A term premium is a yield minus a forecast of the average future short rate. The forecast comes from the estimated persistence of the short rate — how fast it reverts, and to what level. Those two parameters are the least well identified things in the model, and what you get for them depends almost entirely on <i>which years you estimate on</i>. So the sample is not a housekeeping detail; on a yields-only model it is close to being the estimate.';
+  const s=panel('regimes','Historical lens','Why a longer sample is not a better estimate',
+    ['The instinct with a weakly identified parameter is to feed it more data. For term premia that instinct is wrong, and the Federal Reserve has published the demonstration. Li, Meldrum and Rodriguez (<a href="https://www.federalreserve.gov/econres/notes/feds-notes/robs-of-long-maturity-term-premium-estimates-20170403.html" target="_blank" rel="noopener">FEDS Notes, April 2017</a>) take the two official US decompositions — <b>Kim–Wright</b> and <b>Adrian–Crump–Moench</b> — which look almost identical on paper and yet disagree materially on the 10-year premium, and work out why. It is not the estimation technique, nor the exact choice of yields and factors: those "appear to be much less important". It is the information used to pin down expectations. KW feed the model <b>Blue Chip survey forecasts</b>; ACM use yields alone. Once you add surveys to ACM, it becomes KW.',
+     'The mechanism is worth stating precisely, because it is the same one at work in every market here. Yields are <b>extremely persistent</b>, so a sample of any realistic length carries very little information about the long-run level rates revert to, or the speed of reversion. Worse, the point estimate of persistence is <b>biased downward in short samples</b> — the model thinks rates mean-revert faster than they do, which makes the expected-rate path too flat and dumps the difference into the premium. The Fed note shows the consequence directly: the same yields-only model estimated from 1961 and from 1990 gives materially different 10-year premia.',
+     'That leaves a genuine dilemma rather than a free lunch, and the note is explicit about both horns. Drop the pre-1990 data and structural breaks can no longer bias the parameters — but yields then fall almost monotonically through what remains, so there is "almost no information" left with which to estimate a long-run mean at all. Keep the long sample and you have more variation, but you are now fitting one set of parameters across the Great Inflation, the Volcker disinflation, and the zero-bound era as though they were one world. That is what produces the result the FT called implausible: because 1970s yields sat far above the <i>full-sample</i> average, a long-sample model concludes that investors in 1979 expected rates to fall.']);
+  const hh=s.querySelector('h2'); if(hh) hh.appendChild(infodot(INFO));
+
+  const p4=h('p',{html:'<b>Our answer is to choose the sample by regime rather than by length.</b> Surveys are the fix the Fed note lands on, and they work — but they exist for the US, patchily for the UK, and barely elsewhere, so building on them would cost the cross-market comparability that is the point of this atlas. Instead each market’s parameters are estimated on a single monetary-policy regime, so there is no break inside the sample to average across. Three things then do the work surveys would have done: the sample is <b>regime-clean</b> (no structural break to bias the persistence); the persistence is <b>bias-corrected</b> (Bauer–Rudebusch–Wu bootstrap, which is the other non-survey remedy the note names, and which lifted our short-end agreement with the SF Fed series from 0.14 to 0.83 at 1y); and a <b>~3.5-year mean-reversion floor</b> stops the expected-rate path collapsing onto today’s policy rate. Everything before the regime start is still shown — but as observed yields with <b>extrapolated</b> parameters, flagged as such, and cross-checked against a separate regime-switching model rather than quietly folded into the estimate.'});
+  s.querySelector('.panel-head').appendChild(p4);
+
+  const c=h('div',{class:'card'});
+  c.appendChild(h('div',{class:'card-title'},'The estimation regime, market by market'));
+  c.appendChild(h('div',{class:'card-note'},'Parameters are fit only from the "regime starts" date. Earlier years are decomposed with extrapolated parameters and shaded in the Explorer.'));
+  const tw=h('div',{class:'twrap'}); const tb=h('table');
+  tb.appendChild(h('thead',null,[h('th',null,'Market'),h('th',null,'Regime starts'),
+    h('th',null,'Data from'),h('th',{class:'tprose'},'How that date was chosen')].reduce((tr,x)=>{tr.appendChild(x);return tr;}, h('tr'))));
+  const rows=[
+    ['United States','Jan 1987','1961','The post-Volcker disinflation — and a 2-regime Kim filter on the full 1961+ curve <b>confirms</b> it: the high-volatility regime is confined to 1973–75 and 1979–82 (mean probability <b>0.98</b> across Oct-1979 to Oct-1982), and everything post-1985 is clean.'],
+    ['Japan','May 2000','1974','<b>Dated by the model.</b> A 2-regime Kim filter on 1974+ puts a permanent level-regime break at <b>2000-05-31</b>, the ZIRP-to-deflation transition. The previous start — 1986, the first published 10y JGB — sat 14 years <i>inside</i> the old regime.'],
+    ['Germany','Jan 1999','1972 (1997 daily)','Monetary union: the D-mark and euro curves are different policy regimes with different anchors.'],
+    ['United Kingdom','Oct 1992','1979','Inflation targeting, adopted immediately after the ERM exit.'],
+    ['Canada','1991','1986','Inflation targeting, adopted February 1991.'],
+    ['Switzerland','1988','1988','The SNB curve itself begins here, so there is no earlier regime to exclude — the one market where the start is a data limit rather than a choice.'],
+  ];
+  const body=h('tbody');
+  rows.forEach(r=>body.appendChild(h('tr',null,[h('td',null,r[0]),h('td',null,r[1]),h('td',null,r[2]),h('td',{class:'tprose',html:r[3]})])));
+  tb.appendChild(body); tw.appendChild(tb); c.appendChild(tw); s.appendChild(c);
+
+  const honest=h('div',{class:'callout'});
+  honest.innerHTML='<b>Which of these are model-dated.</b> Only the <b>US</b> and <b>Japan</b> starts have been tested with a fitted regime-switching model; Japan’s was actually <i>moved</i> by it. The other four are dated on monetary-policy grounds — monetary union, the adoption of inflation targeting — which is the same logic applied by judgement rather than by likelihood. That is a real difference in evidential weight and we would rather state it than blur it. Running the Kim filter on Germany, the UK and Canada is the obvious next test.';
+  s.appendChild(honest);
+
+  const meas=h('div',{class:'callout orange'});
+  meas.innerHTML='<b>What the sample choice is worth, measured.</b> Japan is the clean natural experiment, because only the start date changed. On the old <b>1986</b> start — 14 years of which sat inside the pre-2000 high-level regime — the latest 10-year premium came out at <b>+0.89%</b>. Re-estimated on the regime-clean <b>2000+</b> sample, the same model on the same data gives <b>+2.15%</b>. A <b>126 bp</b> move in the headline number from a sample boundary, with no change to the pricing model, the estimator, or the yields. The direction is the one the theory predicts: the regime-clean sample has a lower, deflation-era anchor, so the expected-rate path sits lower and more of the yield is left as premium. The two cross-check panels below show the same thing visually for the US Great Inflation and for Japan before deflation — the single-regime model extrapolated backwards against a 2-regime model that gives each era its own mean reversion. Both agree on <b>shape and sign</b> in the deep past; they disagree on <b>level</b>, and that gap is exactly the anchoring uncertainty this section is about.';
+  s.appendChild(meas);
+
+  const jp=h('div',{class:'callout teal'});
+  jp.innerHTML='<b>And Japan may already have left the regime we estimate it on.</b> The discipline above has an uncomfortable corollary: a regime-clean sample is only clean until the regime changes. A separate 2-regime filter fit on Japan’s <i>modern</i> sample alone splits it into a deep deflation world (long-run anchor <b>−0.31%</b>) and a higher-rate world (<b>+4.38%</b>) — and on the real-time estimate the probability Japan is in the higher-rate world has been pinned at <b>1.00 since late 2016</b>, well before the BoJ’s 2024 exit from negative rates and yield-curve control. So the 2000+ sample now straddles a break of its own. <b>What we do about it:</b> we publish the probability as a live tripwire (the <a href="#jpregime">regime monitor</a> below); we re-anchor Japan’s expected-rate path at decomposition time with a survey-based <b>shifting endpoint</b>, which updates the destination of the path without re-estimating anything; and we label the current Japanese level as anchor-sensitive, so read <b>changes</b> rather than the absolute level. <b>What we deliberately do not do</b> is re-cut the sample to 2016+. Ten years of a market that spent most of them at the bound cannot identify persistence — that is the Fed note’s second horn, and cutting again would trade a known bias for a much larger variance.';
+  s.appendChild(jp);
+})();
+
 /* ------------------------------------------------ 3b. STAGFLATION LENS (US, two decompositions) */
 (function(){
   const b=DATA.countries.US.instruments.nominal;
@@ -1448,7 +1502,7 @@ function lastVal(block, measure, tenor){
 /* ------------------------------------------------ 4. DATA / METHOD */
 (function(){
   panel('data','The data','Method',
-    ['Each curve is fitted with a single arbitrage-free Nelson–Siegel model extended with the Christensen–Rudebusch shadow rate (so it respects each market’s effective lower bound), estimated by extended-Kalman QML on a modern regime-clean sample. The expected-rate path is anchored by a calibrated <b>~3.5-year mean-reversion floor</b> on the physical persistence (see the note below). The term premium shown is the <b>realised</b> premium: the observed yield minus the model’s expected average future short rate. Real curves (US TIPS, UK index-linked) drop the lower bound entirely.']);
+    ['Each curve is fitted with a single arbitrage-free Nelson–Siegel model extended with the Christensen–Rudebusch <b>shadow rate</b>, estimated by extended-Kalman QML on a modern <b>regime-clean</b> sample — the two choices that separate this from the published affine decompositions. The sample choice is argued out under <a href="#regimes">Historical lens</a>; the lower bound is below. The expected-rate path is anchored by a calibrated <b>~3.5-year mean-reversion floor</b> on the physical persistence. The term premium shown is the <b>realised</b> premium: the observed yield minus the model’s expected average future short rate. Real curves (US TIPS, UK index-linked) have no lower bound and reduce to plain AFNS.']);
   const s=M.lastChild;
   // summary table
   const c=h('div',{class:'card'});
@@ -1468,6 +1522,33 @@ function lastVal(block, measure, tenor){
     body.appendChild(tr);
   }); });
   tb.appendChild(body); tw.appendChild(tb); c.appendChild(tw); s.appendChild(c);
+  // ---- the shadow rate + the estimated lower bound (the extension not in the published series)
+  const sr=h('div',{class:'card'});
+  sr.appendChild(h('div',{class:'card-title'},'The shadow rate — and why the lower bound is estimated, not assumed'));
+  sr.appendChild(h('div',{class:'card-note'},'The one structural extension here that none of the published, freely available term-premium series carries.'));
+  const srp=h('div',{class:'prose'});
+  srp.innerHTML='<p>Every widely published decomposition — Kim–Wright, Adrian–Crump–Moench, and the SF Fed series this atlas validates against — is a <b>Gaussian affine</b> model. Interest rates in it are normally distributed, so nothing stops the model projecting the short rate to −2% or −4%. The Fed’s own note says so plainly and draws the conclusion: these models "do not impose a lower bound on nominal interest rates", shadow-rate models "are likely to be more appropriate for analyzing term premiums at short maturities during recent years", and so the note <b>restricts itself to the 10-year horizon</b>, which is least affected. That is a reasonable defence for a US-only study of the long end. It is not available to an atlas that publishes the 3-month to 30-year curve for six markets, three of which spent years with policy rates <i>below zero</i>.</p>'
+    + '<p>So every nominal curve here is fitted with the <b>Christensen–Rudebusch shadow-rate</b> extension. A latent shadow short rate is free to go as negative as the data imply; the rate that actually prices bonds is the shadow rate <b>floored at the effective lower bound</b>. Because the floor is an option payoff, forward rates follow the Krippner closed form, and yields integrate those forwards — which makes the measurement equation <b>non-linear</b>, so the model is estimated by extended-Kalman QML rather than the linear regressions the published series use. The property that matters in practice: away from the bound the option is worthless and the model <b>collapses exactly onto plain AFNS</b>. It costs nothing in normal times and only binds when it should.</p>'
+    + '<p><b>The lower bound is a parameter, not an input.</b> This is the part that is easy to get wrong. It is tempting to set the ELB to the policy rate and move on — but the bound that matters is not a policy rate, it is the cost of holding institutional cash instead, and nobody observes it. Because the floor enters through a smooth option formula, the likelihood is differentiable in the bound, so we simply <b>add it to the parameter vector and let maximum likelihood find it</b>, then profile the likelihood around the optimum to see how well it is actually identified. That last step is the honest part, because the answer differs sharply by market.</p>';
+  sr.appendChild(srp);
+  const etw=h('div',{class:'twrap'}); const etb=h('table');
+  etb.appendChild(h('thead',null,[h('th',null,'Market'),h('th',null,'Bound used'),h('th',null,'Source'),
+    h('th',{class:'tprose'},'How well the data identify it')].reduce((tr,x)=>{tr.appendChild(x);return tr;}, h('tr'))));
+  const ebody=h('tbody');
+  [['Germany','−0.78%','ML estimate','<b>Well identified.</b> Bund yields went clearly negative. The likelihood profile has a shallow optimum across −0.75% to −1.0% and deteriorates sharply above −0.5% (it collapses entirely at 0%). Praet’s −1.0% reversal-rate figure sits within ~6 log-likelihood of the optimum — the data confirm it rather than assume it.'],
+   ['Japan','−0.20%','ML estimate','<b>Well identified.</b> JGB yields sat at the bound for years. The estimate lands at −0.20%, essentially the BoJ’s −0.10% NIRP policy rate, and inside the revealed short-yield floor — not at the deeper −0.75% reversal-rate concept.'],
+   ['Canada','+0.18%','ML estimate','<b>Weakly identified.</b> Canada only grazed the bound, so the estimate pins to the observed short-yield floor rather than to anything structural.'],
+   ['United States','−0.35%','Calibrated, ML-checked','<b>Identified from above only.</b> ML on US data returns <b>+0.16%</b>: the likelihood sharply rules out any bound above ~+0.2% — a floor cannot sit above the lowest observed yield — but is nearly flat going more negative (only ~180 log-likelihood from 0% to −2%). US yields never went negative, so there is no information about how far below zero the bound sits. We therefore keep a calibrated −0.35% with a sensitivity band, and this is also why the US shadow rate is shallow.'],
+   ['United Kingdom','−0.35%','Calibrated','<b>Weakly identified.</b> The mildest lower bound of the six: Bank Rate floored at 0.10% and short gilt yields barely went negative. Fixed rather than estimated; the shadow machinery hardly binds.'],
+   ['Switzerland','−0.75%','Calibrated','Set at the revealed SNB floor — the deepest actually observed policy rate anywhere in the atlas.'],
+   ['US TIPS · UK index-linked','none','—','Real rates have no lower bound — there is no such thing as real cash — so for the inflation-linked curves the bound is pushed out of reach and the model reduces to plain AFNS by construction.'],
+  ].forEach(r=>ebody.appendChild(h('tr',null,[h('td',null,r[0]),h('td',null,r[1]),h('td',null,r[2]),h('td',{class:'tprose',html:r[3]})])));
+  etb.appendChild(ebody); etw.appendChild(etb); sr.appendChild(etw);
+  const srn=h('div',{class:'callout teal'});
+  srn.innerHTML='<b>Does the mechanism behave?</b> The internal check is the German shadow rate: through the ECB’s negative-rate era it falls to <b>−1.17% (Dec 2016)</b> — <i>below</i> the fitted bound, which is correct, since the shadow rate is unbounded and it is the <i>observed</i> rate the floor applies to — and averages about −0.53% over 2019–21 against an actual 3-month Bund yield of −0.67%. Away from the bound it converges back onto the plain-AFNS fit. <b>Why it matters for the premium:</b> without a floor, the expected-average-short-rate leg of the decomposition would project deeply negative rates through the ZIRP years, and every basis point of that impossible path would be booked as term premium instead.';
+  sr.appendChild(srn);
+  s.appendChild(sr);
+
   // interpretation caveat
   const cav=h('div',{class:'callout orange'});
   cav.innerHTML='<b>Anchoring the expected-rate path.</b> A yields-only model tends to a near-unit-root, so the expected-average short rate would track <b>today’s</b> policy rate and the term premium would degenerate into the term spread (collapsing to deeply negative in the 2022–23 hiking cycle). We instead impose a calibrated <b>~3.5-year mean-reversion</b> so the expected path reverts to its long-run mean — calibrated on the US against the <b>SF Fed Christensen–Rudebusch</b> series (10y correlation 0.80, identical latest value 1.19%) and applied uniformly to every market. One residual caveat: a yields-only model still cannot see central-bank bond purchases, so it does not separately identify QE’s compression of the premium.';

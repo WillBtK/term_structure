@@ -189,8 +189,17 @@ def build_canonical() -> pd.DataFrame:
         parts.append(frame[["country", "instrument", "date", "maturity",
                             "observed", "expected", "term_premium"]]
                      .rename(columns={"maturity": "tenor"}))
+        # Report the lower bound the model was actually FIT with, not a hand-written
+        # copy of it: for the markets where the ELB is ML-estimated (DE, JP, CA) the
+        # fitted value drifts from the calibration each re-estimation, and the Method
+        # section discusses those estimates by name — two places quoting the bound must
+        # not be able to disagree. Real curves keep None (their bound is unreachable).
+        elb_pct = m.get("elb")
+        if elb_pct is not None and getattr(prod, "elb", None) is not None:
+            elb_pct = round(float(prod.elb) * 100.0, 2)
         meta["instruments"][f"{cc}:{inst}"] = dict(
-            m, tenors=[float(t) for t in sorted(panel.columns.astype(float))],
+            m, elb=elb_pct,
+            tenors=[float(t) for t in sorted(panel.columns.astype(float))],
             start=str(panel.index.min().date()), end=str(panel.index.max().date()),
             n_days=int(len(panel)))
         print(f"{cc} {inst}: {len(panel)} days "
