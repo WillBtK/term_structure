@@ -101,6 +101,13 @@ def build() -> dict:
         if b is not None and am.get("source") not in (None, "none"):
             b["anchor"] = {"source": am.get("source"), "pi_e": am.get("pi_e"),
                            "r_star": am.get("r_star"), "asof": am.get("asof")}
+    # timely H.15 nowcast span (provisional tail past the lagged GSW batch) -> per-block flag
+    for key, nc in (meta.get("nowcast") or {}).items():
+        cc, inst = key.split(":")
+        b = countries.get(cc, {}).get("instruments", {}).get(inst)
+        if b is not None and nc.get("to"):
+            b["nowcast"] = {"from": nc.get("from"), "to": nc.get("to"),
+                            "source": nc.get("source"), "n_days": nc.get("n_days")}
     _extend_nominal_tp_history(countries, canon)
     _attach_us_regime_overlay(countries)
     _attach_japan_regime_overlay(countries)

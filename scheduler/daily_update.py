@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 def _refreshers():
     import numpy as np
     from us.fetch_gsw import load_gsw_params
+    from us.fetch_h15 import load_h15_panel as load_h15
     from us.tips import load_tips_params
     from germany.fetch_bundesbank import load_params as de_load
     from japan.fetch_mof import load_yields as jp_load
@@ -44,6 +45,8 @@ def _refreshers():
     return [
         ("US GSW (nominal)", lambda: load_gsw_params(refresh=True)),
         ("US TIPS (real)", lambda: load_tips_params(refresh=True)),
+        ("US H.15 nowcast (nominal)", lambda: load_h15(instrument="nominal", refresh=True)),
+        ("US H.15 nowcast (real)", lambda: load_h15(instrument="real", refresh=True)),
         ("Germany (daily)", lambda: de_load(freq="D", refresh=True)),
         ("Japan (daily)", lambda: jp_load(refresh=True)),   # MoF JGB is daily-only (no freq arg)
         ("UK nominal (daily)", lambda: uk_load("nominal", refresh=True, freq="D")),

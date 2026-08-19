@@ -146,6 +146,16 @@ def build_canonical() -> pd.DataFrame:
     for cc, inst, pfile, kind, vm, m in SPECS:
         prod = ProductionParams.from_json(PARAMS / pfile)
         panel = _panel_daily(kind)
+        # Timely nowcast: extend the US curves past the ~1-week-lagged GSW batch with the
+        # next-business-day H.15 CMT *change* (GSW-anchored increment splice). Provisional
+        # + self-healing; see us.fetch_h15. Recorded in meta so the viz can flag it.
+        if cc == "US":
+            from us.fetch_h15 import nowcast_extend
+            panel, nc_dates = nowcast_extend(panel, inst)
+            if nc_dates:
+                meta.setdefault("nowcast", {})[f"{cc}:{inst}"] = {
+                    "source": "H.15 CMT (FRED DGS/DFII)", "from": nc_dates[0],
+                    "to": nc_dates[-1], "n_days": len(nc_dates)}
         var_mult_fn = None
         if vm == "ycc":
             from japan import config as j
