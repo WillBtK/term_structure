@@ -88,8 +88,9 @@ def _period_to_date(x) -> "pd.Timestamp | None":
         return None
 
 
-def _write_if_ok(name: str, s: pd.Series) -> bool:
-    """Write a clean date,value(percent) series to the anchor CSV; skip if empty."""
+def _write_if_ok(name: str, s: pd.Series, out_dir=None) -> bool:
+    """Write a clean date,value(percent) series to an anchor CSV; skip if empty.
+    ``out_dir`` targets another market's anchor directory (default: Japan's)."""
     s = s.dropna().sort_index()
     if len(s) < 4:
         logger.warning("fetch_neutral: %s parse yielded <4 points -> keeping committed file", name)
@@ -97,15 +98,21 @@ def _write_if_ok(name: str, s: pd.Series) -> bool:
     out = pd.DataFrame({"date": [d.strftime("%Y-%m-%d") for d in s.index],
                         "value": np.round(s.to_numpy(dtype=float), 4)})
     ANCHOR_DIR.mkdir(parents=True, exist_ok=True)
-    out.to_csv(ANCHOR_DIR / name, index=False)
+    out.to_csv((Path(out_dir) if out_dir is not None else ANCHOR_DIR) / name, index=False)
     logger.info("fetch_neutral: wrote %s (%d rows, %s..%s, latest %.3f)", name, len(out),
                 out["date"].iloc[0], out["date"].iloc[-1], float(out["value"].iloc[-1]))
     return True
 
 
-def fetch_ferreira() -> bool:
-    """Scrape the FEDS Note for its data file, extract the Japan longer-run real neutral,
-    write ferreira_rstar_jp.csv. Best-effort; never raises."""
+def fetch_ferreira_economy(code: str, aliases, out_name: str, out_dir=None) -> bool:
+    """Scrape the FEDS Note for its data file and extract ONE economy's longer-run real
+    neutral rate.
+
+    Ferreira publishes every economy in a single file with 2-letter codes (JA=Japan,
+    EA=euro area, US, UK, CA, SZ=Switzerland, ...), so every market's r* rung is served
+    by this one weekly fetch — adding a market costs a column, not a new data source.
+    Best-effort; never raises, and never overwrites a good committed file on a bad parse.
+    """
     try:
         url = os.environ.get("FERREIRA_CSV") or _find_data_href(FERREIRA_NOTE)
         if not url:
@@ -115,22 +122,28 @@ def fetch_ferreira() -> bool:
         df = (pd.read_excel(io.BytesIO(raw.content)) if url.lower().split("?")[0].endswith(("xlsx", "xls"))
               else pd.read_csv(io.StringIO(raw.content.decode("utf-8", "replace"))))
         cols = {str(c).strip().lower(): c for c in df.columns}
-        # Ferreira uses 2-letter economy codes (JA=Japan, EA=euro area, SZ=Switzerland, ...).
-        jp = next((cols[k] for k in cols if k in ("japan", "jpn", "jp", "ja") or "japan" in k), None)
+        want = tuple(a.lower() for a in aliases)
+        col = next((cols[k] for k in cols if k in want or any(a in k for a in want if len(a) > 3)), None)
         pcol = next((cols[k] for k in cols if k in ("date", "period", "time", "year") or "date" in k or "period" in k),
                     df.columns[0])
-        if jp is None:
-            logger.warning("fetch_neutral: no Japan column in Ferreira file (cols=%s)", list(df.columns)[:12])
+        if col is None:
+            logger.warning("fetch_neutral: no %s column in Ferreira file (cols=%s)",
+                           code, list(df.columns)[:12])
             return False
         idx = df[pcol].map(_period_to_date)
-        logger.info("fetch_neutral: Ferreira col=%s period=%s; period sample=%s -> parsed %d/%d",
-                    jp, pcol, list(map(str, df[pcol].head(4).tolist())), int(idx.notna().sum()), len(idx))
-        s = pd.Series(pd.to_numeric(df[jp], errors="coerce").to_numpy(), index=idx)
+        logger.info("fetch_neutral: Ferreira %s col=%s period=%s -> parsed %d/%d",
+                    code, col, pcol, int(idx.notna().sum()), len(idx))
+        s = pd.Series(pd.to_numeric(df[col], errors="coerce").to_numpy(), index=idx)
         s = s[s.index.notna()]
-        return _write_if_ok("ferreira_rstar_jp.csv", s)
-    except Exception as e:                                         # noqa: BLE001
-        logger.warning("fetch_neutral: Ferreira refresh failed (%s) -> keeping committed file", e)
+        return _write_if_ok(out_name, s, out_dir=out_dir)
+    except Exception as exc:                                        # noqa: BLE001
+        logger.warning("fetch_neutral: Ferreira %s fetch failed (%s)", code, exc)
         return False
+
+
+def fetch_ferreira() -> bool:
+    """Japan's rung: Ferreira longer-run real neutral -> ferreira_rstar_jp.csv."""
+    return fetch_ferreira_economy("JA", ("japan", "jpn", "jp", "ja"), "ferreira_rstar_jp.csv")
 
 
 def fetch_tankan() -> bool:

@@ -1,9 +1,11 @@
 name: Refresh neutral-anchor fallbacks
 
-# Self-maintains the PUBLIC fallback rungs of japan.neutral_anchor — Ferreira r*
-# (Fed FEDS Note) and BoJ Tankan 5y inflation — by scraping their official pages on the
-# GitHub runner (open egress) and committing any refreshed CSVs under
-# japan/data/anchors/. Best-effort and non-fatal: a failed scrape keeps the committed
+# Self-maintains the PUBLIC fallback rungs of the neutral anchors — Ferreira r* (Fed
+# FEDS Note; the JA and EA columns of one file), BoJ Tankan 5y inflation, and the ECB
+# SPF longer-term expectation — by fetching their official sources on the GitHub runner
+# (open egress) and committing any refreshed CSVs under japan/ and germany/data/anchors/.
+# This is the half of each anchor that CAN be maintained; the Consensus snapshots beside
+# them are frozen by design and never touched here. Best-effort and non-fatal: a failed scrape keeps the committed
 # file. The proprietary Consensus CSVs are provided manually and are never touched here.
 # These fallbacks only affect the published premium if Consensus is ever absent.
 
@@ -31,10 +33,14 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Fetch Ferreira r* + Tankan 5y (best-effort; prints a preview)
+      - name: Fetch Ferreira r* (JA) + Tankan 5y (best-effort; prints a preview)
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m japan.fetch_neutral
+      - name: Fetch Ferreira r* (EA) + ECB SPF longer-term (best-effort)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m germany.fetch_neutral
       - name: Commit refreshed anchor CSVs (if any changed)
         run: |
           git config user.name  "atlas-bot"
@@ -42,8 +48,10 @@ jobs:
           # stage first (git diff --quiet ignores UNtracked new files); then check the index
           git add japan/data/anchors/ferreira_rstar_jp.csv 2>/dev/null || true
           git add japan/data/anchors/tankan_infl_5y.csv 2>/dev/null || true
+          git add germany/data/anchors/ferreira_rstar_ea.csv 2>/dev/null || true
+          git add germany/data/anchors/ecb_spf_infl_lt.csv 2>/dev/null || true
           if ! git diff --cached --quiet; then
-            git commit -m "Refresh neutral-anchor fallbacks (Ferreira r*, Tankan 5y) [skip ci]"
+            git commit -m "Refresh neutral-anchor fallbacks (Ferreira r* JA/EA, Tankan 5y, ECB SPF) [skip ci]"
             git push
           else
             echo "no anchor changes"

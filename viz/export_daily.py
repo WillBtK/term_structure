@@ -172,6 +172,18 @@ def build_canonical() -> pd.DataFrame:
             from japan import config as j
             var_mult_fn = j.ycc_downweight
         endpoint = None
+        if cc == "DE" and inst == "nominal":
+            # Neutral-rate shifting endpoint for Germany. The regime re-cut to 1984+ fixed
+            # a break INSIDE the sample; it cannot fix r* drifting down secularly WITHIN
+            # that regime, which leaves the sample mean implying a 2.84% long-run short
+            # rate against a euro-area neutral nearer 2.5%. Inert until the Consensus CPI
+            # file lands (see germany.neutral_anchor.is_enabled — the public rungs alone
+            # only reach back to 1999 and would seam the sample at that date).
+            from germany.neutral_anchor import build_nominal_neutral as de_neutral, is_enabled
+            if is_enabled():
+                endpoint, ameta = de_neutral(panel.index)
+                meta.setdefault("anchor", {})[f"{cc}:{inst}"] = {
+                    k: v for k, v in ameta.items() if k != "src_by_date"}
         if cc == "JP" and inst == "nominal":
             # Neutral-rate shifting endpoint for Japan's expected-rate path (fixes the
             # deflation-era theta anchor). Inert (all-NaN -> constant-theta) until the
