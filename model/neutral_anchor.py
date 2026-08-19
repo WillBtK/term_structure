@@ -69,6 +69,7 @@ class AnchorSpec:
     # Rung labels reported in meta. They surface in the front end (the survey-anchor
     # badge) and are asserted by tests, so each market names its own rungs.
     survey_label: str = "survey"
+    shortrate_ext_label: str = "rate_ext"
     rstar_label: str = "rstar"
     target_label: str = "cb_target"
     extender_label: str = "extender"
@@ -172,6 +173,32 @@ def build_nominal_neutral(index, spec: AnchorSpec, dir: "Path | None" = None):
     cpi = load_series(spec, "cpi", dir)
     rstar = load_series(spec, "rstar", dir)
     ext = load_series(spec, "extender", dir)
+    sr_ext = load_series(spec, "shortrate_ext", dir)
+
+    # --- extend the DIRECT rung past its last release with a public long-horizon rate
+    #     survey, level-bridged over their overlap. Same mechanism as the inflation leg,
+    #     and it matters more: a proprietary short-rate survey is the rung most likely to
+    #     be a frozen one-off, and without this the anchor drops to r* + pi^e the moment
+    #     it lapses. The horizons usually differ (e.g. 6-10y vs 4-5y ahead), which is what
+    #     the offset absorbs — so an overlap is REQUIRED, and without one the extension is
+    #     refused rather than splicing two different horizons at face value.
+    sr_ext_src = None
+    if sr is not None and sr_ext is not None:
+        span = pd.date_range(max(sr.index.min(), sr_ext.index.min()),
+                             min(sr.index.max(), sr_ext.index.max()), freq="M")
+        if len(span) >= 6:
+            off = float((locf(sr, span) - locf(sr_ext, span)).mean())
+            tail = sr_ext[sr_ext.index > sr.index.max()] + off
+            if len(tail):
+                sr = pd.concat([sr, tail]).sort_index()
+                sr_ext_src = spec.shortrate_ext_label
+        else:
+            logger.warning("%s neutral anchor: %s overlaps the direct survey by %d months "
+                           "(<6) — not extending; horizons differ, so the level offset "
+                           "cannot be identified", spec.market, spec.shortrate_ext_label,
+                           len(span))
+    elif sr is None and sr_ext is not None:
+        sr, sr_ext_src = sr_ext, spec.shortrate_ext_label     # public rung alone
 
     if sr is None and rstar is None:
         return np.full(len(index), np.nan), {"source": "none", "asof": None,
@@ -233,7 +260,8 @@ def build_nominal_neutral(index, spec: AnchorSpec, dir: "Path | None" = None):
     # use it only when it is the sole source.
     obs = [s for s in (sr, cpi, ext) if s is not None]
     asof = max([s.index.max() for s in (obs or [rstar])])
-    meta = {"source": source, "pi_e": pie_src, "r_star": rr_src, "calib_offset_pct": round(c, 3),
+    meta = {"source": source, "pi_e": pie_src, "r_star": rr_src, "shortrate_ext": sr_ext_src,
+            "calib_offset_pct": round(c, 3),
             "asof": str(pd.Timestamp(asof).date()), "coverage": int(np.isfinite(vals).sum()),
             "n": len(index), "src_by_date": src}
     logger.info("%s neutral anchor: source=%s pi_e=%s r*=%s offset=%.2f%% asof=%s coverage=%d/%d",

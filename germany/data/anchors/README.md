@@ -19,6 +19,7 @@ is present, so the pipeline never breaks on a missing file.
 |---|---|---|---|
 | `ferreira_rstar_ea.csv` | Fed FEDS Note, "Real-Time Global Longer-Run Neutral Rates", `EA` column | semi-annual | 1960+ |
 | `ecb_spf_infl_lt.csv` | ECB Data Portal, SPF `Q.U2.HICP.POINT.LT.Q.AVG` (average point forecast, longer-term horizon) | quarterly | 1999+ |
+| `ecb_spf_rate_lt.csv` | ECB Data Portal, SPF `Q.U2.ASSU.IR.LT.Q.AVG` — forecasters' longer-term **interest-rate assumption** | quarterly | 2025+ |
 
 Refreshed by `.github/workflows/refresh-anchors.yml` via `python -m germany.fetch_neutral`.
 A failed fetch keeps the committed file rather than overwriting it.
@@ -41,14 +42,30 @@ overlap so the two rungs join without a step. The CPI file extends the same way,
 ECB SPF. So a one-off snapshot anchors the history and the public rungs keep the current
 edge live indefinitely, with no manual step and no silent freeze.
 
-## Will it carry forward? — measure it, don't assume it
+## Will it carry forward? — yes, and it is measurable
 
-There is **no public, machine-readable, long-horizon euro-area short-rate survey** to
-replace rung 1 when the Consensus snapshot lapses (the ECB Data Portal carries SPF,
-Bank Lending, Consumer Expectations and Money Market surveys — none of which forecasts
-interest rates at a 6-10 year horizon; the Survey of Monetary Analysts is published as
-documents, not data). So rung 1 *will* go stale, and everything then rests on the public
-bridge. Whether that hand-off preserves the meaning of the anchor is an empirical
+There **is** a public, machine-readable, long-horizon euro-area short-rate expectation:
+the SPF's own longer-term **interest-rate assumption**, `Q.U2.ASSU.IR.LT.Q.AVG`. It is
+not obvious from the flow catalogue — it sits under the `ASSU` ("Assumptions") topic
+rather than anywhere named like a forecast — which is why an earlier pass through this
+missed it and wrongly concluded no such series existed.
+
+Two properties make it the right carry-forward rather than just another fallback:
+
+* **Same concept as the Consensus series.** The SPF "interest rate" variable is a
+  3-month market rate, not the policy rate — its near-term counterpart
+  (`Q.U2.ASSU.IR.P3M.Q.AVG`, 99 rounds back to 2002) tracks 3m EURIBOR closely. So it
+  splices like-for-like onto a Consensus 3m-interbank forecast.
+* **Different horizon.** SPF's longer term is 4-5 calendar years ahead; Consensus is
+  6-10. The ladder level-bridges over their overlap, which absorbs the horizon gap — and
+  **refuses to extend at all** with fewer than 6 months of overlap, since the offset
+  could not be identified and splicing at face value would silently step the endpoint.
+
+It starts only in **2025-Q1** (7 rounds so far), so it cannot backfill history — the
+Consensus snapshot still carries 2016-2025. What it does is keep the DIRECT rung alive
+after that snapshot lapses, instead of dropping straight to `r* + pi^e`.
+
+The bridge beneath both remains the deepest fallback. Whether that hand-off preserves the meaning of the anchor is an empirical
 question, and `model.neutral_anchor.bridge_fidelity` answers it:
 
 ```bash

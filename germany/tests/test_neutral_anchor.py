@@ -103,3 +103,33 @@ def test_bridge_fidelity_measures_the_hand_off(tmp_path):
     assert d["calib_offset_pct"] == pytest.approx(0.5, abs=0.05)
     assert d["mean_abs_gap_bp"] < 2.0          # co-moves once the level is matched
     assert d["corr"] > 0.99
+
+
+def test_spf_rate_extends_the_consensus_short_rate_rung(tmp_path):
+    """The carry-forward that matters: past the last Consensus release the DIRECT rung
+    continues on the ECB SPF longer-term rate assumption, level-bridged over the overlap.
+    Without this the anchor drops to r* + pi^e the moment the frozen survey lapses."""
+    _write(tmp_path, "rstar", [("2024-12-31", 0.5), ("2027-12-31", 0.5)])
+    _write(tmp_path, "cpi", [("2024-12-31", 1.9), ("2027-12-31", 1.9)])
+    _write(tmp_path, "shortrate", [("2025-01-31", 2.7), ("2026-01-31", 2.7)])
+    _write(tmp_path, "shortrate_ext", [("2025-03-31", 2.2), ("2026-01-31", 2.2),
+                                       ("2026-09-30", 2.2)])
+    idx = pd.date_range("2025-01-31", "2026-09-30", freq="M")
+    vals, meta = na.build_nominal_neutral(idx, dir=tmp_path)
+    assert meta["shortrate_ext"] == "ecb_spf_rate"
+    # SPF sits 0.5pp below Consensus over the overlap; the tail is lifted by that offset,
+    # so the direct rung stays on its own level rather than stepping down 50bp.
+    assert np.allclose(vals[-1], 0.027, atol=1e-9)
+
+
+def test_extension_is_refused_without_a_real_overlap(tmp_path):
+    """The two surveys use different horizons (6-10y vs 4-5y ahead), so the level offset
+    has to be estimated. With no overlap it cannot be, and splicing them at face value
+    would silently step the endpoint — so the extension is declined instead."""
+    _write(tmp_path, "rstar", [("2020-12-31", 0.5), ("2027-12-31", 0.5)])
+    _write(tmp_path, "cpi", [("2020-12-31", 1.9), ("2027-12-31", 1.9)])
+    _write(tmp_path, "shortrate", [("2021-01-31", 2.7), ("2021-06-30", 2.7)])
+    _write(tmp_path, "shortrate_ext", [("2025-03-31", 2.2), ("2026-09-30", 2.2)])
+    vals, meta = na.build_nominal_neutral(pd.date_range("2021-01-31", "2026-09-30", freq="M"),
+                                          dir=tmp_path)
+    assert meta["shortrate_ext"] is None

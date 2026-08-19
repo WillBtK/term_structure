@@ -60,6 +60,7 @@ FILES = {
     "cpi":       "consensus_cpi_de_6_10y.csv",        # German CPI 6-10y, 1990+
     "rstar":     "ferreira_rstar_ea.csv",             # Ferreira EA real longer-run neutral
     "extender":  "ecb_spf_infl_lt.csv",               # ECB SPF longer-term inflation expectation
+    "shortrate_ext": "ecb_spf_rate_lt.csv",          # ECB SPF longer-term rate assumption, 2025+
 }
 
 
@@ -71,7 +72,8 @@ def _spec(dir: "Path | None" = None) -> AnchorSpec:
                       staleness_days=STALENESS_DAYS, smooth=SMOOTH,
                       obs_std=SMOOTH_OBS_STD, drift_std=SMOOTH_DRIFT_STD,
                       survey_label="consensus", rstar_label="ferreira",
-                      target_label="ecb_target", extender_label="ecb_spf")
+                      target_label="ecb_target", extender_label="ecb_spf",
+                      shortrate_ext_label="ecb_spf_rate")
 
 
 def _align(s, index):
