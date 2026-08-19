@@ -18,9 +18,16 @@ Two coverage caveats, both honest rather than papered over:
   * **30y has no historical backfill** — the DE/JP overlays reach 10y, so 5y/10y/5y5y
     keep their 1970s history while 20y/30y start when the modern curves do.
 
-Month-end resolution throughout: the common cycle is slow, and it keeps the Atlas payload
-small (one daily combo alone was ~800KB of the payload; fifteen would have been ~10MB)
-while a double-ended slider still zooms the full history.
+Month-end estimation and display throughout. This is a modelling choice, not a size
+compromise (delivery is Supabase + Cloudflare, so page weight is a soft constraint):
+  * the common factor is a slow cycle, while daily term-premium changes are dominated by
+    curve-fitting and measurement noise — monthly averages that away;
+  * on daily data the factor's AR(1) coefficient sits at ~0.999, effectively a unit root
+    and weakly identified; at month-end the persistence is far better conditioned;
+  * the deep history is *natively monthly* anyway — the pre-1997 DE/JP backfills are
+    monthly overlays, so daily resolution there was interpolation, not information;
+  * monthly is the standard frequency for this class of common-factor model.
+A double-ended slider still zooms the full history.
 
 Inserted into `scheduler/daily_update.py::rebuild_viz()` after `viz.export_daily`. Each EM
 fit is cheap and warm-started from the previous run; the whole step is guarded so a cold
