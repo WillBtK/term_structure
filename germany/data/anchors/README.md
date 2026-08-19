@@ -41,6 +41,31 @@ overlap so the two rungs join without a step. The CPI file extends the same way,
 ECB SPF. So a one-off snapshot anchors the history and the public rungs keep the current
 edge live indefinitely, with no manual step and no silent freeze.
 
+## Will it carry forward? — measure it, don't assume it
+
+There is **no public, machine-readable, long-horizon euro-area short-rate survey** to
+replace rung 1 when the Consensus snapshot lapses (the ECB Data Portal carries SPF,
+Bank Lending, Consumer Expectations and Money Market surveys — none of which forecasts
+interest rates at a 6-10 year horizon; the Survey of Monetary Analysts is published as
+documents, not data). So rung 1 *will* go stale, and everything then rests on the public
+bridge. Whether that hand-off preserves the meaning of the anchor is an empirical
+question, and `model.neutral_anchor.bridge_fidelity` answers it:
+
+```bash
+python -c "
+from model.neutral_anchor import bridge_fidelity
+from germany.neutral_anchor import _spec
+print(bridge_fidelity(_spec()))"
+```
+
+It rebuilds the bridge with the direct survey withheld and compares the two over their
+overlap, reporting the gap **after** the level calibration the ladder already applies —
+so a constant offset is removed by construction and only genuine drift shows up. A small
+`mean_abs_gap_bp` with high `corr` means the bridge is a faithful stand-in and the
+anchor will not change character on the day the survey lapses. A large or drifting gap
+is the warning that it would, and would argue for shortening `STALENESS_DAYS` so the
+transition happens while it can still be seen against the survey.
+
 ## Checking what the anchor is actually doing
 
 ```bash

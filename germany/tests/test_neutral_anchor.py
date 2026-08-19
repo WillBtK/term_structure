@@ -86,3 +86,20 @@ def test_activation_waits_for_the_consensus_inflation_leg(tmp_path):
     assert not na.is_enabled(tmp_path)      # but not applied
     _write(tmp_path, "cpi", [("1990-12-31", 2.5), ("2021-12-31", 1.8)])
     assert na.is_enabled(tmp_path)          # Consensus CPI extends coverage -> on
+
+
+def test_bridge_fidelity_measures_the_hand_off(tmp_path):
+    """Rung 1 will go stale — there is no public long-horizon euro-area rate survey to
+    replace it — so what matters is whether the bridge beneath it tracks the survey while
+    both exist. A constant offset is removed by the ladder's calibration; drift is not,
+    and that is what this reports."""
+    from model.neutral_anchor import bridge_fidelity
+    # r* and pi^e both drift; the survey sits a constant 0.5pp above their sum
+    _write(tmp_path, "rstar", [("2017-06-30", 0.4), ("2019-06-30", 0.6), ("2021-06-30", 0.8)])
+    _write(tmp_path, "cpi", [("2017-06-30", 1.6), ("2019-06-30", 1.7), ("2021-06-30", 1.8)])
+    _write(tmp_path, "shortrate", [("2017-06-30", 2.5), ("2019-06-30", 2.8), ("2021-06-30", 3.1)])
+    d = bridge_fidelity(na._spec(tmp_path), dir=tmp_path)
+    assert d["overlap_months"] > 40
+    assert d["calib_offset_pct"] == pytest.approx(0.5, abs=0.05)
+    assert d["mean_abs_gap_bp"] < 2.0          # co-moves once the level is matched
+    assert d["corr"] > 0.99

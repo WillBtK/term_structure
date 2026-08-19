@@ -246,3 +246,46 @@ def has_anchor(spec: AnchorSpec, dir: "Path | None" = None) -> bool:
     d = Path(dir) if dir is not None else spec.dir
     return ((d / spec.files["shortrate"]).exists()
             or (d / spec.files["rstar"]).exists())
+
+
+def bridge_fidelity(spec: AnchorSpec, dir: "Path | None" = None) -> dict:
+    """How well the PUBLIC bridge reproduces the direct survey over their overlap.
+
+    This is the number that decides whether a one-off proprietary survey is safe to rely
+    on. Rung 1 will inevitably go stale; when it does, everything falls through to
+    ``r* + pi^e``. If the bridge tracks the survey closely over the years they overlap,
+    that hand-off is trustworthy and the anchor keeps meaning what it meant. If it does
+    not, the anchor silently changes character on the day the survey lapses — which is
+    the failure this measures rather than assumes.
+
+    Reports the gap AFTER the level calibration the ladder already applies, so it
+    isolates co-movement (a constant offset is removed by construction, a drifting one is
+    not). Returns ``{}`` when the two do not overlap.
+    """
+    sr = load_series(spec, "shortrate", dir)
+    if sr is None:
+        return {}
+    idx = pd.date_range(sr.index.min(), sr.index.max(), freq="M")
+    if not len(idx):
+        return {}
+    # rebuild the bridge alone, i.e. the spec with the direct survey withheld
+    bare = AnchorSpec(**{**spec.__dict__, "files": {k: v for k, v in spec.files.items()
+                                                   if k != "shortrate"}})
+    vals, meta = build_nominal_neutral(idx, bare, dir=dir)
+    bridge = pd.Series(vals * 100.0, index=idx)
+    direct = align(sr, idx, spec)
+    ov = bridge.dropna().index.intersection(direct.dropna().index)
+    if len(ov) < 6:
+        return {"overlap_months": int(len(ov))}
+    gap = (direct[ov] - bridge[ov])
+    resid = gap - gap.mean()                       # after the ladder's level calibration
+    return {
+        "overlap_months": int(len(ov)),
+        "overlap": [str(ov.min().date()), str(ov.max().date())],
+        "calib_offset_pct": round(float(gap.mean()), 3),
+        "corr": (round(float(np.corrcoef(direct[ov], bridge[ov])[0, 1]), 4)
+                 if float(np.std(bridge[ov])) > 1e-9 else None),
+        "mean_abs_gap_bp": round(float(resid.abs().mean()) * 100.0, 1),
+        "max_abs_gap_bp": round(float(resid.abs().max()) * 100.0, 1),
+        "pi_e": meta.get("pi_e"), "r_star": meta.get("r_star"),
+    }
