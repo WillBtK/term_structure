@@ -1,11 +1,12 @@
 """Thin the canonical full-daily dataset into the artifact payload (viz/data.json).
 
-A published Claude Artifact is a single self-contained file under a 16 MB CSP-locked
-budget — it cannot fetch an external store — so the full ~420k-row daily dataset
-can't be embedded whole. This step derives a size-bounded *view* of the canonical
-data (viz/data_daily.parquet): **daily** resolution for the recent window and
-**weekly** before it. The schema is byte-identical to the monthly payload, so the
-artifact JS is unchanged apart from day-resolution x.
+The Atlas is published to Supabase Storage and served through a Cloudflare Worker, so
+the old 16 MB Claude-Artifact cap no longer applies. What remains is a *practical* page
+budget — the payload is embedded in one self-contained HTML, so every megabyte is parse
+time and memory in the reader's browser (and mobile is the binding case, not the CDN).
+This step therefore still derives a *view* of the canonical data
+(viz/data_daily.parquet) rather than shipping it whole: **daily** resolution for the
+recent window and **weekly** before it, with the same schema either way.
 
 Keeping the canonical daily dataset (export_daily.py) and this presentation view
 separate is deliberate: a future hosted/Supabase dashboard reads the *canonical*
@@ -28,7 +29,8 @@ import os
 
 # Recent window kept at daily resolution; everything older is weekly (last obs per
 # ISO week). Set DAILY_YEARS >= the full span (or VIZ_FULL_DAILY=1) to keep the
-# entire history daily — the payload is still well under the 16 MB artifact cap.
+# entire history daily — currently the default, since page weight (not a hard cap) is
+# the only limit now that delivery is Supabase Storage + Cloudflare.
 DAILY_YEARS = float(os.environ.get("VIZ_DAILY_YEARS", "100"))
 # Days behind the freshest market before a series is badged "stale" in the Atlas.
 STALE_DAYS = int(os.environ.get("VIZ_STALE_DAYS", "14"))
