@@ -38,6 +38,7 @@ def _refreshers():
     from uk.fetch_boe import load_curve as uk_load
     from switzerland.fetch_snb import load_yields as ch_load
     from canada.fetch_boc import load_yields as ca_load
+    from canada.fetch_benchmark import load_benchmark_panel as ca_bench
     from validation import benchmarks as bench
     from validation.sf_fed import load_sf_fed_series
     from validation.tips_liquidity import build_noise
@@ -53,6 +54,7 @@ def _refreshers():
         ("UK real (daily)", lambda: uk_load("real", refresh=True, freq="D")),
         ("Switzerland (daily)", lambda: ch_load(refresh=True, freq="D")),
         ("Canada (daily)", lambda: ca_load(refresh=True, freq="D")),   # BoC ZC curve (daily-only)
+        ("CA benchmark nowcast", lambda: ca_bench(refresh=True)),   # BoC Valet, next-business-day
         ("Benchmark: C&R (SF Fed)", lambda: load_sf_fed_series(refresh=True)),
         ("Benchmarks: ACM/KW/DKW", lambda: bench.refresh_all_us_benchmarks(refresh=True)),
         # Standalone daily product (not just a model input): the TIPS curve-fitting

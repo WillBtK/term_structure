@@ -151,13 +151,22 @@ def build_canonical() -> pd.DataFrame:
         # Timely nowcast: extend the US curves past the ~1-week-lagged GSW batch with the
         # next-business-day H.15 CMT *change* (GSW-anchored increment splice). Provisional
         # + self-healing; see us.fetch_h15. Recorded in meta so the viz can flag it.
+        nc_dates, nc_src = [], None
         if cc == "US":
             from us.fetch_h15 import nowcast_extend
             panel, nc_dates = nowcast_extend(panel, inst)
-            if nc_dates:
-                meta.setdefault("nowcast", {})[f"{cc}:{inst}"] = {
-                    "source": "H.15 CMT (FRED DGS/DFII)", "from": nc_dates[0],
-                    "to": nc_dates[-1], "n_days": len(nc_dates)}
+            nc_src = "H.15 CMT (FRED DGS/DFII)"
+        elif cc == "CA" and inst == "nominal":
+            # BoC's fitted zero curve lags ~3 weeks; its benchmark bond yields post
+            # next-business-day. Same increment splice, plus a roll guard (these are
+            # on-the-run bonds, so the series steps when the benchmark changes).
+            from canada.fetch_benchmark import nowcast_extend as ca_nowcast
+            panel, nc_dates = ca_nowcast(panel)
+            nc_src = "BoC benchmark bond yields (Valet)"
+        if nc_dates:
+            meta.setdefault("nowcast", {})[f"{cc}:{inst}"] = {
+                "source": nc_src, "from": nc_dates[0],
+                "to": nc_dates[-1], "n_days": len(nc_dates)}
         var_mult_fn = None
         if vm == "ycc":
             from japan import config as j
