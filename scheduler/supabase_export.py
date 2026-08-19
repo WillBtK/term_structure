@@ -103,7 +103,20 @@ def build_exports() -> dict:
     out[BENCH_TABLE] = (p, len(bench))
     gf = ROOT / "viz" / "global_factor.parquet"
     if gf.exists():
-        g = pd.read_parquet(gf)                                    # long: date,country,kind,tenor,value
+        g = pd.read_parquet(gf)
+        # The global cycle is now fitted for many (measure x curve point) COMBINATIONS, so
+        # the parquet carries a `combo` column. The Supabase table predates that and its
+        # uniqueness constraint is (date, country, kind, tenor) — upserting a new column
+        # fails with PGRST204. Rather than require a schema migration, project the combo
+        # into the legacy shape: fold it into `kind` ("fitted|term_premium@5y5y") and carry
+        # the combo's tenor. Uniqueness still holds, because the combo is inside `kind`.
+        if "combo" in g.columns:
+            combo = g["combo"].astype(str)
+            g = g.assign(
+                kind=g["kind"].astype(str) + "|" + combo,
+                tenor=pd.to_numeric(
+                    combo.str.extract(r"@(\d+(?:\.\d+)?)y", expand=False), errors="coerce"))
+            g = g.drop(columns=["combo"])
         p = STAGE / "global_factor.csv"; g.to_csv(p, index=False)
         out[GF_TABLE] = (p, len(g))
     return out
