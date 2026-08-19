@@ -429,10 +429,11 @@ def _attach_us_benchmarks(countries: dict) -> None:
 
 
 def _attach_global_factor(result: dict) -> None:
-    """Cross-country global term-premium factor (top-level payload block): the common
-    factor G_t plus each market's observed 10y TP, the global-cycle-implied fitted, and
-    the local residual — month-end (slow cycle; a slider still zooms full history).
-    Optional/guarded on the derived parquet + meta from `viz.global_factor`."""
+    """Global cycle block: for EVERY (measure x curve point) combination, the common
+    factor G_t plus each market's observed value, the cycle-implied fitted and the local
+    residual. Month-end (the cycle is slow, and one combo at daily resolution cost more
+    payload than all fifteen at month-end). Guarded on the derived parquet + meta from
+    `viz.global_factor`; older single-combo files are still read (back-compat)."""
     import json as _json
     f = HERE / "global_factor.parquet"
     mf = HERE / "global_factor_meta.json"
@@ -440,31 +441,47 @@ def _attach_global_factor(result: dict) -> None:
         return
     d = pd.read_parquet(f); d["date"] = pd.to_datetime(d["date"])
     meta = _json.loads(mf.read_text())
-    names = meta["names"]
-    # DAILY resolution, thinned for payload size: weekly in the deep past, daily recent
-    # (the factor is now estimated on daily data — the deep-past monthly backfill is
-    # interpolated to daily upstream).
-    all_dates = pd.DatetimeIndex(sorted(d[d.country == "GLOBAL"]["date"].unique()))
-    # recent daily + weekly history (fixed 12y daily window) to keep the payload small —
-    # the deep past is interpolated-monthly anyway, so daily density there adds no info.
-    cutoff = all_dates.max() - pd.DateOffset(years=12)
-    dates = _keep_dates(all_dates, cutoff)
-    def series(country, kind, scale):
-        s = d[(d.country == country) & (d.kind == kind)].set_index("date")["value"].reindex(dates)
-        return [None if pd.isna(v) else round(float(v) * scale, 4) for v in s]
-    markets = {}
-    for cc in names:
-        markets[cc] = {"observed": series(cc, "observed_tp", 100), "fitted": series(cc, "fitted", 100),
-                       "residual": series(cc, "residual", 100),
-                       "beta": meta["markets"][cc]["beta"], "share": meta["markets"][cc]["global_share"]}
+    if "combos" not in meta or "combo" not in d.columns:
+        return                                          # pre-multi-combo file: skip rather than mis-render
+    combos = {}
+    for key, cm in meta["combos"].items():
+        sub = d[d["combo"] == key]
+        if sub.empty:
+            continue
+        dates = pd.DatetimeIndex(sorted(sub[sub.country == "GLOBAL"]["date"].unique()))
+        if len(dates) == 0:
+            continue
+
+        def series(country, kind, scale, _sub=sub, _dates=dates):
+            v = _sub[(_sub.country == country) & (_sub.kind == kind)]
+            v = v.set_index("date")["value"].reindex(_dates)
+            return [None if pd.isna(x) else round(float(x) * scale, 4) for x in v]
+
+        names = [cc for cc in cm["names"] if cc in set(sub.country)]
+        combos[key] = {
+            "measure": cm["measure"], "measure_label": cm["measure_label"],
+            "point": cm["point"], "order": names,
+            "x": _xdec(dates), "dates": [str(x.date()) for x in dates],
+            "G": series("GLOBAL", "factor", 1),         # standardized (unitless)
+            "markets": {cc: {"observed": series(cc, "observed", 100),
+                             "fitted": series(cc, "fitted", 100),
+                             "residual": series(cc, "residual", 100),
+                             "beta": cm["markets"][cc]["beta"],
+                             "share": cm["markets"][cc]["global_share"]} for cc in names},
+            "pca_ladder": cm.get("pca_ladder", []), "phi": cm.get("phi"),
+            "pca_corr": cm.get("pca_corr"), "balanced_start": cm.get("balanced_start")}
+    if not combos:
+        return
+    default = meta.get("default") if meta.get("default") in combos else sorted(combos)[0]
     result["global_factor"] = {
-        "freq": "daily",
-        "x": _xdec(dates), "dates": [str(x.date()) for x in dates],
-        "G": series("GLOBAL", "factor", 1),      # standardized (unitless)
-        "markets": markets, "order": names,
-        "pca_ladder": meta.get("pca_ladder", []), "phi": meta.get("phi"),
-        "pca_corr": meta.get("pca_corr"), "balanced_start": meta.get("balanced_start")}
-    print(f"global factor: {len(dates)} points (daily, thinned), PC1 {meta.get('pca_ladder', ['?'])[0]}%")
+        "freq": meta.get("freq", "M"), "default": default, "combos": combos,
+        "measure_labels": meta.get("measure_labels", {}),
+        "points": sorted({c["point"] for c in combos.values()},
+                         key=lambda p: (len(p), p)),
+        "measures": list(dict.fromkeys(c["measure"] for c in combos.values()))}
+    n_pts = len(next(iter(combos.values()))["dates"])
+    print(f"global cycle: {len(combos)} combos x ~{n_pts} month-end points "
+          f"(default {default})")
 
 
 def _attach_us_tips_noise(countries: dict) -> None:

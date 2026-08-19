@@ -1317,22 +1317,37 @@ function lastVal(block, measure, tenor){
   s.appendChild(call);
 })();
 
-/* ------------------------------------------------ 3g. GLOBAL CYCLE (market vs cycle only) */
+/* ------------------------------------------------ 3g. GLOBAL CYCLE (measure x curve point) */
 (function(){
-  const gf=DATA.global_factor; if(!gf || !gf.G || !gf.G.length) return;
-  const ladder=gf.pca_ladder||[];
-  panel('globalfactor','Global cycle','Each market versus the global term-premium cycle',
-    ['Across five major markets (US, Germany, Japan, the UK and Canada — Switzerland is left out, its bond market too thin to belong in a common cycle) the 10-year term premia move largely <b>together</b>: one common factor explains <b>'+(ladder[0]||0).toFixed(0)+'%</b> of the variation. We split each market’s premium into that <b>global cycle</b> plus a <b>local residual</b> — how cheap or rich a curve sits versus the cycle. Pick a market: on the <b>left</b>, its observed 10-year premium against the global-cycle-implied fitted; on the <b>right</b>, the gap between them — the <b>local residual</b>. Both charts share the time slider (daily, back to 1974).']);
+  const gf=DATA.global_factor; if(!gf || !gf.combos) return;
+  const KEY=(m,p)=>m+'@'+p;
+  const MLAB=gf.measure_labels||{observed:'Actual yield',expected:'Expected rate',term_premium:'Term premium'};
+  const PT=p=>/y\d/.test(p)? p.replace(/^(\d+)y(\d+)y$/,'$1y$2y fwd') : p;
+  let def=(gf.default||'').split('@');
+  const GF={mkt:'US', measure:def[0]||'term_premium', point:def[1]||'10y', xlo:null, xhi:null};
+  const cur=()=>gf.combos[KEY(GF.measure,GF.point)];
+  if(!cur()){ const k=Object.keys(gf.combos)[0].split('@'); GF.measure=k[0]; GF.point=k[1]; }
+
+  panel('globalfactor','Global cycle','Each market versus the global cycle',
+    ['Across five major markets (US, Germany, Japan, the UK and Canada — Switzerland is left out, its bond market too thin to belong in a common cycle) yields move largely <b>together</b>. We extract the <b>common factor</b> and split each market into that <b>global cycle</b> plus a <b>local residual</b> — how cheap or rich it sits versus the cycle. Choose which part of the curve to look at and which component: the cycle is far stronger in <b>yields</b> and <b>term premia</b> than in <b>expected rates</b>, which stay comparatively domestic. Both charts share the time slider (month-end).']);
   const s=M.lastChild;
-  const GF={mkt:'US', xlo:gf.x[0], xhi:gf.x[gf.x.length-1]};
-  const barB=h('div',{class:'ctrlbar'});
-  const gB=h('div',{class:'grp'}); gB.appendChild(h('span',{class:'eyebrow'},'Market'));
-  const segB=h('div',{class:'seg'});
-  gf.order.forEach(cc=>{ const b=h('button',null,cc); if(cc===GF.mkt)b.classList.add('active');
-    b.onclick=()=>{ GF.mkt=cc; [...segB.children].forEach(x=>x.classList.toggle('active',x===b)); render(); };
-    segB.appendChild(b); }); gB.appendChild(segB); barB.appendChild(gB); s.appendChild(barB);
-  // two matched charts: LEFT = observed 10y TP vs the global-cycle fitted; RIGHT = the
-  // difference (local residual). One shared time-range slider spans below both.
+  const bar=h('div',{class:'ctrlbar'});
+  function seg(labelTxt, items, get, set){
+    const g=h('div',{class:'grp'}); g.appendChild(h('span',{class:'eyebrow'},labelTxt));
+    const sg=h('div',{class:'seg'});
+    items.forEach(it=>{ const b=h('button',null,it.label); if(it.val===get())b.classList.add('active');
+      b.onclick=()=>{ set(it.val); [...sg.children].forEach(x=>x.classList.toggle('active',x===b)); onCombo(); };
+      b.dataset.val=it.val; sg.appendChild(b); });
+    g.appendChild(sg); bar.appendChild(g); return sg;
+  }
+  const segM=seg('Component', (gf.measures||['term_premium']).map(m=>({val:m,label:MLAB[m]||m})),
+                 ()=>GF.measure, v=>GF.measure=v);
+  const segP=seg('Curve point', (gf.points||['10y']).map(p=>({val:p,label:PT(p)})),
+                 ()=>GF.point, v=>GF.point=v);
+  const gMk=h('div',{class:'grp'}); gMk.appendChild(h('span',{class:'eyebrow'},'Market'));
+  const segK=h('div',{class:'seg'}); gMk.appendChild(segK); bar.appendChild(gMk);
+  s.appendChild(bar);
+
   const dual=h('div',{class:'dual'});
   const cB=h('div',{class:'card'}); const ctB=h('div',{class:'card-title'}); const cnB=h('div',{class:'card-note eqnote'});
   cB.appendChild(ctB); cB.appendChild(cnB); const lgB=h('div'); cB.appendChild(lgB); const boxB=h('div'); cB.appendChild(boxB);
@@ -1340,33 +1355,57 @@ function lastVal(block, measure, tenor){
   cR.appendChild(ctR); cR.appendChild(cnR); const lgR=h('div'); cR.appendChild(lgR); const boxR=h('div'); cR.appendChild(boxR);
   dual.appendChild(cB); dual.appendChild(cR); s.appendChild(dual);
   const sliderMount=h('div',{class:'wideslider'}); s.appendChild(sliderMount);
+  const shareNote=h('div',{class:'callout'}); s.appendChild(shareNote);
   s.appendChild(h('div',{class:'callout',html:'<b>The local residual is a relative-value signal.</b> A market trading <b>cheap</b> versus the global cycle (observed above the fitted line — a positive residual) has tended to <b>outperform</b> the others over the next month — in the research backtest the residual carries relative-value information beyond a naive term-spread carry signal. A construct-validity diagnostic on synthetic duration-hedged excess returns across the five markets — not a tradeable strategy (no costs, no real hedging). See <i>FINDINGS_global_factor</i>.'}));
-  rangeSlider(sliderMount, gf.x, gf.dates, (lo,hi)=>{ GF.xlo=lo; GF.xhi=hi; render(); });
+
+  function rebuildMarkets(){
+    const c=cur(); segK.innerHTML='';
+    if(!c.order.includes(GF.mkt)) GF.mkt=c.order[0];
+    c.order.forEach(cc=>{ const b=h('button',null,cc); if(cc===GF.mkt)b.classList.add('active');
+      b.onclick=()=>{ GF.mkt=cc; [...segK.children].forEach(x=>x.classList.toggle('active',x===b)); render(); };
+      segK.appendChild(b); });
+  }
+  function onCombo(){
+    const c=cur();
+    if(!c){ return; }
+    rebuildMarkets();
+    GF.xlo=c.x[0]; GF.xhi=c.x[c.x.length-1];
+    sliderMount.innerHTML='';
+    rangeSlider(sliderMount, c.x, c.dates, (lo,hi)=>{ GF.xlo=lo; GF.xhi=hi; render(); });
+    render();
+  }
   function render(){
+    const c=cur(); if(!c) return;
     const CC=COL(), inWin=p=>p[0]>=GF.xlo-1e-6&&p[0]<=GF.xhi+1e-6;
-    const m=gf.markets[GF.mkt]; const mcol=CC[CCOL[GF.mkt]]||CC.blue;
-    let x0=gf.x[gf.x.length-1];
-    for(let i=0;i<m.observed.length;i++){ if(m.observed[i]!=null){ x0=gf.x[i]; break; } }
-    const obs=gf.x.map((x,i)=>[x,m.observed[i]]).filter(p=>p[1]!=null&&inWin(p));
-    const fit=gf.x.map((x,i)=>[x,m.fitted[i]]).filter(p=>p[1]!=null&&inWin(p)&&p[0]>=x0-1e-6);
-    const resid=gf.x.map((x,i)=>[x,(m.observed[i]!=null&&m.fitted[i]!=null)?m.observed[i]-m.fitted[i]:null])
-                    .filter(p=>p[1]!=null&&inWin(p)&&p[0]>=x0-1e-6);
-    // LEFT: observed vs fitted
-    ctB.textContent=`${DATA.countries[GF.mkt].name} — 10y term premium vs the global cycle`;
-    cnB.textContent='Percent, daily. Observed 10y term premium vs the global-cycle-implied fitted (α+β·G). Drag the handles below to zoom.';
-    lgB.innerHTML=''; lgB.appendChild(legend([{label:'Observed 10y TP',color:mcol},
+    const m=c.markets[GF.mkt]; if(!m) return;
+    const mcol=CC[CCOL[GF.mkt]]||CC.blue;
+    let x0=c.x[c.x.length-1];
+    for(let i=0;i<m.observed.length;i++){ if(m.observed[i]!=null){ x0=c.x[i]; break; } }
+    const obs=c.x.map((x,i)=>[x,m.observed[i]]).filter(p=>p[1]!=null&&inWin(p));
+    const fit=c.x.map((x,i)=>[x,m.fitted[i]]).filter(p=>p[1]!=null&&inWin(p)&&p[0]>=x0-1e-6);
+    const resid=c.x.map((x,i)=>[x,(m.observed[i]!=null&&m.fitted[i]!=null)?m.observed[i]-m.fitted[i]:null])
+                   .filter(p=>p[1]!=null&&inWin(p)&&p[0]>=x0-1e-6);
+    const lab=(MLAB[c.measure]||c.measure).toLowerCase(), pt=PT(c.point);
+    ctB.textContent=`${DATA.countries[GF.mkt].name} — ${pt} ${lab} vs the global cycle`;
+    cnB.textContent='Percent, month-end. Observed against the global-cycle-implied fitted (α+β·G). Drag the handles below to zoom.';
+    lgB.innerHTML=''; lgB.appendChild(legend([{label:'Observed '+pt+' '+lab,color:mcol},
       {label:'Global-cycle fitted (α+β·G)',color:CC.faint,dash:true}]));
     boxB.innerHTML=''; drawLine(boxB,{height:300,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,
       series:[{label:'Observed',color:mcol,width:2.2,pts:obs},
               {label:'Fitted',color:CC.faint,dash:'5 4',pts:fit}]});
-    // RIGHT: the difference = local residual
     ctR.textContent=`${DATA.countries[GF.mkt].name} — local residual (observed − fitted)`;
-    cnR.textContent='Percent, daily. The gap between the two lines on the left: positive = the market is cheap versus the global cycle, negative = rich. Same time window.';
+    cnR.textContent='Percent, month-end. The gap between the two lines on the left: positive = cheap versus the global cycle, negative = rich. Same time window.';
     lgR.innerHTML=''; lgR.appendChild(legend([{label:'Local residual (obs − fitted)',color:mcol}]));
     boxR.innerHTML=''; drawLine(boxR,{height:300,yZero:true,yFmt:v=>fmt(v,2)+'%',xFmt:xYear,xTipFmt:xFmtDay,
       series:[{label:'Residual',color:mcol,width:2,pts:resid}]});
+    const pc=(c.pca_ladder&&c.pca_ladder[0])||0, sh=(m.share!=null?m.share:0);
+    const miss=(c.order.length<((gf.combos[KEY(c.measure,'10y')]||{order:c.order}).order.length))
+      ? ' <b>The UK is absent at 30y</b> — the BoE curve we ingest stops at 20y, so this is a four-market cycle; 20y is the like-for-like long point.' : '';
+    shareNote.innerHTML='At <b>'+pt+'</b>, one common factor explains <b>'+pc.toFixed(0)+'%</b> of the cross-market variation in the <b>'+lab+
+      '</b>, and <b>'+sh.toFixed(0)+'%</b> of '+DATA.countries[GF.mkt].name+'’s own variation (balanced panel from '+(c.balanced_start||'—')+
+      ').'+miss+' Comparing components at the same point is the interesting bit: the cycle is strongest in yields, weaker in expected rates — distant policy expectations are the most <i>local</i> thing on the curve.';
   }
-  render(); CHARTS.push(render);
+  onCombo(); CHARTS.push(render);
 })();
 
 /* ------------------------------------------------ 4. DATA / METHOD */

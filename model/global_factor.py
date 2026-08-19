@@ -59,17 +59,25 @@ class DFMParams:
         λ_i²·Var(G)/(λ_i²·Var(G)+r_i) with Var(G)=1."""
         return self.lam ** 2 / (self.lam ** 2 + self.r)
 
+    def to_dict(self) -> dict:
+        """JSON-ready plain dict (arrays -> lists). Used to warm-start many combinations
+        from a single params file keyed by combination."""
+        return {k: (v.tolist() if isinstance(v, np.ndarray) else v)
+                for k, v in asdict(self).items()}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "DFMParams":
+        return cls(lam=np.array(d["lam"]), phi=float(d["phi"]), r=np.array(d["r"]),
+                   mu=np.array(d["mu"]), sd=np.array(d["sd"]), names=list(d["names"]))
+
     def to_json(self, path) -> None:
-        d = {k: (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in asdict(self).items()}
         from pathlib import Path
-        Path(path).write_text(json.dumps(d, indent=2))
+        Path(path).write_text(json.dumps(self.to_dict(), indent=2))
 
     @classmethod
     def from_json(cls, path) -> "DFMParams":
         from pathlib import Path
-        d = json.loads(Path(path).read_text())
-        return cls(lam=np.array(d["lam"]), phi=float(d["phi"]), r=np.array(d["r"]),
-                   mu=np.array(d["mu"]), sd=np.array(d["sd"]), names=list(d["names"]))
+        return cls.from_dict(json.loads(Path(path).read_text()))
 
 
 # --------------------------------------------------------------------- standardize
@@ -277,9 +285,9 @@ def splice_backfill(prod, hist):
     return pd.concat([pre, prod]).sort_index()
 
 
-def _load_hist_tp(fname, tenor_key):
-    """Read a monthly historical-overlay JSON (viz/history) as a month-end DECIMAL series
-    for one tenor; returns None if absent/unreadable."""
+def _load_hist_block(fname, tenor_key, block):
+    """One monthly historical-overlay series (viz/history) as a month-end DECIMAL series.
+    ``block`` is ``'tenors'`` (term premium) or ``'obs'`` (observed yield). None if absent."""
     import json, pandas as pd
     from pathlib import Path
     f = Path(__file__).resolve().parent.parent / "viz" / "history" / fname
@@ -287,7 +295,7 @@ def _load_hist_tp(fname, tenor_key):
         return None
     try:
         d = json.loads(f.read_text())
-        vals = d["tenors"][tenor_key]                       # percent
+        vals = d[block][tenor_key]                          # percent
         s = pd.Series([None if v is None else float(v) / 100.0 for v in vals],
                       index=pd.to_datetime(d["dates"]), dtype=float).dropna()
         return _month_end(s)
@@ -295,49 +303,109 @@ def _load_hist_tp(fname, tenor_key):
         return None
 
 
-def load_tp_panel(tenor: float = 10.0, canon_path=None, extend: bool = True,
-                  min_markets: int = 3, min_start: str = "1974-01-01", freq: str = "D"):
-    """Wide (date × market) 10y nominal term-premium panel (decimal), markets
-    US,DE,JP,UK (Switzerland excluded — negligible liquidity).
+def _load_hist_tp(fname, tenor_key):
+    """Back-compat shim: the term-premium leg of a historical overlay."""
+    return _load_hist_block(fname, tenor_key, "tenors")
 
-    ``freq='D'`` (default) builds a **daily** panel at the highest frequency available —
-    each market's daily curve where it exists, and, before that, the monthly historical
-    backfill **interpolated to daily** (linear in time). ``freq='M'`` gives the month-end
-    panel. With ``extend`` (default), two markets are backfilled before their modern daily
-    curve begins, via a one-time level splice (:func:`splice_backfill`):
-      * DE 10y ← the 1972+ monthly historical overlay (germany_hist_tp.json).
-      * JP 10y ← the 1974+ **9y** monthly overlay (japan_hist_tp.json); MoF's 10y
-        starts only 1986-07, so the 9y premium (back to 1974) is spliced onto the 10y.
-    The panel is clipped to the first date with at least ``min_markets`` markets present
-    (and to ``min_start`` — pre-1974 only US+DE exist, which is too thin for a common
-    factor)."""
+
+def _hist_measure(fname, measure, tenor_key):
+    """Historical-overlay series for a MEASURE at one tenor. ``expected`` is derived as
+    ``observed - term_premium`` (the overlays store the premium and the yield)."""
+    if measure == "term_premium":
+        return _load_hist_block(fname, tenor_key, "tenors")
+    if measure == "observed":
+        return _load_hist_block(fname, tenor_key, "obs")
+    if measure == "expected":
+        obs = _load_hist_block(fname, tenor_key, "obs")
+        tp = _load_hist_block(fname, tenor_key, "tenors")
+        if obs is None or tp is None:
+            return None
+        idx = obs.index.intersection(tp.index)
+        return (obs.loc[idx] - tp.loc[idx]) if len(idx) else None
+    raise ValueError(measure)
+
+
+def _combine_forward(a, t1, b, t2):
+    """Forward rate from two aligned legs (Series); returns the intersection index."""
+    import pandas as pd
+    from model.forwards import forward_rate
+    if a is None or b is None:
+        return None
+    idx = a.index.intersection(b.index)
+    if len(idx) == 0:
+        return None
+    return pd.Series(forward_rate(a.loc[idx].to_numpy(), t1, b.loc[idx].to_numpy(), t2), index=idx)
+
+
+MEASURES = ("term_premium", "expected", "observed")
+
+
+def load_measure_panel(measure: str = "term_premium", tenor: float = 10.0,
+                       fwd_start: float = 0.0, canon_path=None, extend: bool = True,
+                       min_markets: int = 3, min_start: str = "1974-01-01", freq: str = "D",
+                       markets=None):
+    """Wide (date x market) panel of one MEASURE at one point on the curve (decimal),
+    for the global-factor markets (US, DE, JP, UK, CA — Switzerland excluded).
+
+    ``measure`` is ``term_premium`` / ``expected`` / ``observed``. With ``fwd_start > 0``
+    the point is the FORWARD rate ``f(fwd_start, fwd_start + tenor)`` derived from the two
+    reported zero legs (see :mod:`model.forwards`) — e.g. ``fwd_start=5, tenor=5`` is the
+    5y5y forward. Because the forward transform is linear, the three measures stay
+    additive at forward points too, so the same decomposition holds without re-estimating.
+
+    ``freq='D'`` (default) builds a daily panel, using each market's daily curve where it
+    exists and the monthly historical backfill (interpolated to daily) before that;
+    ``freq='M'`` gives month-end. With ``extend``, DE and JP are backfilled to the 1970s
+    from the committed overlays via a one-time level splice (:func:`splice_backfill`) —
+    available for the 5y/10y legs (and therefore 5y5y), not for 30y, where the panel
+    simply starts when the modern curves do. The panel is clipped to the first date with
+    at least ``min_markets`` markets (and to ``min_start``)."""
     import pandas as pd
     from pathlib import Path
+    if measure not in MEASURES:
+        raise ValueError(f"measure must be one of {MEASURES}, got {measure!r}")
+    markets = list(markets or GF_ORDER)
+    t1, t2 = float(fwd_start), float(fwd_start) + float(tenor)
     canon_path = canon_path or (Path(__file__).resolve().parent.parent / "viz" / "data_daily.parquet")
     df = pd.read_parquet(canon_path)
     df["date"] = pd.to_datetime(df["date"])
+
+    def _leg(cc, t):
+        s = df[(df.country == cc) & (df.instrument == "nominal") & (np.isclose(df.tenor, t))]
+        s = s.set_index("date")[measure].sort_index()
+        return s[~s.index.duplicated()].dropna()
+
     daily = {}
-    for cc in GF_ORDER:
-        s = df[(df.country == cc) & (df.instrument == "nominal") & (np.isclose(df.tenor, tenor))]
-        s = s.set_index("date")["term_premium"].sort_index()
-        daily[cc] = s[~s.index.duplicated()].dropna()
-    back = {}                                                    # cc -> monthly continuous spliced series
+    for cc in markets:
+        daily[cc] = _leg(cc, t2) if t1 <= 0 else _combine_forward(_leg(cc, t1), t1, _leg(cc, t2), t2)
+        if daily[cc] is None:
+            daily[cc] = pd.Series(dtype=float)
+
+    back = {}                                                    # cc -> monthly continuous spliced
     if extend:
-        de_hist = _load_hist_tp("germany_hist_tp.json", "%g" % tenor)
-        if de_hist is not None:
-            back["DE"] = splice_backfill(_month_end(daily["DE"]), de_hist)
-        jp_hist = _load_hist_tp("japan_hist_tp.json", "9")
-        if jp_hist is not None:
-            back["JP"] = splice_backfill(_month_end(daily["JP"]), jp_hist)
+        key = lambda t: "%g" % t
+        for cc, fname, alias in (("DE", "germany_hist_tp.json", None),
+                                 ("JP", "japan_hist_tp.json", {10.0: "9"})):
+            if cc not in markets:
+                continue
+            def _h(t):
+                k = (alias or {}).get(t, key(t))
+                return _hist_measure(fname, measure, k)
+            hist = _h(t2) if t1 <= 0 else _combine_forward(_h(t1), t1, _h(t2), t2)
+            if hist is not None and len(daily[cc]):
+                back[cc] = splice_backfill(_month_end(daily[cc]), hist)
 
     if freq in ("M", "monthly"):
-        cols = {cc: (back[cc] if cc in back else _month_end(daily[cc])) for cc in GF_ORDER}
+        cols = {cc: (back[cc] if cc in back else _month_end(daily[cc])) for cc in markets}
         panel = pd.DataFrame(cols).sort_index()
     else:                                                        # daily
-        allidx = pd.DatetimeIndex(sorted(set().union(*[set(s.index) for s in daily.values()])))
+        nonempty = [set(s.index) for s in daily.values() if len(s)]
+        if not nonempty:
+            return pd.DataFrame(columns=list(markets))
+        allidx = pd.DatetimeIndex(sorted(set().union(*nonempty)))
         allidx = allidx[allidx >= pd.Timestamp(min_start)]
         cols = {}
-        for cc in GF_ORDER:
+        for cc in markets:
             s = daily[cc].reindex(allidx)
             if cc in back and len(daily[cc]):
                 pstart = daily[cc].index.min()
@@ -353,6 +421,14 @@ def load_tp_panel(tenor: float = 10.0, canon_path=None, extend: bool = True,
         start = max(panel.index[ok].min(), pd.Timestamp(min_start))
         panel = panel[panel.index >= start]
     return panel
+
+
+def load_tp_panel(tenor: float = 10.0, canon_path=None, extend: bool = True,
+                  min_markets: int = 3, min_start: str = "1974-01-01", freq: str = "D"):
+    """Term-premium panel — thin wrapper over :func:`load_measure_panel` (back-compat)."""
+    return load_measure_panel("term_premium", tenor=tenor, canon_path=canon_path,
+                              extend=extend, min_markets=min_markets,
+                              min_start=min_start, freq=freq)
 
 
 def _main() -> None:
