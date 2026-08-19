@@ -616,26 +616,6 @@ function infodot(html){
 }
 document.getElementById('footCredit').textContent = 'Model: AFNS + Christensen–Rudebusch shadow rate, ~3.5y mean-reversion floor. As of '+DATA.meta.asof+'.';
 
-// CSV download via the viewer's `downloads` capability (graceful when absent /
-// when the .csv extension isn't enabled in this view -> fall back to .txt).
-async function downloadCsv(filename, text, note){
-  note.textContent='';
-  let downloads=null;
-  try{ downloads = (window.claude && claude.use) ? await claude.use('downloads') : null; }catch(e){ downloads=null; }
-  if(!downloads){ note.textContent='Download isn’t available in this view — open the artifact on claude.ai to save the CSV.'; return; }
-  const attempt = async name => downloads.save({filename:name, data:text});
-  try{ await attempt(filename); note.textContent='Saved '+filename+'.'; }
-  catch(err){
-    const code = err && err.code;
-    if(code==='extension_not_enabled'){
-      try{ const alt=filename.replace(/\.csv$/,'.txt'); await attempt(alt); note.textContent='Saved as '+alt+' (CSV content).'; }
-      catch(e2){ note.textContent = e2 && e2.code==='declined' ? 'Save cancelled.' : 'Download unavailable in this view.'; }
-    } else if(code==='declined'){ note.textContent='Save cancelled.'; }
-    else if(code==='rate_limited'){ note.textContent='A save prompt is already open — try again in a moment.'; }
-    else { note.textContent='Download unavailable in this view.'; }
-  }
-}
-
 const MON3=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const xYear=v=>String(Math.round(v));
 function xFmtMonth(v){ const y=Math.floor(v+1e-6); const mo=Math.round((v-y)*12); return MON3[(mo%12+12)%12]+'-'+String(y).slice(-2); }
@@ -1467,7 +1447,7 @@ function lastVal(block, measure, tenor){
 
 /* ------------------------------------------------ 4. DATA / METHOD */
 (function(){
-  panel('data','The data','Method & download',
+  panel('data','The data','Method',
     ['Each curve is fitted with a single arbitrage-free Nelson–Siegel model extended with the Christensen–Rudebusch shadow rate (so it respects each market’s effective lower bound), estimated by extended-Kalman QML on a modern regime-clean sample. The expected-rate path is anchored by a calibrated <b>~3.5-year mean-reversion floor</b> on the physical persistence (see the note below). The term premium shown is the <b>realised</b> premium: the observed yield minus the model’s expected average future short rate. Real curves (US TIPS, UK index-linked) drop the lower bound entirely.']);
   const s=M.lastChild;
   // summary table
@@ -1496,24 +1476,12 @@ function lastVal(block, measure, tenor){
   const cav2=h('div',{class:'callout orange'});
   cav2.innerHTML='<b>The extended history (pre-estimation-sample).</b> Observed yields run to each daily source’s start (US 1961, UK 1979, Japan 1974), but the model <b>parameters</b> are fit on each market’s modern sample (US 1987+, UK 1992+, …). Before that boundary — shaded orange in the Explorer — the decomposition applies <b>extrapolated</b> parameters. The mean-reversion floor keeps this well-behaved even at 1970s–80s rate levels (no blow-up), and a separate 2-regime model agrees closely there (see the Great-Inflation section — correlation 0.91). The shared caveat is subtler: both anchor the expected-rate path to a <b>low modern-era long-run mean</b>, so if the 1970s market expected persistently higher rates, both <b>overstate</b> the premium — read the deep-past level as “high and positive”, and rely on event-window <b>changes</b> (which difference the bias out) more than the absolute level.';
   s.appendChild(cav2);
-  // download
-  const c2=h('div',{class:'card'});
-  c2.appendChild(h('div',{class:'card-title'},'Download the full series'));
-  c2.appendChild(h('div',{class:'card-note'},'Long-format CSV: market, instrument, tenor, date, actual yield, expected rate, term premium (percent).'));
-  const btn=h('button',{class:'btn'},'Download CSV'); c2.appendChild(btn);
-  const dnote=h('div',{class:'hint'}); c2.appendChild(dnote); s.appendChild(c2);
-  function buildCsv(){
-    const rows=[['market','instrument','tenor_years','date','actual_yield_pct','expected_rate_pct','term_premium_pct']];
-    DATA.order.forEach(cc=>Object.entries(DATA.countries[cc].instruments).forEach(([k,b])=>{
-      b.tenors.forEach(t=> b.dates.forEach((d,i)=>{
-        const o=b.obs[t][i],e=b.exp[t][i],p=b.tp[t][i];
-        if(o==null&&e==null&&p==null) return;
-        rows.push([cc,k,t,d,o==null?'':o,e==null?'':e,p==null?'':p]);
-      }));
-    }));
-    return rows.map(r=>r.join(',')).join('\n');
-  }
-  btn.onclick=()=>{ downloadCsv('term_premium_atlas.csv', buildCsv(), dnote); };
+  // NOTE: the "Download CSV" card was removed while the Atlas is being shared with
+  // colleagues mid-build — the numbers are still moving, and a downloaded snapshot
+  // would be detached from the daily rebuild and impossible to tell apart from a
+  // current one. Restore this block (and the downloadCsv helper above) to bring it
+  // back; the canonical long-form data remains in viz/data_daily.parquet and in the
+  // Supabase term_premia table.
 })();
 
 // theme + resize redraw (required)
