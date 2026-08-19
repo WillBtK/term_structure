@@ -64,7 +64,16 @@ REAL_GRID = np.array([3.0, 5.0, 7.0, 10.0, 20.0], dtype=float)
 # starts at UK **inflation targeting** (post-ERM, Oct 1992) — the UK analog of the
 # US-1987 / Germany-1999 regime-clean modern sample. The pre-1992 stagflation era
 # is a separate historical exhibit. Real (index-linked) history from the mid-1980s.
-PROD_START = "1992-10-01"
+PROD_START = "1995-11-01"
+# The gilt curve re-anchored three years AFTER inflation targeting was announced.
+# A 2-regime Kim filter on the full 1970+ curve puts the last sustained spell in
+# the high-level regime (anchor 14.2%) at 1982-07..1995-10; the 1992-10 start
+# therefore sat 37 months inside the old regime, which pulled the sample anchor up.
+# Announcement is not re-anchoring: the framework took years to earn credibility,
+# and BoE operational independence followed in 1997-05.
+# Applies to the real curve too, so the nominal and real legs stay on a common
+# sample and their difference (the inflation-risk premium) is not a sample artefact.
+# See validation/FINDINGS_regime_dating.md.
 HIST_START = "1979-01-01"
 REAL_SAMPLE_START = "1985-01-01"
 

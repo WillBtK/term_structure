@@ -34,7 +34,14 @@ ELB_BAND = (-0.015, -0.005)
 # German analogue of the US 1987+ choice.
 # ---------------------------------------------------------------------------
 HIST_START = "1972-09-01"     # full history (historical / stagflation exhibit)
-PROD_START = "1999-01-01"     # euro era (modern production TP)
+PROD_START = "1984-01-01"     # start of the current rate regime (see below)
+# Dated by a 2-regime Kim-filter AFNS on the full 1972+ monthly curve, not by the
+# institutional calendar: the permanent level break is 1983-11 (long-run anchor
+# 11.94% -> 2.52%, one switch in 647 months, P(high regime) = 0.000 every year
+# from 1984 on). The euro changeover is invisible to the rate regime, so the old
+# 1999 start was regime-clean but discarded 180 months of same-regime data — the
+# variance reduction a yields-only model cannot otherwise buy.
+# See validation/FINDINGS_regime_dating.md.
 
 # ---------------------------------------------------------------------------
 # Data source: Deutsche Bundesbank, "Term structure of interest rates on listed
