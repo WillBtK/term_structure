@@ -166,8 +166,8 @@
         30.0
       ],
       "start": "1986-01-02",
-      "end": "2026-07-29",
-      "n_days": 9962
+      "end": "2026-08-17",
+      "n_days": 9974
     }
   },
   "nowcast": {
@@ -182,6 +182,12 @@
       "from": "2026-08-17",
       "to": "2026-08-17",
       "n_days": 1
+    },
+    "CA:nominal": {
+      "source": "BoC benchmark bond yields (Valet)",
+      "from": "2026-07-30",
+      "to": "2026-08-17",
+      "n_days": 12
     }
   },
   "anchors": {
