@@ -441,6 +441,21 @@ def _attach_global_factor(result: dict) -> None:
     mf = HERE / "global_factor_meta.json"
     if not f.exists() or not mf.exists():
         return
+    # STALENESS GUARD. viz.global_factor is a SEPARATE step: this function only reads
+    # whatever parquet is on disk, it does not fit anything. The daily job runs
+    # export_daily -> global_factor -> thin_daily in order, but a manual rebuild that
+    # skips the middle step publishes new country series beside a global cycle fitted on
+    # the old ones — and the result looks entirely plausible (it was, until the DFM's
+    # INPUTS were diffed and came back bit-identical). So refuse to be quiet about it.
+    canon = HERE / "data_daily.parquet"
+    if canon.exists() and f.stat().st_mtime < canon.stat().st_mtime:
+        import datetime as _dt
+        age = (canon.stat().st_mtime - f.stat().st_mtime) / 3600.0
+        print(f"WARNING: global_factor.parquet is {age:.1f}h OLDER than the canonical "
+              f"dataset (factor {_dt.datetime.fromtimestamp(f.stat().st_mtime):%Y-%m-%d %H:%M}, "
+              f"canonical {_dt.datetime.fromtimestamp(canon.stat().st_mtime):%Y-%m-%d %H:%M}). "
+              f"The global cycle was fitted on SUPERSEDED term premia — "
+              f"run `python -m viz.global_factor` before this step.")
     d = pd.read_parquet(f); d["date"] = pd.to_datetime(d["date"])
     meta = _json.loads(mf.read_text())
     if "combos" not in meta or "combo" not in d.columns:
