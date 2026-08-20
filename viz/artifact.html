@@ -1376,61 +1376,100 @@ function lastVal(block, measure, tenor){
   if(!tips&&!ust) return;
   panel('liquidity','Market quality','Treasury liquidity — curve-fitting “noise”',
     ['The <b>RMS deviation of individual securities from a smooth fitted curve</b> (the Hu–Pan–Wang “noise” measure), computed per trading day. When a market is liquid every bond sits on the curve and the noise is a few basis points; when liquidity dries up, individual issues scatter and the noise jumps. Built only from public security-level prices, so it is a free daily stand-in for the vendor liquidity/RMSE series — and, being independent of any term-structure model, it doubles as a data-quality check on the curves those models are fitted to.',
-     'The pair is the point. Hu–Pan–Wang’s original measure is a <b>nominal</b> Treasury construction; the TIPS version is the same statistic on the much smaller inflation-linked cross-section. Read together they separate a market-wide dislocation, which moves both, from a TIPS-specific one, which moves only the real gauge — the 2008 divergence being the textbook case.']);
+     'The pair is the point. Hu–Pan–Wang’s original measure is a <b>nominal</b> Treasury construction; the TIPS version is the same statistic on the much smaller inflation-linked cross-section. Read together they separate a market-wide dislocation, which moves both, from a TIPS-specific one, which moves only the real gauge — the 2008 divergence being the textbook case. Toggle to the <b>ratio</b> to see that TIPS-specific gap directly, net of whatever is moving the nominal market too.']);
   const s=M.lastChild;
-  const grid=h('div',{class:'dual'}); s.appendChild(grid);
 
-  function noiseCard(nz, title, note, colorKey, bands){
-    const c=h('div',{class:'card'});
-    c.appendChild(h('div',{class:'card-title'},title));
-    c.appendChild(h('div',{class:'card-note'},note));
-    const box=h('div'); c.appendChild(box);
-    const sliderMount=h('div'); c.appendChild(sliderMount); grid.appendChild(c);
-    const allPts=nz.x.map((x,i)=>[x,nz.noise[i]]).filter(p=>p[1]!=null);
-    const NZ={xlo:nz.x[0], xhi:nz.x[nz.x.length-1]};
-    function render(){
-      const CC=COL();
-      box.innerHTML='';
-      drawLine(box,{height:260,yZero:true,yFmt:v=>fmt(v,0)+' bp',
-        xFmt:xYear,xTipFmt:xFmtDay,   // drawLine now adapts this to the ZOOMED range itself
-        bands:(bands?bands(CC):[]),
-        series:[{label:title,color:CC[colorKey],
-                 pts:allPts.filter(p=>p[0]>=NZ.xlo-1e-6&&p[0]<=NZ.xhi+1e-6)}]});
+  const ustPts = ust ? ust.x.map((x,i)=>[x,ust.noise[i],ust.dates[i]]).filter(p=>p[1]!=null) : [];
+  const tipsPts = tips ? tips.x.map((x,i)=>[x,tips.noise[i],tips.dates[i]]).filter(p=>p[1]!=null) : [];
+  const ustByDate = new Map(ustPts.map(p=>[p[2],p]));
+  const tipsByDate = new Map(tipsPts.map(p=>[p[2],p]));
+  const ratioPts = [];
+  tipsByDate.forEach((tp,d)=>{ const np=ustByDate.get(d); if(np&&np[1]>0) ratioPts.push([tp[0], tp[1]/np[1]]); });
+  ratioPts.sort((a,b)=>a[0]-b[0]);
+
+  const unionMap=new Map();
+  ustPts.forEach(p=>unionMap.set(p[2],p[0])); tipsPts.forEach(p=>unionMap.set(p[2],p[0]));
+  const unionEntries=[...unionMap.entries()].sort((a,b)=>a[1]-b[1]);
+  const unionX=unionEntries.map(e=>e[1]), unionDates=unionEntries.map(e=>e[0]);
+
+  const modes=[];
+  if(ust&&tips) modes.push(['both','Both']);
+  if(ust) modes.push(['ust','Nominal only']);
+  if(tips) modes.push(['tips','TIPS only']);
+  if(ratioPts.length>5) modes.push(['ratio','Ratio (TIPS / Nominal)']);
+  const ST={mode:modes[0][0], xlo:unionX[0], xhi:unionX[unionX.length-1]};
+
+  const bar=h('div',{class:'ctrlbar'});
+  const g=h('div',{class:'grp'}); g.appendChild(h('span',{class:'eyebrow'},'Series'));
+  const seg=h('div',{class:'seg'});
+  modes.forEach(([v,lab])=>{
+    const bt=h('button',null,lab); if(v===ST.mode) bt.classList.add('active');
+    bt.onclick=()=>{ ST.mode=v; [...seg.children].forEach(x=>x.classList.toggle('active',x===bt)); render(); };
+    seg.appendChild(bt);
+  });
+  g.appendChild(seg); bar.appendChild(g); s.appendChild(bar);
+
+  const c=h('div',{class:'card'});
+  c.appendChild(h('div',{class:'card-title'},'US Treasury liquidity — nominal vs TIPS'));
+  const noteEl=h('div',{class:'card-note'}); c.appendChild(noteEl);
+  const box=h('div'); c.appendChild(box);
+  const sliderMount=h('div'); c.appendChild(sliderMount);
+  s.appendChild(c);
+
+  function noteFor(mode){
+    if(mode==='both') return 'Basis points, daily. Both cross-sections use the same self-fitted residual, so their levels are directly comparable — the level gap is a market-size difference, not a discrepancy.';
+    if(mode==='ust') return 'Basis points, daily. RMS deviation of individual nominal notes and bonds from a smooth fitted curve. History is being back-filled and lengthens with each run.';
+    if(mode==='tips') return 'Basis points, daily. The same statistic on the inflation-linked cross-section, which is far smaller — so it dislocates harder and more often.';
+    return 'TIPS noise ÷ nominal noise, matched by trading day. Rises when the inflation-linked market is relatively less liquid than the nominal one, net of any market-wide dislocation that moves both.';
+  }
+
+  function render(){
+    const CC=COL();
+    noteEl.textContent=noteFor(ST.mode);
+    box.innerHTML='';
+    const inWin=p=>p[0]>=ST.xlo-1e-6 && p[0]<=ST.xhi+1e-6;
+    const gfcBand=[{x0:ym(2008,9),x1:ym(2009,3),fill:CC.orange,opacity:0.14,label:'GFC'}];
+    if(ST.mode==='ratio'){
+      drawLine(box,{height:280,yFmt:v=>fmt(v,2)+'x',
+        xFmt:xYear,xTipFmt:xFmtDay,
+        bands:gfcBand,
+        series:[{label:'TIPS / Nominal noise',color:CC.teal,width:2.2,pts:ratioPts.filter(inWin)}]});
+    } else {
+      const series=[];
+      if((ST.mode==='both'||ST.mode==='ust')&&ust) series.push({label:'US nominal Treasuries',color:CC.blue,width:2.2,pts:ustPts.filter(inWin)});
+      if((ST.mode==='both'||ST.mode==='tips')&&tips) series.push({label:'US TIPS (inflation-linked)',color:CC.crimson,width:2.2,pts:tipsPts.filter(inWin)});
+      drawLine(box,{height:280,yZero:true,yFmt:v=>fmt(v,0)+' bp',
+        xFmt:xYear,xTipFmt:xFmtDay,
+        bands:(ST.mode==='ust')?[]:gfcBand,
+        series});
     }
-    render(); CHARTS.push(render);
-    rangeSlider(sliderMount, nz.x, nz.dates, (lo,hi)=>{ NZ.xlo=lo; NZ.xhi=hi; render(); });
-    return allPts.map(p=>p[1]);
   }
-
-  let ustVals=null, tipsVals=null;
-  if(ust){
-    ustVals=noiseCard(ust,'US nominal Treasuries',
-      'Basis points, daily. RMS deviation of individual nominal notes and bonds from a smooth fitted curve. History is being back-filled and lengthens with each run.','blue',null);
-  }
-  if(tips){
-    tipsVals=noiseCard(tips,'US TIPS (inflation-linked)',
-      'Basis points, daily. The same statistic on the inflation-linked cross-section, which is far smaller — so it dislocates harder and more often.','crimson',
-      CC=>[{x0:ym(2008,9),x1:ym(2009,3),fill:CC.orange,opacity:0.14,label:'GFC'}]);
-  }
+  render(); CHARTS.push(render);
+  rangeSlider(sliderMount, unionX, unionDates, (lo,hi)=>{ ST.xlo=lo; ST.xhi=hi; render(); });
 
   // JS-computed callout so the numbers cannot drift from the data.
+  const tipsVals=tipsPts.map(p=>p[1]), ustVals=ustPts.map(p=>p[1]);
   const call=h('div',{class:'callout'});
   const bits=[];
-  if(tipsVals&&tipsVals.length){
+  if(tipsVals.length){
     const pk=Math.max.apply(null,tipsVals);
     bits.push('The TIPS gauge peaks at <b>~'+fmt(pk,0)+' bp</b> — the post-Lehman freeze, when the market dislocated so badly that breakevens turned negative — and sits near <b>'+fmt(tipsVals[tipsVals.length-1],0)+' bp</b> today.');
   }
-  if(ustVals&&ustVals.length){
-    let t='The nominal gauge reads <b>'+fmt(ustVals[ustVals.length-1],1)+' bp</b> on a far deeper cross-section, so the level gap between the two is a market-size difference rather than a discrepancy.';
+  if(ustVals.length){
+    let t='The nominal gauge reads <b>'+fmt(ustVals[ustVals.length-1],1)+' bp</b> on a far deeper cross-section.';
     const g=(ust.noise_gsw||[]).filter(v=>v!=null);
     if(g.length){
-      t+=' Both charts use the same self-fitted residual so their levels are comparable. As an independent check the nominal bonds are also measured against the <b>published GSW curve</b> — fitting nothing — which reads <b>'+fmt(g[g.length-1],1)+' bp</b>'
+      t+=' As an independent check the nominal bonds are also measured against the <b>published GSW curve</b> — fitting nothing — which reads <b>'+fmt(g[g.length-1],1)+' bp</b>'
         +(ust.gsw_corr!=null?' and tracks the fitted version at a correlation of <b>'+fmt(ust.gsw_corr,2)+'</b>':'')
         +'; the two agreeing is what says the underlying accrual and compounding are right.';
     }
     bits.push(t);
   }
-  if(!ustVals) bits.push('The nominal Treasury gauge is still back-filling and will appear alongside once its history lands.');
+  if(ratioPts.length>5){
+    const r=ratioPts[ratioPts.length-1][1];
+    bits.push('The ratio sits at <b>'+fmt(r,2)+'x</b> today — TIPS noise divided by nominal noise on the matched trading day.');
+  }
+  if(!ustVals.length) bits.push('The nominal Treasury gauge is still back-filling and will appear alongside once its history lands.');
   call.innerHTML=bits.join(' ');
   s.appendChild(call);
 })();
