@@ -26,7 +26,8 @@ logger = logging.getLogger(__name__)
 ANCHOR_DIR = Path(__file__).resolve().parent / "data" / "anchors"
 _BASE = ("https://www.philadelphiafed.org/-/media/frbp/assets/surveys-and-data/"
          "survey-of-professional-forecasters/data-files/files/median_{var}_level.xlsx")
-FILES = {"bill10": "spf_bill10.csv", "cpi10": "spf_cpi10.csv"}
+FILES = {"bill10": "spf_bill10.csv", "cpi10": "spf_cpi10.csv",
+         "tbill_y1": "spf_tbill_y1.csv", "tbill_y2": "spf_tbill_y2.csv"}
 
 
 def _fetch_spf_level(var: str, out_name: str, out_dir: "Path | None" = None) -> bool:
@@ -63,6 +64,39 @@ def _fetch_spf_level(var: str, out_name: str, out_dir: "Path | None" = None) -> 
         return False
 
 
+def fetch_spf_tbill_annuals(out_dir: "Path | None" = None) -> bool:
+    """The near-year T-bill forecasts (TBILLA = current year, TBILLB = next year),
+    quarterly since 1992 alongside BILL10's survey rounds. These are what turn the
+    0-10y BILL10 average into a 2-10y FORWARD by pure arithmetic — the near path is
+    surveyed, so stripping it involves no model (see ``us.anchor.survey_forward``)."""
+    out = Path(out_dir) if out_dir is not None else ANCHOR_DIR
+    try:
+        import requests, io
+        r = requests.get(_BASE.format(var="tbill"), timeout=60,
+                         headers={"User-Agent": "Mozilla/5.0"})
+        r.raise_for_status()
+        df = pd.read_excel(io.BytesIO(r.content))
+        cols = {c.strip().upper(): c for c in df.columns}
+        y, q = cols["YEAR"], cols["QUARTER"]
+        dates = pd.to_datetime(dict(year=df[y].astype(int),
+                                    month=df[q].astype(int) * 3 - 1, day=15))
+        ok = 0
+        for var, name in (("TBILLA", FILES["tbill_y1"]), ("TBILLB", FILES["tbill_y2"])):
+            sv = pd.Series(pd.to_numeric(df[cols[var]], errors="coerce").to_numpy(),
+                           index=dates).dropna()
+            if len(sv) < 40 or not (-1.0 <= sv.median() <= 12.0):
+                raise ValueError(f"implausible {var}: n={len(sv)} median={sv.median()}")
+            out.mkdir(parents=True, exist_ok=True)
+            sv.rename("value").rename_axis("date").round(4).to_csv(out / name)
+            logger.info("SPF %s: %d quarterly obs %s..%s (latest %.2f%%)", var,
+                        len(sv), sv.index.min().date(), sv.index.max().date(), sv.iloc[-1])
+            ok += 1
+        return ok == 2
+    except Exception as exc:                                        # noqa: BLE001
+        logger.warning("SPF TBILL annuals fetch failed (%s) — keeping committed files", exc)
+        return False
+
+
 def fetch_spf_bill10(out_dir=None) -> bool:
     return _fetch_spf_level("bill10", FILES["bill10"], out_dir)
 
@@ -75,6 +109,7 @@ def _main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     fetch_spf_bill10()
     fetch_spf_cpi10()
+    fetch_spf_tbill_annuals()
 
 
 if __name__ == "__main__":

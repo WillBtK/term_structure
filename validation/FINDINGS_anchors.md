@@ -67,12 +67,22 @@ w = 0.565 at the 3.5y-half-life floor. Gates declared before running:
   (the level lands on KW) but corr **0.980 → 0.907**. Split; the rule was
   "improves both". **Off.**
 
-Reading: the avg-matching transform pipes survey-release timing into a daily series
-(the correlation loss), and the SPF average sits below DKW's expected path. The US
-therefore publishes yields-only on both curves; its survey cross-check lives here and
-in the anchor metadata rather than in the series. The machinery stays behind one-flag
-switches so a terminal-consistent survey object (a true 6-10y reading), if one
-appears, is a re-measurement rather than a rebuild.
+**Round 2 (same day): terminal-consistent forward objects.** The near-year T-bill is
+itself surveyed (TBILLA/B), so the cyclical front strips out by arithmetic:
+`fwd_2_10 = (10*BILL10 - y1 - y2)/8`, with the real leg net of the same-window ATSIX
+forward `(10*pi10 - 2*pi2)/8` (Aruoba curve, CPI-basis, already the joint model's
+anchor). Window-matched with w = 0.662. Results:
+
+* Real vs DKW: corr 0.786 -> **0.605**, |gap| 0.32 -> **0.60pp**. Fail — the survey
+  real forward sits ~0.4pp ABOVE DKW's expected real path; the disagreement is
+  between the surveys and DKW, not the object or the transform.
+* Nominal vs KW: |gap| 0.62 -> **0.45pp** (mean +0.02 — exactly KW's level), corr
+  **0.919** (up from round 1's 0.907, still below unanchored 0.980). Fail on corr.
+
+Both anchors stay OFF; the US publishes yields-only on both curves. Recorded
+hypothesis, not a gate change: KW's daily variation is yields-driven like our
+unanchored series, so the correlation leg may structurally favour unanchored — if
+the criteria are ever revised, it happens in review, never to pass a failed run.
 
 ## Provenance and upkeep
 
