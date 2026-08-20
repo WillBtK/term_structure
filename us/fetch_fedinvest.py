@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import io
 import logging
+import time
 
 import pandas as pd
 
@@ -127,18 +128,29 @@ def parse_price_table(html: str, date: pd.Timestamp) -> pd.DataFrame:
     return pd.DataFrame(columns=cols)
 
 
-def fetch_day(date: pd.Timestamp) -> pd.DataFrame:
-    """One trading day's cross-section, trying each known endpoint in turn."""
+def fetch_day(date: pd.Timestamp, attempts: int = 3, backoff: float = 1.5) -> pd.DataFrame:
+    """One trading day's cross-section, trying each known endpoint in turn.
+
+    Both endpoints intermittently answer a ~7.8 kB STUB page carrying no price table
+    (the real page is ~60-70 kB), seemingly under load during a long sequential crawl.
+    An empty result is therefore ambiguous: it means either "genuine non-trading day"
+    or "the server hiccuped". Treating the two alike is what let a corrective re-run
+    silently skip days and leave stale values in the derived store, so a day that comes
+    back empty is RETRIED with backoff before being accepted as genuinely absent.
+    """
     date = pd.Timestamp(date)
     last = None
-    for url in ENDPOINTS:
-        try:
-            df = parse_price_table(_post(url, date), date)
-        except Exception as exc:                                    # noqa: BLE001
-            last = exc
-            continue
-        if len(df):
-            return df
+    for attempt in range(attempts):
+        for url in ENDPOINTS:
+            try:
+                df = parse_price_table(_post(url, date), date)
+            except Exception as exc:                                # noqa: BLE001
+                last = exc
+                continue
+            if len(df):
+                return df
+        if attempt + 1 < attempts:
+            time.sleep(backoff * (2 ** attempt))
     if last is not None:
         logger.debug("no prices for %s (last error: %s)", date.date(), last)
     return pd.DataFrame(columns=["date", "cusip", "kind", "coupon", "maturity", "call_date", "price"])

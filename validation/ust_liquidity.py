@@ -195,6 +195,24 @@ def build_noise(refresh: bool = False, freq: str = "M",
         gsw = None
     fresh = noise_from_panel(raw, gsw_params=gsw)
 
+    if start is not None and len(store):
+        # An explicit window is a CORRECTIVE recompute, not an append. Merging on
+        # "fresh wins where present" silently keeps the OLD value on any day the fetch
+        # failed to return -- which is how a methodology fix ended up applied to only
+        # some days of a window, leaving the series alternating between the corrected
+        # and the superseded level. Clear the window first so a day we could not
+        # re-derive shows up as a visible GAP rather than a stale number.
+        win = pd.to_datetime(store["date"]) >= pd.Timestamp(start)
+        if end is not None:
+            win &= pd.to_datetime(store["date"]) <= pd.Timestamp(end)
+        dropped = int(win.sum())
+        store = store.loc[~win].reset_index(drop=True)
+        missing = dropped - len(fresh)
+        log = logger.warning if missing > 0 else logger.info
+        log("recompute %s..%s: cleared %d stored days, re-derived %d%s",
+            start, end or "latest", dropped, len(fresh),
+            f" -- {missing} day(s) NOT recovered, left as gaps" if missing > 0 else "")
+
     daily = (pd.concat([store, fresh], ignore_index=True)
              .sort_values("date").drop_duplicates("date", keep="last")
              .reset_index(drop=True)) if len(fresh) else store
