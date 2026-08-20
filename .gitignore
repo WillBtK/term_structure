@@ -57,3 +57,13 @@ scheduler/supabase_stage/
 # and the job only appends new days.
 !us/data_store/
 !us/data_store/**
+
+# anchor seeds/rungs are COMMITTED (proprietary Consensus: private repo only)
+!us/data/anchors/
+!us/data/anchors/**
+!uk/data/anchors/
+!uk/data/anchors/**
+!canada/data/anchors/
+!canada/data/anchors/**
+!switzerland/data/anchors/
+!switzerland/data/anchors/**

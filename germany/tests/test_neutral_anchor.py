@@ -1,9 +1,10 @@
-"""Germany neutral-anchor ladder (no network; synthetic CSVs).
+"""Germany neutral-anchor wiring (no network; synthetic CSVs).
 
-Mirrors the Japan suite — the ladder itself is shared (`model.neutral_anchor`), so what
-is tested here is Germany's wiring: its filenames, its rung labels, and the activation
-gate that keeps the anchor off until the Consensus inflation leg extends coverage back
-to 1990.
+Survey-only since the Ferreira review (2026-08-20): the endpoint is the Consensus EA
+short-rate survey, carried forward by the ECB SPF longer-term rate assumption, NaN
+before Oct-2016. The shared construction is tested in model/tests/test_survey_neutral;
+here: Germany's filenames, its activation contract, and the bridge_fidelity report
+that motivated the design.
 """
 import numpy as np
 import pandas as pd
@@ -12,130 +13,44 @@ import pytest
 from germany import neutral_anchor as na
 
 
-@pytest.fixture(autouse=True)
-def _no_smoothing(monkeypatch):
-    """These tests assert exact levels on minimal constant series, so isolate the ladder
-    from the RW endpoint smoother (exercised in the Japan suite, same code)."""
-    monkeypatch.setattr(na, "SMOOTH", False)
-
-
-def _write(d, name, rows):
-    pd.DataFrame(rows, columns=["date", "value"]).to_csv(d / na.FILES[name], index=False)
+def _write(d, key, rows):
+    pd.DataFrame(rows, columns=["date", "value"]).to_csv(d / na.FILES[key], index=False)
 
 
 def test_no_files_is_inert(tmp_path):
-    vals, meta = na.build_nominal_neutral(pd.date_range("2020-01-31", periods=12, freq="M"),
-                                          dir=tmp_path)
-    assert meta["source"] == "none"
-    assert np.all(np.isnan(vals))
+    vals, meta = na.build_nominal_neutral(
+        pd.date_range("2020-01-31", periods=6, freq="M"), dir=tmp_path)
+    assert meta["source"] == "none" and np.all(np.isnan(vals))
     assert not na.has_anchor(tmp_path) and not na.is_enabled(tmp_path)
 
 
-def test_bridge_is_rstar_plus_expected_inflation(tmp_path):
-    """The public rung: n = Ferreira EA r* + pi^e, in percent, returned as a decimal."""
-    _write(tmp_path, "rstar", [("2019-12-31", 0.5), ("2020-12-31", 0.5)])
-    _write(tmp_path, "cpi", [("2019-12-31", 1.8), ("2020-12-31", 1.8)])
-    idx = pd.date_range("2020-01-31", periods=6, freq="M")
+def test_survey_era_only(tmp_path):
+    """NaN before the first Consensus release — 1990-2016 history is not rewritten,
+    which is what the Ferreira review demanded."""
+    _write(tmp_path, "shortrate", [("2016-10-10", 2.08), ("2020-10-12", 0.69)])
+    idx = pd.date_range("2010-01-31", "2020-12-31", freq="M")
     vals, meta = na.build_nominal_neutral(idx, dir=tmp_path)
-    assert meta["source"] == "bridge" and meta["pi_e"] == "consensus_cpi"
-    assert meta["r_star"] == "ferreira"
-    assert np.allclose(vals, 0.023)                       # (0.5 + 1.8)% -> decimal
+    s = pd.Series(vals, index=idx)
+    assert s[idx < "2016-10-10"].isna().all()
+    assert s["2016-11-30":].notna().all()
 
 
-def test_direct_shortrate_overrides_and_calibrates_the_bridge(tmp_path):
-    """Rung 1 wins inside its staleness window, and the bridge is level-matched to it so
-    the two rungs join without a step when the survey lapses."""
-    _write(tmp_path, "rstar", [("2019-12-31", 0.5), ("2021-12-31", 0.5)])
-    _write(tmp_path, "cpi", [("2019-12-31", 1.8), ("2021-12-31", 1.8)])
-    _write(tmp_path, "shortrate", [("2020-01-31", 2.8), ("2020-06-30", 2.8)])
-    idx = pd.date_range("2020-01-31", periods=6, freq="M")
+def test_spf_rate_extends_the_survey(tmp_path):
+    """Past the frozen snapshot the ECB SPF longer-term rate assumption carries the
+    endpoint, level-bridged over >=6 months of overlap."""
+    _write(tmp_path, "shortrate", [(f"202{y}-06-30", 2.2) for y in range(0, 7)])
+    _write(tmp_path, "shortrate_ext", [("2025-03-31", 2.2), ("2025-09-30", 2.2),
+                                       ("2026-03-31", 2.2), ("2026-09-30", 2.2),
+                                       ("2027-03-31", 2.4)])
+    idx = pd.date_range("2020-06-30", "2027-03-31", freq="M")
     vals, meta = na.build_nominal_neutral(idx, dir=tmp_path)
-    assert meta["source"] == "consensus_shortrate+bridge"
-    assert meta["calib_offset_pct"] == pytest.approx(0.5)   # 2.8 - (0.5+1.8)
-    assert np.allclose(vals, 0.028)
+    assert meta["source"] == "consensus_shortrate+ecb_spf_rate"
+    s = pd.Series(vals * 100, index=idx)
+    assert s.loc["2027-03-31"] == pytest.approx(2.4, abs=0.15)   # smoothed toward the SPF
 
 
-def test_ecb_spf_extends_the_consensus_inflation_leg(tmp_path):
-    """Past the last Consensus release the inflation leg continues on the ECB SPF,
-    level-bridged over the overlap — the mechanism that keeps a frozen snapshot live."""
-    _write(tmp_path, "rstar", [("2020-12-31", 0.5), ("2024-12-31", 0.5)])
-    _write(tmp_path, "cpi", [("2020-12-31", 1.8), ("2021-12-31", 1.8)])
-    _write(tmp_path, "extender", [("2021-12-31", 1.5), ("2023-12-31", 1.5)])
-    idx = pd.date_range("2021-01-31", "2023-12-31", freq="M")
-    vals, meta = na.build_nominal_neutral(idx, dir=tmp_path)
-    assert meta["pi_e"] == "consensus_cpi+ecb_spf_tail"
-    # the SPF tail is shifted by the +0.3 overlap offset, so the level does not step
-    assert np.allclose(vals[-1], 0.023, atol=1e-9)
-
-
-def test_target_is_the_last_resort_inflation_anchor(tmp_path):
-    _write(tmp_path, "rstar", [("2020-12-31", 0.5), ("2021-12-31", 0.5)])
-    idx = pd.date_range("2021-01-31", periods=4, freq="M")
-    vals, meta = na.build_nominal_neutral(idx, dir=tmp_path)
-    assert meta["pi_e"] == "ecb_target"
-    assert np.allclose(vals, (0.5 + na.ECB_TARGET_PCT) / 100.0)
-
-
-def test_activation_waits_for_the_consensus_inflation_leg(tmp_path, monkeypatch):
-    """Two gates, both deliberate. The public rungs alone only reach 1999, and the
-    production sample starts 1984 — enabling on that coverage would seam the sample at
-    1999, so a buildable anchor is not yet an active one. And even with the Consensus
-    seed present, activation waits on the explicit ACTIVATED flag: the seeds landed
-    2026-08-20, but the pre-2016 bridge is dominated by the Ferreira r* rung (−0.87%
-    in mid-2008 ⇒ an implausible ~0.7% nominal neutral), so switching the published
-    German decomposition is a reviewed decision, not a side effect of committing data."""
-    _write(tmp_path, "rstar", [("2020-12-31", 0.5), ("2021-12-31", 0.5)])
-    _write(tmp_path, "extender", [("2020-12-31", 1.8), ("2021-12-31", 1.8)])
-    assert na.has_anchor(tmp_path)          # buildable
-    assert not na.is_enabled(tmp_path)      # but not applied
-    _write(tmp_path, "cpi", [("1990-12-31", 2.5), ("2021-12-31", 1.8)])
-    assert not na.is_enabled(tmp_path)      # data present, decision still pending
-    monkeypatch.setattr(na, "ACTIVATED", True)
-    assert na.is_enabled(tmp_path)          # the decision is the switch
-
-
-def test_bridge_fidelity_measures_the_hand_off(tmp_path):
-    """Rung 1 will go stale — there is no public long-horizon euro-area rate survey to
-    replace it — so what matters is whether the bridge beneath it tracks the survey while
-    both exist. A constant offset is removed by the ladder's calibration; drift is not,
-    and that is what this reports."""
-    from model.neutral_anchor import bridge_fidelity
-    # r* and pi^e both drift; the survey sits a constant 0.5pp above their sum
-    _write(tmp_path, "rstar", [("2017-06-30", 0.4), ("2019-06-30", 0.6), ("2021-06-30", 0.8)])
-    _write(tmp_path, "cpi", [("2017-06-30", 1.6), ("2019-06-30", 1.7), ("2021-06-30", 1.8)])
-    _write(tmp_path, "shortrate", [("2017-06-30", 2.5), ("2019-06-30", 2.8), ("2021-06-30", 3.1)])
-    d = bridge_fidelity(na._spec(tmp_path), dir=tmp_path)
-    assert d["overlap_months"] > 40
-    assert d["calib_offset_pct"] == pytest.approx(0.5, abs=0.05)
-    assert d["mean_abs_gap_bp"] < 2.0          # co-moves once the level is matched
-    assert d["corr"] > 0.99
-
-
-def test_spf_rate_extends_the_consensus_short_rate_rung(tmp_path):
-    """The carry-forward that matters: past the last Consensus release the DIRECT rung
-    continues on the ECB SPF longer-term rate assumption, level-bridged over the overlap.
-    Without this the anchor drops to r* + pi^e the moment the frozen survey lapses."""
-    _write(tmp_path, "rstar", [("2024-12-31", 0.5), ("2027-12-31", 0.5)])
-    _write(tmp_path, "cpi", [("2024-12-31", 1.9), ("2027-12-31", 1.9)])
-    _write(tmp_path, "shortrate", [("2025-01-31", 2.7), ("2026-01-31", 2.7)])
-    _write(tmp_path, "shortrate_ext", [("2025-03-31", 2.2), ("2026-01-31", 2.2),
-                                       ("2026-09-30", 2.2)])
-    idx = pd.date_range("2025-01-31", "2026-09-30", freq="M")
-    vals, meta = na.build_nominal_neutral(idx, dir=tmp_path)
-    assert meta["shortrate_ext"] == "ecb_spf_rate"
-    # SPF sits 0.5pp below Consensus over the overlap; the tail is lifted by that offset,
-    # so the direct rung stays on its own level rather than stepping down 50bp.
-    assert np.allclose(vals[-1], 0.027, atol=1e-9)
-
-
-def test_extension_is_refused_without_a_real_overlap(tmp_path):
-    """The two surveys use different horizons (6-10y vs 4-5y ahead), so the level offset
-    has to be estimated. With no overlap it cannot be, and splicing them at face value
-    would silently step the endpoint — so the extension is declined instead."""
-    _write(tmp_path, "rstar", [("2020-12-31", 0.5), ("2027-12-31", 0.5)])
-    _write(tmp_path, "cpi", [("2020-12-31", 1.9), ("2027-12-31", 1.9)])
-    _write(tmp_path, "shortrate", [("2021-01-31", 2.7), ("2021-06-30", 2.7)])
-    _write(tmp_path, "shortrate_ext", [("2025-03-31", 2.2), ("2026-09-30", 2.2)])
-    vals, meta = na.build_nominal_neutral(pd.date_range("2021-01-31", "2026-09-30", freq="M"),
-                                          dir=tmp_path)
-    assert meta["shortrate_ext"] is None
+def test_activation_is_a_decision_not_a_side_effect(tmp_path, monkeypatch):
+    _write(tmp_path, "shortrate", [("2016-10-10", 2.08), ("2020-10-12", 0.69)])
+    assert na.is_enabled(tmp_path)                     # ACTIVATED=True since 2026-08-20
+    monkeypatch.setattr(na, "ACTIVATED", False)
+    assert not na.is_enabled(tmp_path)                 # the flag is the switch

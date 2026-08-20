@@ -41,6 +41,18 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m germany.fetch_neutral
+      - name: Fetch SPF BILL10/CPI10 (US endpoint cross-check)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m us.fetch_neutral
+      - name: Fetch BoE MPS neutral/5y Bank Rate (UK carry-forward)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m uk.fetch_neutral
+      - name: Fetch BoC MPS neutral rate (CA carry-forward)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m canada.fetch_neutral
       - name: Commit refreshed anchor CSVs (if any changed)
         run: |
           git config user.name  "atlas-bot"
@@ -50,6 +62,10 @@ jobs:
           git add japan/data/anchors/tankan_infl_5y.csv 2>/dev/null || true
           git add germany/data/anchors/ferreira_rstar_ea.csv 2>/dev/null || true
           git add germany/data/anchors/ecb_spf_infl_lt.csv 2>/dev/null || true
+          git add germany/data/anchors/ecb_spf_rate_lt.csv 2>/dev/null || true
+          git add us/data/anchors/spf_bill10.csv us/data/anchors/spf_cpi10.csv 2>/dev/null || true
+          git add uk/data/anchors/boe_mps_neutral.csv 2>/dev/null || true
+          git add canada/data/anchors/boc_mps_neutral.csv 2>/dev/null || true
           if ! git diff --cached --quiet; then
             git commit -m "Refresh neutral-anchor fallbacks (Ferreira r* JA/EA, Tankan 5y, ECB SPF) [skip ci]"
             git push

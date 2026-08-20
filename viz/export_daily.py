@@ -171,29 +171,36 @@ def build_canonical() -> pd.DataFrame:
         if vm == "ycc":
             from japan import config as j
             var_mult_fn = j.ycc_downweight
+        # --- Survey-anchored shifting endpoints (one rule, all markets) -----------
+        # The expected-rate path's far end reverts to a SURVEYED neutral wherever a
+        # long-horizon rate survey exists, and to the sample-mean theta everywhere
+        # else (each builder returns NaN before its survey era, so pre-survey history
+        # is never rewritten). No model r* appears in any construction — the Ferreira
+        # review (2026-08-20) is the recorded reason. US is the special case: its SPF
+        # inputs are 0-10y AVERAGES, so its endpoint is solved by average-matching
+        # against the model's own unanchored path (two passes; see us.anchor), and
+        # each US anchor sits behind a pre-committed external gate (DKW / Kim-Wright).
         endpoint = None
-        if cc == "DE" and inst == "nominal":
-            # Neutral-rate shifting endpoint for Germany. The regime re-cut to 1984+ fixed
-            # a break INSIDE the sample; it cannot fix r* drifting down secularly WITHIN
-            # that regime, which leaves the sample mean implying a 2.84% long-run short
-            # rate against a euro-area neutral nearer 2.5%. Inert until the Consensus CPI
-            # file lands (see germany.neutral_anchor.is_enabled — the public rungs alone
-            # only reach back to 1999 and would seam the sample at that date).
-            from germany.neutral_anchor import build_nominal_neutral as de_neutral, is_enabled
-            if is_enabled():
-                endpoint, ameta = de_neutral(panel.index)
+        _NOMINAL_ANCHORS = {"DE": "germany", "JP": "japan", "UK": "uk",
+                            "CA": "canada", "CH": "switzerland"}
+        if inst == "nominal" and cc in _NOMINAL_ANCHORS:
+            mod = __import__(_NOMINAL_ANCHORS[cc] + ".neutral_anchor",
+                             fromlist=["build_nominal_neutral"])
+            if getattr(mod, "is_enabled", lambda: True)():
+                endpoint, ameta = mod.build_nominal_neutral(panel.index)
                 meta.setdefault("anchor", {})[f"{cc}:{inst}"] = {
                     k: v for k, v in ameta.items() if k != "src_by_date"}
-        if cc == "JP" and inst == "nominal":
-            # Neutral-rate shifting endpoint for Japan's expected-rate path (fixes the
-            # deflation-era theta anchor). Inert (all-NaN -> constant-theta) until the
-            # survey/r* CSVs are committed under japan/data/anchors/. See japan.neutral_anchor.
-            from japan.neutral_anchor import build_nominal_neutral
-            endpoint, ameta = build_nominal_neutral(panel.index)
-            meta.setdefault("anchors", {})["JP"] = {k: v for k, v in ameta.items()
-                                                    if k != "src_by_date"}
         frame = filter_forward(prod, panel, dt=DT_DAILY, var_mult_fn=var_mult_fn,
                                endpoint=endpoint)
+        if cc == "US":
+            from us import anchor as us_anchor
+            on = us_anchor.REAL_ACTIVATED if inst == "real" else us_anchor.NOMINAL_ACTIVATED
+            if on:
+                ep, ameta = us_anchor.avg_matched_endpoint(prod, frame, inst, panel.index)
+                if ep is not None:
+                    frame = filter_forward(prod, panel, dt=DT_DAILY,
+                                           var_mult_fn=var_mult_fn, endpoint=ep)
+                    meta.setdefault("anchor", {})[f"{cc}:{inst}"] = ameta
         frame = frame.rename(columns={"observed_yield": "observed",
                                       "expected_rate": "expected"})
         frame["country"] = cc

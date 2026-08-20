@@ -1,0 +1,81 @@
+"""Fetch the US endpoint surveys — Philadelphia Fed SPF ``BILL10`` and ``CPI10``.
+
+These are the same inputs Kim-Wright uses to anchor expectations: the median 10-year
+annual-average 3-month T-bill return forecast (1992Q1+) and the median 10-year CPI
+forecast (1991Q4+), both public, quarterly, and maintained by the Philadelphia Fed
+indefinitely — so unlike the other markets the US never needs a proprietary seed or a
+hand-off; the living survey IS the rung.
+
+One caveat carried through to the wiring (``viz/export_daily``): both are 0-10y
+AVERAGES, not 6-10y-ahead readings, so they discipline the model's expected 10y
+AVERAGE rate rather than its terminal endpoint. The export applies them through an
+average-matching transform instead of substituting them for theta directly.
+
+Best-effort like the other anchor fetchers: never raises, never overwrites a good
+committed file with a bad parse.
+"""
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+ANCHOR_DIR = Path(__file__).resolve().parent / "data" / "anchors"
+_BASE = ("https://www.philadelphiafed.org/-/media/frbp/assets/surveys-and-data/"
+         "survey-of-professional-forecasters/data-files/files/median_{var}_level.xlsx")
+FILES = {"bill10": "spf_bill10.csv", "cpi10": "spf_cpi10.csv"}
+
+
+def _fetch_spf_level(var: str, out_name: str, out_dir: "Path | None" = None) -> bool:
+    """One SPF median-level file -> committed date,value CSV (percent).
+
+    The workbook is (YEAR, QUARTER, <VAR>); the survey is fielded mid-quarter, so the
+    observation is dated to the quarter's middle month's 15th — close enough to the
+    actual deadline for a 6-10y object, and stable across releases.
+    """
+    out = Path(out_dir) if out_dir is not None else ANCHOR_DIR
+    try:
+        import requests
+        r = requests.get(_BASE.format(var=var), timeout=60,
+                         headers={"User-Agent": "Mozilla/5.0"})
+        r.raise_for_status()
+        import io
+        df = pd.read_excel(io.BytesIO(r.content))
+        cols = {c.strip().upper(): c for c in df.columns}
+        y, q = cols["YEAR"], cols["QUARTER"]
+        vc = [c for c in df.columns if c not in (y, q)][-1]
+        df = df.dropna(subset=[vc])
+        dates = pd.to_datetime(dict(year=df[y].astype(int),
+                                    month=df[q].astype(int) * 3 - 1, day=15))
+        s = pd.Series(pd.to_numeric(df[vc], errors="coerce").to_numpy(), index=dates).dropna()
+        if len(s) < 20 or not (0.0 <= s.median() <= 10.0):
+            raise ValueError(f"implausible parse: n={len(s)} median={s.median()}")
+        out.mkdir(parents=True, exist_ok=True)
+        s.rename("value").rename_axis("date").round(4).to_csv(out / out_name)
+        logger.info("SPF %s: %d quarterly obs %s..%s (latest %.2f%%)", var.upper(),
+                    len(s), s.index.min().date(), s.index.max().date(), s.iloc[-1])
+        return True
+    except Exception as exc:                                        # noqa: BLE001
+        logger.warning("SPF %s fetch failed (%s) — keeping committed file", var, exc)
+        return False
+
+
+def fetch_spf_bill10(out_dir=None) -> bool:
+    return _fetch_spf_level("bill10", FILES["bill10"], out_dir)
+
+
+def fetch_spf_cpi10(out_dir=None) -> bool:
+    return _fetch_spf_level("cpi10", FILES["cpi10"], out_dir)
+
+
+def _main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    fetch_spf_bill10()
+    fetch_spf_cpi10()
+
+
+if __name__ == "__main__":
+    _main()

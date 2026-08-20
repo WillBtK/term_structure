@@ -190,16 +190,64 @@
       "n_days": 13
     }
   },
-  "anchors": {
-    "JP": {
-      "source": "consensus_shortrate+bridge",
-      "pi_e": "consensus_cpi",
-      "r_star": "ferreira",
-      "shortrate_ext": null,
-      "calib_offset_pct": 0.278,
+  "anchor": {
+    "UK:nominal": {
+      "source": "consensus_shortrate+boe_mps",
+      "first": "2017-01-09",
+      "asof": "2026-07-15",
+      "stale_after": "2028-01-16",
+      "stale": false,
+      "terminal_pct": null,
+      "terminal_band": null,
+      "coverage": 2428,
+      "n": 12038
+    },
+    "DE:nominal": {
+      "source": "consensus_shortrate+ecb_spf_rate",
+      "first": "2016-10-10",
+      "asof": "2026-09-30",
+      "stale_after": "2028-04-02",
+      "stale": false,
+      "terminal_pct": null,
+      "terminal_band": null,
+      "coverage": 2502,
+      "n": 7369
+    },
+    "JP:nominal": {
+      "source": "consensus_shortrate+terminal",
+      "first": "2017-01-09",
       "asof": "2026-07-13",
-      "coverage": 8931,
+      "stale_after": "2028-01-14",
+      "stale": false,
+      "terminal_pct": 2.0,
+      "terminal_band": [
+        1.75,
+        2.25
+      ],
+      "coverage": 2349,
       "n": 13282
+    },
+    "CH:nominal": {
+      "source": "consensus_shortrate",
+      "first": "2017-01-09",
+      "asof": "2026-07-13",
+      "stale_after": "2028-01-14",
+      "stale": false,
+      "terminal_pct": null,
+      "terminal_band": null,
+      "coverage": 2400,
+      "n": 7783
+    },
+    "CA:nominal": {
+      "source": "consensus_shortrate",
+      "first": "2017-01-09",
+      "asof": "2026-07-13",
+      "stale_after": "2028-01-14",
+      "stale": false,
+      "terminal_pct": null,
+      "terminal_band": null,
+      "coverage": 2389,
+      "n": 9975
     }
   }
 }

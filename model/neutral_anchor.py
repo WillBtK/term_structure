@@ -269,6 +269,100 @@ def build_nominal_neutral(index, spec: AnchorSpec, dir: "Path | None" = None):
     return vals, meta
 
 
+def build_survey_neutral(index, spec: AnchorSpec, dir: "Path | None" = None,
+                         terminal_pct: "float | None" = None,
+                         terminal_band: "tuple[float, float] | None" = None):
+    """Per-date neutral short rate (DECIMAL) from SURVEYS ONLY — no model r*, no
+    pre-survey bridge.
+
+    This replaced ``build_nominal_neutral`` as the production construction after the
+    Germany activation review: the pre-survey bridge is dominated by whichever r*
+    model feeds it (Ferreira's euro-area estimate reads -0.87% in mid-2008, putting
+    the German nominal neutral near 0.7% while the ECB hiked to 4.25%), and no market
+    participant prices those paths. The rule that survives review is: the endpoint
+    exists exactly where long-horizon rate SURVEYS exist, and nowhere else.
+
+      * before the first survey release      -> NaN (constant-theta, today's behaviour)
+      * survey era                            -> RW-smoothed direct survey (rung 1),
+                                                 extended past its last release by a
+                                                 public rate survey, level-bridged over
+                                                 >=6 months of overlap (rung 2)
+      * beyond the last release + staleness   -> FROZEN at the last smoothed value,
+                                                 flagged ``stale`` in meta; or, when
+                                                 ``terminal_pct`` is given (Japan: the
+                                                 BoJ-communicated 1.75-2.25% corridor,
+                                                 midpoint 2.0), the endpoint GLIDES to
+                                                 that terminal across the staleness
+                                                 window — implemented by handing the RW
+                                                 smoother the terminal as one more
+                                                 observation dated at the staleness
+                                                 cut-off, so there is no step on the day
+                                                 the survey lapses.
+
+    ``build_nominal_neutral`` (the r*+pi^e bridge) is retained above for research and
+    for ``bridge_fidelity``, but no market's published series uses it.
+    """
+    index = pd.DatetimeIndex(pd.to_datetime(index))
+    sr = load_series(spec, "shortrate", dir)
+    sr_ext = load_series(spec, "shortrate_ext", dir)
+
+    ext_src = None
+    if sr is not None and sr_ext is not None:
+        span = pd.date_range(max(sr.index.min(), sr_ext.index.min()),
+                             min(sr.index.max(), sr_ext.index.max()), freq="M")
+        if len(span) >= 6:
+            off = float((locf(sr, span) - locf(sr_ext, span)).mean())
+            tail = sr_ext[sr_ext.index > sr.index.max()] + off
+            if len(tail):
+                sr = pd.concat([sr, tail]).sort_index()
+                ext_src = spec.shortrate_ext_label
+        else:
+            logger.warning("%s survey endpoint: %s overlaps the survey by %d months (<6) "
+                           "— not extending", spec.market, spec.shortrate_ext_label, len(span))
+    elif sr is None and sr_ext is not None:
+        sr, ext_src = sr_ext, spec.shortrate_ext_label
+
+    if sr is None:
+        return np.full(len(index), np.nan), {"source": "none", "asof": None,
+                                             "coverage": 0, "n": len(index)}
+
+    stale_cut = sr.index.max() + pd.Timedelta(days=spec.staleness_days)
+    sr_aug, terminal_src = sr, None
+    if terminal_pct is not None and stale_cut > sr.index.max():
+        # the glide observation: the smoother works out the path from the last survey
+        # read to the communicated terminal, weighting both by their assumed noise.
+        sr_aug = pd.concat([sr, pd.Series([float(terminal_pct)], index=[stale_cut])])
+        terminal_src = "terminal"
+
+    n = rw_smooth(sr_aug, index, spec.obs_std, spec.drift_std) if spec.smooth         else locf(sr_aug, index)
+    # beyond the staleness cut the endpoint holds: at the terminal when one is set,
+    # else frozen at the last smoothed value (a slow object, approximately right for
+    # years — and visibly labelled, unlike a silently wrong sample mean).
+    beyond = index > stale_cut
+    if beyond.any():
+        hold = float(terminal_pct) if terminal_pct is not None else             float(n[~beyond].dropna().iloc[-1]) if n[~beyond].notna().any() else np.nan
+        n[beyond] = hold
+
+    src = pd.Series(np.where(index < sr.index.min(), "none",
+                    np.where(index <= sr.index.max() + pd.Timedelta(days=1),
+                             f"{spec.survey_label}_shortrate", terminal_src or "frozen")),
+                    index=index)
+    vals = (n / 100.0).to_numpy(dtype=float)
+    meta = {"source": f"{spec.survey_label}_shortrate"
+                      + (f"+{ext_src}" if ext_src else "")
+                      + (f"+{terminal_src}" if terminal_src else ""),
+            "first": str(sr.index.min().date()), "asof": str(sr.index.max().date()),
+            "stale_after": str(stale_cut.date()),
+            "stale": bool(index.max() > stale_cut),
+            "terminal_pct": terminal_pct, "terminal_band": terminal_band,
+            "coverage": int(np.isfinite(vals).sum()), "n": len(index),
+            "src_by_date": src}
+    logger.info("%s survey endpoint: %s first=%s asof=%s coverage=%d/%d",
+                spec.market, meta["source"], meta["first"], meta["asof"],
+                meta["coverage"], len(index))
+    return vals, meta
+
+
 def has_anchor(spec: AnchorSpec, dir: "Path | None" = None) -> bool:
     """True if at least one usable anchor file (direct short-rate survey or r*) exists."""
     d = Path(dir) if dir is not None else spec.dir
