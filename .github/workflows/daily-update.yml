@@ -74,13 +74,35 @@ jobs:
         # its per-ISIN yield archive drops a security ~4 years past maturity, so a
         # trading day that scrolls off cannot be re-fetched. Retaining the union here
         # is the ONLY way the Bund liquidity gauge ever accumulates a history.
+        #
+        # This step NEVER fails the job. Everything that matters -- refreshing the
+        # sources, rebuilding the premia, the Supabase upsert and the Atlas publish --
+        # has already succeeded by the time we get here, so failing the run over a git
+        # race would report a successful publish as a failure and tempt a re-run that
+        # repeats the whole ~15-minute build for nothing. (Six runs on 2026-08-20 did
+        # exactly that, burning ~100 minutes: a bare `git push` was rejected because
+        # commits landed on main mid-run.) A losing push is now rebased and retried;
+        # if it still cannot land, the cross-section is simply re-fetched next run,
+        # since the Bundesbank window is ~5 months wide and one missed day costs
+        # nothing. --autostash is required because the rebuild leaves other tracked
+        # files (viz/artifact.html, viz/data.json) modified and unstaged.
+        continue-on-error: true
         run: |
+          set +e
           git config user.name  "atlas-bot"
           git config user.email "noreply@anthropic.com"
           git add germany/data/bund_prices/ 2>/dev/null || true
-          if ! git diff --cached --quiet; then
-            git commit -m "Accumulate Bund per-ISIN cross-section [skip ci]"
-            git push
-          else
+          if git diff --cached --quiet; then
             echo "no new Bund cross-sections"
+            exit 0
           fi
+          git commit -m "Accumulate Bund per-ISIN cross-section [skip ci]" || exit 0
+          for i in 1 2 3; do
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" \
+              && git push origin "HEAD:${GITHUB_REF_NAME}" \
+              && { echo "Bund store pushed"; exit 0; }
+            echo "push attempt $i lost a race with another commit; retrying"
+            sleep $((i * 5))
+          done
+          echo "::warning::Bund per-ISIN store could not be pushed after 3 attempts; it will be re-fetched on the next run"
+          exit 0
