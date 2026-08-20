@@ -480,9 +480,14 @@ function drawLine(mount, o){
     if(b.label) placeLabel(x+3, b.label, 'start', m.t+9, C.faint);
   });
   if(!o.hideXaxis){
+    // Adaptive by default: a caller passing the plain xYear sentinel (every panel does)
+    // gets month/year labels once the CURRENTLY PLOTTED range (xmin/xmax, i.e. after
+    // slider filtering — not the series' full history) narrows under ~8 years. Recomputed
+    // every render, so dragging a slider's handles re-labels the axis live.
+    const _xtf = (!o.xFmt || o.xFmt===xYear) ? xAutoFmt(xmin,xmax) : o.xFmt;
     niceTicks(xmin,xmax,Math.min(6,Math.round(plotW/90))).forEach(t=>{
       if(t<xmin-0.5||t>xmax+0.5) return;
-      const x=sx(t); const tx=el('text',{x:x,y:H-8,'text-anchor':'middle'}); tx.textContent=(o.xFmt?o.xFmt(t):Math.round(t)); svg.appendChild(tx);
+      const x=sx(t); const tx=el('text',{x:x,y:H-8,'text-anchor':'middle'}); tx.textContent=_xtf(t); svg.appendChild(tx);
     });
   }
   o.series.forEach(s=>{
@@ -540,8 +545,11 @@ function drawStacked(mount, o){
   if(ymin<0&&ymax>0){ const y0=sy(0); svg.appendChild(el('line',{x1:m.l,x2:m.l+plotW,y1:y0,y2:y0,stroke:C.faint,'stroke-width':1.2})); }
   (o.breaks||[]).forEach(b=>{ if(b.x<xmin||b.x>xmax) return; const x=sx(b.x);
     svg.appendChild(el('line',{x1:x,x2:x,y1:m.t,y2:m.t+plotH,stroke:C.faint,'stroke-width':1,'stroke-dasharray':'3 3',opacity:0.7})); });
-  if(!o.hideXaxis) niceTicks(xmin,xmax,Math.min(6,Math.round(plotW/90))).forEach(t=>{ if(t<xmin-0.5||t>xmax+0.5) return;
-    const x=sx(t); const tx=el('text',{x:x,y:H-8,'text-anchor':'middle'}); tx.textContent=(o.xFmt?o.xFmt(t):Math.round(t)); svg.appendChild(tx); });
+  if(!o.hideXaxis){
+    const _xtf2 = (!o.xFmt || o.xFmt===xYear) ? xAutoFmt(xmin,xmax) : o.xFmt;   // see drawLine
+    niceTicks(xmin,xmax,Math.min(6,Math.round(plotW/90))).forEach(t=>{ if(t<xmin-0.5||t>xmax+0.5) return;
+      const x=sx(t); const tx=el('text',{x:x,y:H-8,'text-anchor':'middle'}); tx.textContent=_xtf2(t); svg.appendChild(tx); });
+  }
   // filled areas: forward along y1, back along y0
   o.areas.forEach(a=>{ let d='',started=false;
     for(let i=0;i<xs.length;i++){ if(a.y1[i]==null||a.y0[i]==null){started=false;continue;} d+=(started?'L':'M')+sx(xs[i]).toFixed(1)+' '+sy(a.y1[i]).toFixed(1)+' '; started=true; }
@@ -1384,7 +1392,7 @@ function lastVal(block, measure, tenor){
       const CC=COL();
       box.innerHTML='';
       drawLine(box,{height:260,yZero:true,yFmt:v=>fmt(v,0)+' bp',
-        xFmt:xAutoFmt(nz.x[0],nz.x[nz.x.length-1]),xTipFmt:xFmtDay,
+        xFmt:xYear,xTipFmt:xFmtDay,   // drawLine now adapts this to the ZOOMED range itself
         bands:(bands?bands(CC):[]),
         series:[{label:title,color:CC[colorKey],
                  pts:allPts.filter(p=>p[0]>=NZ.xlo-1e-6&&p[0]<=NZ.xhi+1e-6)}]});
