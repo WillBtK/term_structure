@@ -34,8 +34,8 @@
         30.0
       ],
       "start": "1961-06-14",
-      "end": "2026-08-18",
-      "n_days": 16258
+      "end": "2026-08-19",
+      "n_days": 16259
     },
     "US:real": {
       "label": "US TIPS (real)",
@@ -51,8 +51,8 @@
         20.0
       ],
       "start": "2004-01-02",
-      "end": "2026-08-18",
-      "n_days": 5660
+      "end": "2026-08-19",
+      "n_days": 5661
     },
     "UK:nominal": {
       "label": "UK gilts (nominal)",
@@ -174,14 +174,14 @@
     "US:nominal": {
       "source": "H.15 CMT (FRED DGS/DFII)",
       "from": "2026-08-17",
-      "to": "2026-08-18",
-      "n_days": 2
+      "to": "2026-08-19",
+      "n_days": 3
     },
     "US:real": {
       "source": "H.15 CMT (FRED DGS/DFII)",
       "from": "2026-08-17",
-      "to": "2026-08-18",
-      "n_days": 2
+      "to": "2026-08-19",
+      "n_days": 3
     },
     "CA:nominal": {
       "source": "BoC benchmark bond yields (Valet)",

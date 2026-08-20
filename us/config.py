@@ -87,5 +87,19 @@ REAL_SAMPLE_START = "2004-01-01"
 # never bind (Krippner option -> plain AFNS), i.e. estimate_elb=False, elb=ELB_REAL.
 ELB_REAL = -1.0        # -100%: unreachable, guarantees the floor never binds
 
+# ---------------------------------------------------------------------------
+# Treasury's own daily par-yield XML. This is the SAME constant-maturity data the
+# Fed publishes as H.15 and FRED mirrors as DGS*/DFII*, but Treasury posts it
+# same-day (~15:30-16:00 ET) whereas the FRED mirror lands one business day later
+# (measured: FRED DGS10 last_updated 16:16 ET carrying the PRIOR day's close).
+# We use it to top up the tail of the CMT panel; FRED still supplies the 1962+
+# history, since the XML feed is served one month per request.
+# NOTE: use the XML endpoint, not the sibling CSV one — the CSV endpoint has been
+# observed serving a stale (one-day-behind) body while the XML was current.
+# ---------------------------------------------------------------------------
+TREASURY_XML_URL = os.environ.get(
+    "TREASURY_XML_URL",
+    "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml")
+
 TIPS_RAW_CSV_PATH = DATA_DIR / "feds200805_raw.csv"
 TIPS_PARQUET_PATH = DATA_DIR / "tips_params.parquet"

@@ -1,9 +1,14 @@
 """Timely H.15 nowcast extension for the US curves.
 
 The Fed Board's GSW zero-coupon files (``feds200628`` nominal, ``feds200805`` TIPS) are
-the model's native input, but they publish on a ~1-week lag. The Fed **H.15** release —
-Treasury Constant Maturities, mirrored on FRED as ``DGS*`` (nominal) and ``DFII*`` (real)
-— posts next-business-day. H.15 is a *constant-maturity par* curve built from the
+the model's native input, but they publish on a ~1-week lag. The **constant-maturity
+(CMT) par curve** closes that gap. It reaches us by two routes carrying identical
+numbers at different speeds: **Treasury's own XML feed** posts same-day (~15:30-16:00
+ET), while the Fed H.15 release mirrored on FRED as ``DGS*`` (nominal) / ``DFII*``
+(real) lands one business day later. We read Treasury for the tail and FRED for the
+1962+ history (the XML serves one month per request), cross-checking the two on their
+overlap. Treasury is an accelerator, never a dependency: if it is unreachable the panel
+degrades to exactly the FRED-only behaviour. H.15 is a *constant-maturity par* curve built from the
 most-recently-auctioned (on-the-run) securities, so its LEVEL differs from GSW's
 off-the-run zero curve (par-vs-zero + on-the-run richness: empirically +7bp at 10y,
 +18bp at 30y, −7bp at 2y, and growing with maturity). We therefore never substitute
@@ -45,6 +50,104 @@ H15_REAL = {5.0: "DFII5", 7.0: "DFII7", 10.0: "DFII10", 20.0: "DFII20", 30.0: "D
 _MAPS = {"nominal": H15_NOMINAL, "real": H15_REAL}
 
 
+# Treasury's own XML feed carries the SAME constant-maturity numbers a full business
+# day before the FRED/H.15 mirror (verified: on 18 Aug 2026 every tenor matched to the
+# published 0.01% precision). Field names differ per curve: BC_* nominal, TC_* real.
+TREASURY_NOMINAL = {0.25: "BC_3MONTH", 0.5: "BC_6MONTH", 1.0: "BC_1YEAR", 2.0: "BC_2YEAR",
+                    3.0: "BC_3YEAR", 5.0: "BC_5YEAR", 7.0: "BC_7YEAR", 10.0: "BC_10YEAR",
+                    20.0: "BC_20YEAR", 30.0: "BC_30YEAR"}
+TREASURY_REAL = {5.0: "TC_5YEAR", 7.0: "TC_7YEAR", 10.0: "TC_10YEAR",
+                 20.0: "TC_20YEAR", 30.0: "TC_30YEAR"}
+_TREASURY = {"nominal": ("daily_treasury_yield_curve", TREASURY_NOMINAL),
+             "real": ("daily_treasury_real_yield_curve", TREASURY_REAL)}
+_ODATA = "{http://schemas.microsoft.com/ado/2007/08/dataservices}"
+# the <properties> wrapper sits in the METADATA namespace; only the fields inside
+# it are in the dataservices one — mixing the two silently yields zero rows.
+_ODATA_M = "{http://schemas.microsoft.com/ado/2007/08/dataservices/metadata}"
+
+# Treasury quotes par yields to 0.01%; agreement with FRED is exact at that precision,
+# so anything above half a basis point means the two sources genuinely disagree.
+_XCHECK_TOL = 0.00005
+
+
+def _treasury_month(instrument: str, month: str, timeout: int = 60) -> pd.DataFrame:
+    """One month of Treasury par yields as a DECIMAL panel (index=date, cols=tenor).
+
+    ``month`` is ``YYYYMM``. Raises on transport/parse failure — callers decide whether
+    a Treasury outage is fatal (it is not; FRED remains the fallback)."""
+    import requests
+    import xml.etree.ElementTree as ET
+    from us.config import TREASURY_XML_URL
+
+    data_kind, tenmap = _TREASURY[instrument]
+    resp = requests.get(TREASURY_XML_URL, timeout=timeout, params={
+        "data": data_kind, "field_tdr_date_value_month": month})
+    resp.raise_for_status()
+    root = ET.fromstring(resp.content)
+    rows = {}
+    for props in root.iter(f"{_ODATA_M}properties"):
+        date_el = props.find(f"{_ODATA}NEW_DATE")
+        if date_el is None or not (date_el.text or "").strip():
+            continue
+        row = {}
+        for ten, field in tenmap.items():
+            el = props.find(f"{_ODATA}{field}")
+            txt = (el.text or "").strip() if el is not None else ""
+            if txt:                                   # Treasury blanks a tenor it did not quote
+                row[ten] = float(txt) / 100.0         # percent -> decimal
+        if row:
+            rows[pd.Timestamp(date_el.text[:10])] = row
+    if not rows:
+        raise ValueError(f"Treasury {instrument} {month}: no dated observations")
+    return pd.DataFrame.from_dict(rows, orient="index").sort_index()
+
+
+def _treasury_tail(instrument: str, months: list[str] | None = None) -> pd.DataFrame:
+    """Recent Treasury par yields (current + previous month by default), or an empty
+    frame if the feed is unreachable — Treasury is an accelerator, never a dependency."""
+    if months is None:
+        today = pd.Timestamp.today().normalize()
+        months = [(today - pd.DateOffset(months=1)).strftime("%Y%m"), today.strftime("%Y%m")]
+    frames = []
+    for m in months:
+        try:
+            frames.append(_treasury_month(instrument, m))
+        except Exception as exc:                       # noqa: BLE001
+            logger.warning("Treasury %s %s fetch failed: %s", instrument, m, exc)
+    if not frames:
+        return pd.DataFrame()
+    out = pd.concat(frames).sort_index()
+    return out[~out.index.duplicated(keep="last")]
+
+
+def _splice_treasury(panel: pd.DataFrame, tail: pd.DataFrame, instrument: str) -> pd.DataFrame:
+    """Extend ``panel`` (FRED history) with Treasury dates that FRED has not published.
+
+    Treasury only ever ADDS dates here. Where the two overlap we cross-check rather than
+    overwrite: they are the same series, so a disagreement is a signal that one of the
+    two feeds has changed meaning — worth a loud warning, not a silent revision."""
+    if tail.empty or panel.empty:
+        return panel
+    shared = [c for c in tail.columns if c in panel.columns]
+    overlap = panel.index.intersection(tail.index)
+    if len(overlap) and shared:
+        diff = (panel.loc[overlap, shared] - tail.loc[overlap, shared]).abs().max().max()
+        if pd.notna(diff) and diff > _XCHECK_TOL:
+            logger.warning("Treasury/FRED %s disagree by up to %.1f bp on %d shared day(s) "
+                           "— using FRED for the overlap; check whether a feed changed",
+                           instrument, diff * 1e4, len(overlap))
+        else:
+            logger.info("Treasury/FRED %s agree on %d shared day(s) (max %.2f bp)",
+                        instrument, len(overlap), (diff or 0.0) * 1e4)
+    fresh = tail.loc[tail.index > panel.index.max()]
+    if fresh.empty:
+        return panel
+    fresh = fresh.reindex(columns=panel.columns)       # ragged for tenors Treasury omits
+    logger.info("Treasury %s: +%d day(s) ahead of FRED (%s..%s)", instrument, len(fresh),
+                fresh.index.min().date(), fresh.index.max().date())
+    return pd.concat([panel, fresh]).sort_index()
+
+
 def _cache(instrument: str) -> Path:
     return DATA / f"h15_{instrument}.parquet"
 
@@ -71,6 +174,7 @@ def load_h15_panel(instrument: str = "nominal", refresh: bool = False) -> pd.Dat
     panel = pd.DataFrame(cols).sort_index()
     panel = panel[sorted(panel.columns)]
     panel.index = pd.to_datetime(panel.index)
+    panel = _splice_treasury(panel, _treasury_tail(instrument), instrument)
     DATA.mkdir(parents=True, exist_ok=True)
     panel.to_parquet(cache)
     logger.info("H.15 %s: %d tenors, %s..%s (%d days)", instrument, panel.shape[1],
