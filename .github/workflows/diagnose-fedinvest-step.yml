@@ -23,42 +23,43 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt html5lib
-      - name: Dump raw tables around the step
+      - name: Check endpoint consistency for the call_date column
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           python - <<'EOF'
           import pandas as pd
-          from us.fetch_fedinvest import fetch_day, nominal_coupon_bonds
+          from us.fetch_fedinvest import ENDPOINTS, _post, parse_price_table, nominal_coupon_bonds
 
-          dates = ["2009-11-12", "2009-11-13", "2009-11-16", "2009-11-17"]
-          panels = {}
+          # Two "high" and two "low" dates from the recomputed store, alternating for no
+          # date-economics reason -- test whether the two mirror endpoints disagree on
+          # whether a CALL DATE column exists at all.
+          dates = ["2008-09-03", "2008-09-04", "2009-10-16", "2009-10-30"]
           for ds in dates:
               d = pd.Timestamp(ds)
-              raw = fetch_day(d)
-              nb = nominal_coupon_bonds(raw)
-              panels[ds] = nb
               print(f"\n=== {ds} ===")
-              print(f"raw rows: {len(raw)}  nominal coupon rows: {len(nb)}")
-              if len(raw):
-                  print("kinds:", sorted(raw['kind'].unique()))
-              if len(nb):
-                  print(nb.sort_values("cusip").head(8).to_string(index=False))
-                  print("price dtype:", nb["price"].dtype, " unique decimals sample:",
-                        nb["price"].astype(str).str.split(".").str[-1].str.len().value_counts().to_dict())
-
-          # Common CUSIPs across the step, price + coupon side by side
-          common = set(panels["2009-11-13"]["cusip"]) & set(panels["2009-11-16"]["cusip"])
-          print(f"\n=== common CUSIPs 11-13 vs 11-16: {len(common)} ===")
-          a = panels["2009-11-13"].set_index("cusip").loc[sorted(common)]
-          b = panels["2009-11-16"].set_index("cusip").loc[sorted(common)]
-          cmp = pd.DataFrame({
-              "coupon_13": a["coupon"], "coupon_16": b["coupon"],
-              "maturity_13": a["maturity"], "maturity_16": b["maturity"],
-              "price_13": a["price"], "price_16": b["price"],
-          })
-          cmp["price_delta"] = cmp["price_16"] - cmp["price_13"]
-          print(cmp.head(20).to_string())
-          print("\nprice_delta describe:")
-          print(cmp["price_delta"].describe())
+              for url in ENDPOINTS:
+                  try:
+                      html = _post(url, d)
+                  except Exception as exc:
+                      print(f"  {url}: FETCH FAILED {type(exc).__name__}: {exc}")
+                      continue
+                  try:
+                      tables = pd.read_html(pd.io.common.StringIO(html))
+                  except ValueError:
+                      print(f"  {url}: no table in response (html={len(html)}B)")
+                      continue
+                  found = False
+                  for t in tables:
+                      cols = [str(c).strip() for c in t.columns]
+                      if any("cusip" in c.lower() for c in cols):
+                          print(f"  {url}: columns = {cols}")
+                          found = True
+                          break
+                  if not found:
+                      print(f"  {url}: no CUSIP-bearing table among {len(tables)} tables")
+                  df = parse_price_table(html, d)
+                  nb = nominal_coupon_bonds(df)
+                  n_call = df["call_date"].notna().sum() if "call_date" in df.columns else "N/A"
+                  print(f"  {url}: parsed rows={len(df)} nominal_coupon={len(nb)} rows_with_call_date={n_call}")
           EOF
