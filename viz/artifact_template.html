@@ -608,7 +608,7 @@ const M = document.getElementById('main');
 const NAV = document.getElementById('jumpNav');
 // Display order (CSS `order`) so panels render in this sequence regardless of the
 // code order of their IIFEs. Unlisted ids fall to the end.
-const PANEL_ORDER={explorer:10, compare:20, globalfactor:30, benchmarks:40, regimes:49, stagflation:50, stagflationjp:51, jpregime:52, liquidity:60, data:70};
+const PANEL_ORDER={explorer:10, compare:20, globalfactor:30, liquidity:31, benchmarks:40, regimes:49, stagflation:50, stagflationjp:51, jpregime:52, data:70};
 function panel(id, eyebrow, title, paras){
   const s=h('section',{class:'panel',id});
   const ord=PANEL_ORDER[id]!=null?PANEL_ORDER[id]:90; s.style.order=ord;
@@ -922,13 +922,13 @@ function lastVal(block, measure, tenor){
 /* ------------------------------------------------ 3. COMPARISON BUILDER (up to 5 series + spreads) */
 (function(){
   panel('compare','Compare','Build a comparison — any series, any spread',
-    ['Add up to <b>five</b> lines and mix them freely: pick a market, instrument (nominal, inflation-linked, or breakeven = nominal − real), tenor and measure (actual yield, expected rate, or term premium). Each line can instead be a <b>spread</b> — the difference of two picks, e.g. <i>10y US expected − 10y Germany expected</i> or <i>10y − 2y US term premium</i>. Daily; drag the handles to zoom.']);
+    ['Add up to <b>five</b> lines and mix them freely: pick a market, instrument (nominal or inflation-linked), tenor and measure (actual yield, expected rate, or term premium). Each line can instead be a <b>spread</b> — the difference of two picks, e.g. <i>10y US expected − 10y Germany expected</i> or <i>10y − 2y US term premium</i>. Daily; drag the handles to zoom.']);
   const s=M.lastChild;
   const PAL=['blue','orange','teal','purple','crimson'];
   const MEAS={obs:'actual yield',exp:'expected rate',tp:'term premium'};
   const CM={rows:[
     {type:'level', A:{cc:'US',inst:'nominal',start:'0',tenor:'10',meas:'tp'}},
-    {type:'level', A:{cc:'DE',inst:'nominal',start:'0',tenor:'10',meas:'tp'}},
+    {type:'level', A:{cc:'US',inst:'real',start:'0',tenor:'10',meas:'tp'}},
   ]};
   // longest nominal series = reference timeline for the slider
   let refCC=DATA.order[0];
@@ -936,7 +936,10 @@ function lastVal(block, measure, tenor){
   const refBlk=DATA.countries[refCC].instruments.nominal;
   CM.xlo=refBlk.x[0]; CM.xhi=refBlk.x[refBlk.x.length-1];
 
-  function instsFor(cc){ const C=DATA.countries[cc].instruments; const out=['nominal']; if(C.real){ out.push('real','be'); } return out; }
+  // nominal + inflation-linked only. Breakeven is deliberately NOT offered here: it is a
+  // difference of two curves whose gap we explicitly decline to decompose (see the joint
+  // nominal/real panel), so offering it as a pickable 'instrument' oversells what it is.
+  function instsFor(cc){ const C=DATA.countries[cc].instruments; const out=['nominal']; if(C.real){ out.push('real'); } return out; }
   function baseTenors(cc,inst){ const C=DATA.countries[cc].instruments;
     if(inst==='be'){ const r=(C.real||{}).tenors||[]; return C.nominal.tenors.filter(t=>r.includes(t)); }
     return (C[inst]||{}).tenors||[]; }
@@ -1024,7 +1027,7 @@ function lastVal(block, measure, tenor){
   function render(){
     const anyTP=CM.rows.some(r=> r.type==='spread' || r.A.meas==='tp');
     ct.textContent='Custom comparison — '+CM.rows.length+' series';
-    cn.textContent='Percent. Breakeven = nominal − real (inflation-linked markets only). Spreads centre on zero. Drag the handles below to zoom.';
+    cn.textContent='Percent. Inflation-linked is available for the US and UK. Spreads centre on zero. Drag the handles below to zoom.';
     const series=CM.rows.map((row,i)=>({label:rowLabel(row), color:COL()[PAL[i]],
       pts: rowPts(row).filter(p=>p[0]>=CM.xlo-1e-6&&p[0]<=CM.xhi+1e-6)}));
     lg.innerHTML=''; lg.appendChild(legend(series.map(sr=>({label:sr.label,color:sr.color}))));
@@ -1345,29 +1348,65 @@ function lastVal(block, measure, tenor){
   rangeSlider(sliderMount, b.real.x, b.real.dates, (lo,hi)=>{ RT.xlo=lo; RT.xhi=hi; render(); });
 })();
 
-/* ------------------------------------------------ 3e. US TIPS LIQUIDITY GAUGE (noise) */
+/* ------------------------------------------------ 3e. US TREASURY LIQUIDITY GAUGES (noise) */
+/* Sits directly under the Global cycle panel: both are cross-market/cross-section reads
+   on conditions rather than model output, and the nominal gauge is the reference the
+   TIPS one should be read against — a TIPS spike that the nominal curve shares is a
+   market-wide event, one it does not is a TIPS-specific dislocation. */
 (function(){
-  const nz=DATA.countries.US.tips_noise; if(!nz) return;
-  panel('liquidity','Market quality','US TIPS liquidity — curve-fitting “noise”',
-    ['A byproduct worth its own chart: the <b>RMS deviation of individual TIPS from a smooth fitted curve</b> (the Hu–Pan–Wang “noise” measure). When the market is liquid every bond sits on the curve and the noise is a few basis points; when liquidity dries up, individual issues scatter and the noise jumps. It’s a free daily substitute for the vendor liquidity/RMSE series, built only from public security-level data.']);
+  const US=DATA.countries.US;
+  const tips=US&&US.tips_noise, ust=US&&US.ust_noise;
+  if(!tips&&!ust) return;
+  panel('liquidity','Market quality','Treasury liquidity — curve-fitting “noise”',
+    ['The <b>RMS deviation of individual securities from a smooth fitted curve</b> (the Hu–Pan–Wang “noise” measure), computed per trading day. When a market is liquid every bond sits on the curve and the noise is a few basis points; when liquidity dries up, individual issues scatter and the noise jumps. Built only from public security-level prices, so it is a free daily stand-in for the vendor liquidity/RMSE series — and, being independent of any term-structure model, it doubles as a data-quality check on the curves those models are fitted to.',
+     'The pair is the point. Hu–Pan–Wang’s original measure is a <b>nominal</b> Treasury construction; the TIPS version is the same statistic on the much smaller inflation-linked cross-section. Read together they separate a market-wide dislocation, which moves both, from a TIPS-specific one, which moves only the real gauge — the 2008 divergence being the textbook case.']);
   const s=M.lastChild;
-  const c=h('div',{class:'card'});
-  c.appendChild(h('div',{class:'card-title'},'US TIPS cross-sectional fitting noise'));
-  c.appendChild(h('div',{class:'card-note'},'Basis points, daily. Higher = individual TIPS priced further from a smooth curve (less liquid). Drag the handles below to zoom.'));
-  const box=h('div'); c.appendChild(box);
-  const sliderMount=h('div'); c.appendChild(sliderMount); s.appendChild(c);
-  const allPts=nz.x.map((x,i)=>[x,nz.noise[i]]).filter(p=>p[1]!=null);
-  const NZ={xlo:nz.x[0], xhi:nz.x[nz.x.length-1]};
-  function render(){
-    const CC=COL();
-    box.innerHTML=''; drawLine(box,{height:260,yZero:true,yFmt:v=>fmt(v,0)+' bp',xFmt:xYear,xTipFmt:xFmtDay,
-      bands:[{x0:ym(2008,9),x1:ym(2009,3),fill:CC.orange,opacity:0.14,label:'GFC'}],
-      series:[{label:'TIPS noise',color:CC.crimson,pts:allPts.filter(p=>p[0]>=NZ.xlo-1e-6&&p[0]<=NZ.xhi+1e-6)}]});
+  const grid=h('div',{class:'dual'}); s.appendChild(grid);
+
+  function noiseCard(nz, title, note, colorKey, bands){
+    const c=h('div',{class:'card'});
+    c.appendChild(h('div',{class:'card-title'},title));
+    c.appendChild(h('div',{class:'card-note'},note));
+    const box=h('div'); c.appendChild(box);
+    const sliderMount=h('div'); c.appendChild(sliderMount); grid.appendChild(c);
+    const allPts=nz.x.map((x,i)=>[x,nz.noise[i]]).filter(p=>p[1]!=null);
+    const NZ={xlo:nz.x[0], xhi:nz.x[nz.x.length-1]};
+    function render(){
+      const CC=COL();
+      box.innerHTML='';
+      drawLine(box,{height:260,yZero:true,yFmt:v=>fmt(v,0)+' bp',xFmt:xYear,xTipFmt:xFmtDay,
+        bands:(bands?bands(CC):[]),
+        series:[{label:title,color:CC[colorKey],
+                 pts:allPts.filter(p=>p[0]>=NZ.xlo-1e-6&&p[0]<=NZ.xhi+1e-6)}]});
+    }
+    render(); CHARTS.push(render);
+    rangeSlider(sliderMount, nz.x, nz.dates, (lo,hi)=>{ NZ.xlo=lo; NZ.xhi=hi; render(); });
+    return allPts.map(p=>p[1]);
   }
-  render(); CHARTS.push(render);
-  rangeSlider(sliderMount, nz.x, nz.dates, (lo,hi)=>{ NZ.xlo=lo; NZ.xhi=hi; render(); });
+
+  let ustVals=null, tipsVals=null;
+  if(ust){
+    ustVals=noiseCard(ust,'US nominal Treasuries',
+      'Basis points, daily. RMS deviation of individual nominal notes and bonds from a smooth fitted curve. History is being back-filled and lengthens with each run.','blue',null);
+  }
+  if(tips){
+    tipsVals=noiseCard(tips,'US TIPS (inflation-linked)',
+      'Basis points, daily. The same statistic on the inflation-linked cross-section, which is far smaller — so it dislocates harder and more often.','crimson',
+      CC=>[{x0:ym(2008,9),x1:ym(2009,3),fill:CC.orange,opacity:0.14,label:'GFC'}]);
+  }
+
+  // JS-computed callout so the numbers cannot drift from the data.
   const call=h('div',{class:'callout'});
-  call.innerHTML='The gauge peaks at <b>~45 bp in December 2008</b> — the post-Lehman TIPS freeze, when the market dislocated so badly that breakevens turned negative — and sits near <b>8 bp</b> today. It is independent of any term-premium model, so it doubles as a data-quality check on the real curve.';
+  const bits=[];
+  if(tipsVals&&tipsVals.length){
+    const pk=Math.max.apply(null,tipsVals);
+    bits.push('The TIPS gauge peaks at <b>~'+fmt(pk,0)+' bp</b> — the post-Lehman freeze, when the market dislocated so badly that breakevens turned negative — and sits near <b>'+fmt(tipsVals[tipsVals.length-1],0)+' bp</b> today.');
+  }
+  if(ustVals&&ustVals.length){
+    bits.push('The nominal gauge reads <b>'+fmt(ustVals[ustVals.length-1],1)+' bp</b>, on a cross-section an order of magnitude deeper — the level gap between the two is a size-and-liquidity difference, not a discrepancy.');
+  }
+  if(!ustVals) bits.push('The nominal Treasury gauge is still back-filling and will appear alongside once its history lands.');
+  call.innerHTML=bits.join(' ');
   s.appendChild(call);
 })();
 

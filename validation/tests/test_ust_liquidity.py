@@ -96,16 +96,19 @@ def test_only_fixed_coupon_nominal_notes_and_bonds_survive_the_filter():
                                                          "MARKET BASED BOND"]
 
 
-# The live table layout, as confirmed by the --probe run on a GitHub runner.
+# The live table layout, copied from a real response body. RATE carries a PERCENT SIGN
+# ("4.125%"), and bills quote "0.000%" rather than blank — an earlier version of this
+# fixture wrote the rates bare, so the test passed while the parser coerced every live
+# coupon to NaN. Keep the published formatting verbatim; that is the whole point of it.
 _LIVE_HTML = """
 <table>
 <tr><th>CUSIP</th><th>SECURITY TYPE</th><th>RATE</th><th>MATURITY DATE</th>
     <th>CALL DATE</th><th>BUY</th><th>SELL</th><th>END OF DAY</th></tr>
-<tr><td>912797UU9</td><td>MARKET BASED BILL</td><td></td><td>08/18/2026</td>
+<tr><td>912797UU9</td><td>MARKET BASED BILL</td><td>0.000%</td><td>08/18/2026</td>
     <td></td><td>99.99</td><td>99.99</td><td>99.990028</td></tr>
-<tr><td>91282CJK8</td><td>MARKET BASED NOTE</td><td>4.125</td><td>05/15/2034</td>
+<tr><td>91282CJK8</td><td>MARKET BASED NOTE</td><td>4.125%</td><td>05/15/2034</td>
     <td></td><td>98.50</td><td>98.55</td><td>98.523438</td></tr>
-<tr><td>912810TV0</td><td>MARKET BASED BOND</td><td>4.750</td><td>11/15/2053</td>
+<tr><td>912810TV0</td><td>MARKET BASED BOND</td><td>4.750%</td><td>11/15/2053</td>
     <td></td><td>99.10</td><td>99.20</td><td>99.156250</td></tr>
 </table>
 """
@@ -120,3 +123,16 @@ def test_parses_the_live_table_layout():
     assert row["price"] == pytest.approx(98.523438)
     assert row["kind"] == "MARKET BASED NOTE"
     assert set(nominal_coupon_bonds(df)["cusip"]) == {"91282CJK8", "912810TV0"}
+
+
+def test_an_unparseable_coupon_is_dropped_not_carried_into_the_bond_math():
+    """A None coupon reaching cashflows() raises a TypeError several frames deep, which
+    reads as a bond-math failure rather than the parse failure it is. Drop at the filter."""
+    panel = pd.DataFrame({
+        "date": [SETTLE] * 2,
+        "cusip": ["91282CJK8", "912810TV0"],
+        "kind": ["MARKET BASED NOTE", "MARKET BASED BOND"],
+        "coupon": [4.125, None],
+        "maturity": [pd.Timestamp("2034-05-15"), pd.Timestamp("2053-11-15")],
+        "price": [98.5, 99.1]})
+    assert list(nominal_coupon_bonds(panel)["cusip"]) == ["91282CJK8"]

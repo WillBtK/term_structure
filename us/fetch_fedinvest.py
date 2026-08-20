@@ -96,7 +96,12 @@ def parse_price_table(html: str, date: pd.Timestamp) -> pd.DataFrame:
             "cusip": t[c_cusip].astype(str).str.strip(),
             "kind": (t[c_type].astype(str).str.strip().str.upper()
                      if c_type else ""),
-            "coupon": (pd.to_numeric(t[c_rate], errors="coerce") if c_rate else float("nan")),
+            # RATE is published as a STRING with a percent sign ("4.250%"). Feeding that
+            # straight to to_numeric coerces every coupon to NaN — silently, since the
+            # column is still there and the row count is unchanged.
+            "coupon": (pd.to_numeric(t[c_rate].astype(str).str.replace("%", "", regex=False)
+                                     .str.strip(), errors="coerce")
+                       if c_rate else float("nan")),
             "maturity": pd.to_datetime(t[c_mat], errors="coerce"),
             "price": pd.to_numeric(t[c_eod], errors="coerce"),
         })
@@ -135,7 +140,16 @@ def nominal_coupon_bonds(panel: pd.DataFrame) -> pd.DataFrame:
     k = panel["kind"].astype(str).str.upper()
     keep = k.str.contains("|".join(_NOMINAL_KINDS), regex=True)
     keep &= ~k.str.contains("TIPS|INFLATION|FLOATING|FRN|STRIP", regex=True)
-    return panel.loc[keep].copy()
+    out = panel.loc[keep].copy()
+    # A coupon that failed to parse cannot be priced; drop rather than carry a None into
+    # the bond math, where it surfaces as an unrelated-looking TypeError deep in the stack.
+    if "coupon" in out.columns:
+        before = len(out)
+        out = out[pd.to_numeric(out["coupon"], errors="coerce").notna()]
+        if len(out) < before:
+            logger.warning("dropped %d/%d nominal rows with an unparseable coupon",
+                           before - len(out), before)
+    return out
 
 
 def business_days(start, end) -> pd.DatetimeIndex:

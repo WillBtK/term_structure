@@ -130,6 +130,7 @@ def build() -> dict:
     _attach_germany_history(countries)
     _attach_us_benchmarks(countries)
     _attach_us_tips_noise(countries)
+    _attach_us_ust_noise(countries)
     _attach_germany_bund_noise(countries)
     result = {"meta": {"asof": str(asof.date()), "units": "percent",
                        "resolution": res,
@@ -523,6 +524,30 @@ def _attach_us_tips_noise(countries: dict) -> None:
         "noise": [round(float(v) * 1e4, 2) for v in m["noise"]]}       # decimal -> bp
     print(f"US TIPS noise gauge: {len(dates)} daily obs {dates[0].date()}..{dates[-1].date()}, "
           f"latest {countries['US']['tips_noise']['noise'][-1]:.1f} bp")
+
+
+def _attach_us_ust_noise(countries: dict) -> None:
+    """US NOMINAL Treasury liquidity gauge — the same Hu-Pan-Wang curve-fitting 'noise',
+    DAILY in bp, but on the nominal note/bond cross-section rather than TIPS. Optional/
+    guarded: the store is back-filled a chunk at a time, so it may be short or absent."""
+    from validation import config as vcfg
+    if not vcfg.UST_NOISE_STORE.exists():
+        return
+    try:
+        from validation.ust_liquidity import build_noise
+        m = build_noise(refresh=False, freq="D").dropna(subset=["noise"]).sort_values("date")
+    except Exception:                                              # noqa: BLE001
+        return
+    if m.empty:
+        return
+    dates = pd.DatetimeIndex(m["date"])
+    countries["US"]["ust_noise"] = {
+        "freq": "daily",
+        "x": _xdec(dates), "dates": [str(d.date()) for d in dates],
+        "noise": [round(float(v) * 1e4, 2) for v in m["noise"]]}       # decimal -> bp
+    print(f"US nominal Treasury noise gauge: {len(dates)} daily obs "
+          f"{dates[0].date()}..{dates[-1].date()}, "
+          f"latest {countries['US']['ust_noise']['noise'][-1]:.1f} bp")
 
 
 def _attach_germany_bund_noise(countries: dict) -> None:
