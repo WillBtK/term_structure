@@ -28,7 +28,7 @@ Two reviews produced this rule:
 | UK | UK 3m 6-10y, **2017-01+** | BoE MPS neutral / 5y Bank Rate median (2022+, monthly xlsx) | follows MPS |
 | CA | CA 3m T-bill 6-10y, **2017-01+** | BoC MPS long-term nominal neutral median (2023+, quarterly) | follows MPS |
 | JP | JP 3m 6-10y, **2017-01+** | none public (ESP is membership-gated) | **glides to the BoJ-communicated corridor 1.75–2.25%, midpoint 2.0%** across the staleness window (no step) |
-| CH | CH 3m 6-10y, **2017-01+** | KOF Consensus has the right 5y question but its API requires a KOF account | **freezes** at the last smoothed value, flagged `stale` |
+| CH | CH 3m 6-10y, **2017-01+** | **KOF pi_5y (public API, no account) + constant real (-0.14pp, 114-month overlap)** | follows KOF inflation; real component held constant |
 | US | — | Philly Fed SPF BILL10/CPI10 (1992+, living) | — **but see the gates below: OFF** |
 
 Endpoints are RW-smoothed (no release-day staircase, no look-ahead at the edge);

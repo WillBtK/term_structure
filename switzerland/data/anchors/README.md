@@ -29,8 +29,12 @@ kept current weekly by `switzerland/fetch_neutral.py`:
 
 KOF's 5-year block covers CPI/GDP/unemployment only — there is NO long-horizon
 interest-rate question, so neither series is wired into the endpoint construction.
-The recorded options for the Swiss carry-forward once the Consensus snapshot goes
-stale: (a) frozen hold (current behaviour); (b) live KOF pi_5y plus a constant real
-component calibrated on the 2017-2026 survey overlap — survey-only, no model r*,
-but the constant embeds the calibration window. Decision pending.
+DECISION (2026-08-20): option (b) — **live KOF pi_5y + a constant real component**,
+wired as the anchor's `shortrate_ext`. The level-bridge offset over the 114-month
+Consensus/KOF overlap measures the constant at **-0.14pp** (Swiss forecasters' 6-10y
+rate expectation has averaged slightly below their 5y CPI expectation — a negative
+implied long-run real rate, plus the horizon wedge). Implied hand-over level:
+0.90 - 0.14 = 0.76% vs the 0.65% smoothed endpoint today, an 11bp glide with no
+step. Residual risk, documented not modelled: drift of the true real component away
+from the calibration decade.
 Cross-check at handover: KOF pi_5y 0.90% vs Consensus 6-10y CPI 0.97% (7bp apart).
