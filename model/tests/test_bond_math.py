@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from model.bond_math import (accrued_interest, coupon_dates, cashflows,
+from model.bond_math import (_priced_schedule, accrued_interest, coupon_dates, cashflows,
                              disc_from_zero, price_from_curve, price_from_ytm,
                              ytm_from_price, yields_from_prices)
 
@@ -88,3 +88,24 @@ def test_yields_from_prices_vectorises_and_survives_one_bad_row():
     # a bond below par yields more than its coupon; above par, less
     assert out["yield"].iloc[1] > 0.025
     assert out["yield"].iloc[0] < 0.04
+
+
+def test_the_hoisted_schedule_matches_the_public_pieces():
+    """``_priced_schedule`` exists only so the root-finder does not rebuild the coupon
+    calendar on every iteration. It must stay bit-identical to the public functions it
+    replaced inside that loop, or the speedup silently becomes a different answer."""
+    settle, maturity, cpn = pd.Timestamp("2026-08-18"), pd.Timestamp("2053-11-15"), 4.75
+    t, cf, accrued = _priced_schedule(settle, maturity, cpn)
+    t_ref, cf_ref = cashflows(settle, maturity, cpn)
+    assert np.allclose(t, t_ref, rtol=0, atol=0)
+    assert np.allclose(cf, cf_ref, rtol=0, atol=0)
+    assert accrued == accrued_interest(settle, maturity, cpn)
+
+
+def test_yield_inversion_round_trips():
+    """Price -> yield -> price must return the input; this is what pins the inversion
+    after the objective was rewritten to work off a pre-built schedule."""
+    settle, maturity, cpn = pd.Timestamp("2026-08-18"), pd.Timestamp("2034-05-15"), 4.125
+    for price in (85.0, 98.523438, 107.25):
+        y = ytm_from_price(price, settle, maturity, cpn)
+        assert price_from_ytm(settle, maturity, cpn, y) == pytest.approx(price, abs=1e-9)

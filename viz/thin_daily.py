@@ -535,17 +535,26 @@ def _attach_us_ust_noise(countries: dict) -> None:
         return
     try:
         from validation.ust_liquidity import build_noise
-        m = build_noise(refresh=False, freq="D").dropna(subset=["noise"]).sort_values("date")
+        m = build_noise(refresh=False, freq="D")
     except Exception:                                              # noqa: BLE001
         return
+    # Prefer the CURVE-REFERENCED residual: it measures each bond against the published
+    # GSW Svensson parameters and so fits nothing, which on a synthetic cross-section
+    # reads 0.2 bp against ~0.6 bp for the self-fitted column. The self-fitted one exists
+    # for cross-market comparability (the Bund and TIPS gauges have no published curve to
+    # reference) and as a stopgap for days GSW has not batched yet — it is NOT the better
+    # number, and plotting it here would have shown the weaker of the two.
+    col = "noise_gsw" if "noise_gsw" in m.columns else "noise"
+    m = m.dropna(subset=[col]).sort_values("date")
     if m.empty:
         return
     dates = pd.DatetimeIndex(m["date"])
     countries["US"]["ust_noise"] = {
+        "basis": col,
         "freq": "daily",
         "x": _xdec(dates), "dates": [str(d.date()) for d in dates],
-        "noise": [round(float(v) * 1e4, 2) for v in m["noise"]]}       # decimal -> bp
-    print(f"US nominal Treasury noise gauge: {len(dates)} daily obs "
+        "noise": [round(float(v) * 1e4, 2) for v in m[col]]}           # decimal -> bp
+    print(f"US nominal Treasury noise gauge [{col}]: {len(dates)} daily obs "
           f"{dates[0].date()}..{dates[-1].date()}, "
           f"latest {countries['US']['ust_noise']['noise'][-1]:.1f} bp")
 
