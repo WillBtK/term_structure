@@ -80,8 +80,16 @@ def parse_price_table(html: str, date: pd.Timestamp) -> pd.DataFrame:
     """
     cols = ["date", "cusip", "kind", "coupon", "maturity", "call_date", "price"]
     try:
-        tables = pd.read_html(io.StringIO(html))
-    except ValueError:
+        # Force the lxml flavor explicitly. Left to auto-detect, pandas falls back to
+        # BeautifulSoup whenever lxml raises on a given page -- silently, since that
+        # fallback itself then throws an uncaught ImportError (beautifulsoup4 isn't a
+        # dependency here). That propagated out of this function on any day lxml
+        # stumbled on, fetch_day's try/except swallowed it and moved to the next
+        # mirror, and if that mirror hit the same page shape the day came back with
+        # ZERO rows rather than an empty-but-valid frame -- which a build_noise merge
+        # then silently reads as "nothing new" and leaves the STALE row in the store.
+        tables = pd.read_html(io.StringIO(html), flavor="lxml")
+    except (ValueError, ImportError):
         return pd.DataFrame(columns=cols)
     for t in tables:
         t.columns = [str(c).strip() for c in t.columns]
