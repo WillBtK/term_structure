@@ -538,25 +538,41 @@ def _attach_us_ust_noise(countries: dict) -> None:
         m = build_noise(refresh=False, freq="D")
     except Exception:                                              # noqa: BLE001
         return
-    # Prefer the CURVE-REFERENCED residual: it measures each bond against the published
-    # GSW Svensson parameters and so fits nothing, which on a synthetic cross-section
-    # reads 0.2 bp against ~0.6 bp for the self-fitted column. The self-fitted one exists
-    # for cross-market comparability (the Bund and TIPS gauges have no published curve to
-    # reference) and as a stopgap for days GSW has not batched yet — it is NOT the better
-    # number, and plotting it here would have shown the weaker of the two.
-    col = "noise_gsw" if "noise_gsw" in m.columns else "noise"
-    m = m.dropna(subset=[col]).sort_values("date")
+    # Emit BOTH residual definitions, and plot the self-fitted one.
+    #
+    # noise_gsw is the more accurate measure in isolation — it prices each bond off the
+    # published GSW Svensson parameters and fits nothing, so on a synthetic cross-section
+    # it reads 0.2 bp against ~0.6 bp for the self-fit. But it is also a STRICTER reading
+    # by construction, because GSW deliberately exclude on-the-run and first-off-the-run
+    # issues, so on-the-run richness lands in the residual instead of being absorbed.
+    #
+    # This panel sits the gauge beside the TIPS one, which has no published curve to
+    # reference and is therefore self-fitted. Plotting different estimators in the two
+    # charts would make their LEVELS incomparable, which is the one thing a side-by-side
+    # is for. So the plotted series is the self-fitted column on both, and noise_gsw
+    # rides along for the callout as the curve-referenced cross-check: the two agreeing
+    # is what says the bond math (accrual, compounding) is right.
+    m = m.dropna(subset=["noise"]).sort_values("date")
     if m.empty:
         return
     dates = pd.DatetimeIndex(m["date"])
     countries["US"]["ust_noise"] = {
-        "basis": col,
         "freq": "daily",
         "x": _xdec(dates), "dates": [str(d.date()) for d in dates],
-        "noise": [round(float(v) * 1e4, 2) for v in m[col]]}           # decimal -> bp
-    print(f"US nominal Treasury noise gauge [{col}]: {len(dates)} daily obs "
+        "noise": [round(float(v) * 1e4, 2) for v in m["noise"]]}       # decimal -> bp
+    if "noise_gsw" in m.columns:
+        g = m["noise_gsw"]
+        countries["US"]["ust_noise"]["noise_gsw"] = [
+            None if pd.isna(v) else round(float(v) * 1e4, 2) for v in g]
+        both = m[["noise", "noise_gsw"]].dropna()
+        if len(both) > 2:
+            countries["US"]["ust_noise"]["gsw_corr"] = round(
+                float(both["noise"].corr(both["noise_gsw"])), 3)
+    print(f"US nominal Treasury noise gauge: {len(dates)} daily obs "
           f"{dates[0].date()}..{dates[-1].date()}, "
-          f"latest {countries['US']['ust_noise']['noise'][-1]:.1f} bp")
+          f"latest {countries['US']['ust_noise']['noise'][-1]:.1f} bp "
+          f"(GSW-referenced cross-check corr "
+          f"{countries['US']['ust_noise'].get('gsw_corr')})")
 
 
 def _attach_germany_bund_noise(countries: dict) -> None:

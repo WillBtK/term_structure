@@ -629,6 +629,15 @@ document.getElementById('footCredit').textContent = 'Model: AFNS + Christensen�
 
 const MON3=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const xYear=v=>String(Math.round(v));
+const _MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+// niceTicks picks half-year steps on a span of a few years, and rounding those to a
+// year prints the same label twice and invents one past the data. Below ~8 years label
+// the month instead.
+function xAutoFmt(x0,x1){
+  if((x1-x0)>8) return xYear;
+  return v=>{ let y=Math.floor(v+1e-9), mo=Math.round((v-y)*12);
+              if(mo>=12){ mo-=12; y+=1; } return _MON[mo]+' '+y; };
+}
 function xFmtMonth(v){ const y=Math.floor(v+1e-6); const mo=Math.round((v-y)*12); return MON3[(mo%12+12)%12]+'-'+String(y).slice(-2); }
 function xFmtDay(v){ const y=Math.floor(v+1e-9); const doy=Math.round((v-y)*365.25); const dt=new Date(Date.UTC(y,0,1)); dt.setUTCDate(dt.getUTCDate()+doy); return MON3[dt.getUTCMonth()]+' '+dt.getUTCDate()+', '+y; }
 const CCOL={US:'blue',UK:'orange',JP:'teal',DE:'purple',CH:'crimson',CA:'gold'};
@@ -1374,7 +1383,8 @@ function lastVal(block, measure, tenor){
     function render(){
       const CC=COL();
       box.innerHTML='';
-      drawLine(box,{height:260,yZero:true,yFmt:v=>fmt(v,0)+' bp',xFmt:xYear,xTipFmt:xFmtDay,
+      drawLine(box,{height:260,yZero:true,yFmt:v=>fmt(v,0)+' bp',
+        xFmt:xAutoFmt(nz.x[0],nz.x[nz.x.length-1]),xTipFmt:xFmtDay,
         bands:(bands?bands(CC):[]),
         series:[{label:title,color:CC[colorKey],
                  pts:allPts.filter(p=>p[0]>=NZ.xlo-1e-6&&p[0]<=NZ.xhi+1e-6)}]});
@@ -1403,7 +1413,14 @@ function lastVal(block, measure, tenor){
     bits.push('The TIPS gauge peaks at <b>~'+fmt(pk,0)+' bp</b> — the post-Lehman freeze, when the market dislocated so badly that breakevens turned negative — and sits near <b>'+fmt(tipsVals[tipsVals.length-1],0)+' bp</b> today.');
   }
   if(ustVals&&ustVals.length){
-    bits.push('The nominal gauge reads <b>'+fmt(ustVals[ustVals.length-1],1)+' bp</b>, on a cross-section an order of magnitude deeper — the level gap between the two is a size-and-liquidity difference, not a discrepancy.');
+    let t='The nominal gauge reads <b>'+fmt(ustVals[ustVals.length-1],1)+' bp</b> on a far deeper cross-section, so the level gap between the two is a market-size difference rather than a discrepancy.';
+    const g=(ust.noise_gsw||[]).filter(v=>v!=null);
+    if(g.length){
+      t+=' Both charts use the same self-fitted residual so their levels are comparable. As an independent check the nominal bonds are also measured against the <b>published GSW curve</b> — fitting nothing — which reads <b>'+fmt(g[g.length-1],1)+' bp</b>'
+        +(ust.gsw_corr!=null?' and tracks the fitted version at a correlation of <b>'+fmt(ust.gsw_corr,2)+'</b>':'')
+        +'; the two agreeing is what says the underlying accrual and compounding are right.';
+    }
+    bits.push(t);
   }
   if(!ustVals) bits.push('The nominal Treasury gauge is still back-filling and will appear alongside once its history lands.');
   call.innerHTML=bits.join(' ');
