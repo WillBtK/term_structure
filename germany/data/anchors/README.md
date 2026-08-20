@@ -97,3 +97,17 @@ print('latest endpoint: %.2f%%' % (v[-1] * 100))"
 `meta['source']` names the active rung, `meta['pi_e']` the inflation leg,
 `meta['calib_offset_pct']` the level match between bridge and direct survey, and
 `meta['asof']` the last point-in-time survey release pinning today's endpoint.
+
+
+## Delivery status (2026-08-20)
+
+Both Consensus files are DELIVERED and committed (validated against the ECB SPF:
+DE CPI sits 0.08pp below the euro-area longer-term expectation over 25 years of
+overlap, RMSE 0.17pp; the EA 3M column matches the SPF rate assumption to 0.01pp).
+Activation is nevertheless HELD (`neutral_anchor.ACTIVATED = False`): with no
+survey short rate before Oct-2016 the historical endpoint is bridge-only, and the
+Ferreira EA r* rung dominates its shape (-0.87% in mid-2008 => a ~0.7% nominal
+neutral while the ECB hiked to 4.25%, worth +1.16pp of 2008 term premium).
+Bridge fidelity on the 2016+ overlap: corr 0.27, mean |gap| 39bp, level offset ~0.
+The pre-2016 construction (implied-constant-r*, 2016+ activation, or acceptance)
+is an open decision recorded in the session log.

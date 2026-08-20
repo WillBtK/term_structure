@@ -99,6 +99,17 @@ def has_anchor(dir: Path = ANCHOR_DIR) -> bool:
 # the public-only bridge deliberately (it is fine for research, not for publication).
 REQUIRE_CONSENSUS = True
 
+# Second gate: the Consensus seeds arrived 2026-08-20 and the fidelity test ran, but
+# activation is HELD pending a design decision on the pre-2016 rung. With no survey
+# short rate before Oct-2016, the historical endpoint is bridge-only (Consensus CPI +
+# Ferreira EA r*), and Ferreira's r* dominates its shape: it reads -0.87% in mid-2008,
+# putting the nominal neutral at ~0.7% while the ECB was hiking to 4.25% -- a model
+# artifact no market or survey priced, worth +1.16pp of 2008 term premium on its own.
+# Bridge fidelity on the 2016+ overlap: corr 0.27, mean |gap| 39bp (level offset ~0).
+# Flip to True only after the pre-2016 construction is settled (implied-constant-r*
+# variant, activation from 2016 only, or acceptance of the Ferreira shape).
+ACTIVATED = False
+
 
 def is_enabled(dir: Path = ANCHOR_DIR) -> bool:
     """Whether the pipeline should APPLY this anchor (as opposed to merely being able to
@@ -108,4 +119,4 @@ def is_enabled(dir: Path = ANCHOR_DIR) -> bool:
         return False
     if REQUIRE_CONSENSUS and not (d / FILES["cpi"]).exists():
         return False
-    return True
+    return ACTIVATED

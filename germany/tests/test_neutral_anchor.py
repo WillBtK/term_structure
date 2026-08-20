@@ -76,16 +76,22 @@ def test_target_is_the_last_resort_inflation_anchor(tmp_path):
     assert np.allclose(vals, (0.5 + na.ECB_TARGET_PCT) / 100.0)
 
 
-def test_activation_waits_for_the_consensus_inflation_leg(tmp_path):
-    """The public rungs alone only reach 1999, and the production sample starts 1984 —
-    enabling on that coverage would seam the sample at 1999. So a buildable anchor is
-    not yet an ACTIVE one."""
+def test_activation_waits_for_the_consensus_inflation_leg(tmp_path, monkeypatch):
+    """Two gates, both deliberate. The public rungs alone only reach 1999, and the
+    production sample starts 1984 — enabling on that coverage would seam the sample at
+    1999, so a buildable anchor is not yet an active one. And even with the Consensus
+    seed present, activation waits on the explicit ACTIVATED flag: the seeds landed
+    2026-08-20, but the pre-2016 bridge is dominated by the Ferreira r* rung (−0.87%
+    in mid-2008 ⇒ an implausible ~0.7% nominal neutral), so switching the published
+    German decomposition is a reviewed decision, not a side effect of committing data."""
     _write(tmp_path, "rstar", [("2020-12-31", 0.5), ("2021-12-31", 0.5)])
     _write(tmp_path, "extender", [("2020-12-31", 1.8), ("2021-12-31", 1.8)])
     assert na.has_anchor(tmp_path)          # buildable
     assert not na.is_enabled(tmp_path)      # but not applied
     _write(tmp_path, "cpi", [("1990-12-31", 2.5), ("2021-12-31", 1.8)])
-    assert na.is_enabled(tmp_path)          # Consensus CPI extends coverage -> on
+    assert not na.is_enabled(tmp_path)      # data present, decision still pending
+    monkeypatch.setattr(na, "ACTIVATED", True)
+    assert na.is_enabled(tmp_path)          # the decision is the switch
 
 
 def test_bridge_fidelity_measures_the_hand_off(tmp_path):
