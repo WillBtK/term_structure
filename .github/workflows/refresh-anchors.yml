@@ -68,6 +68,7 @@ jobs:
           git add germany/data/anchors/ecb_spf_infl_lt.csv 2>/dev/null || true
           git add germany/data/anchors/ecb_spf_rate_lt.csv 2>/dev/null || true
           git add us/data/anchors/spf_bill10.csv us/data/anchors/spf_cpi10.csv 2>/dev/null || true
+          git add us/data/anchors/spf_tbill_y1.csv us/data/anchors/spf_tbill_y2.csv 2>/dev/null || true
           git add uk/data/anchors/boe_mps_neutral.csv 2>/dev/null || true
           git add canada/data/anchors/boc_mps_neutral.csv 2>/dev/null || true
           git add switzerland/data/anchors/kof_cpi_5y.csv switzerland/data/anchors/kof_3m_12m.csv 2>/dev/null || true
