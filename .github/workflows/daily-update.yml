@@ -17,9 +17,21 @@ name: Daily term-premium update
 #   * In Supabase: create a PUBLIC Storage bucket (default name "atlas"; override
 #     with the SUPABASE_ATLAS_BUCKET secret) — the daily job uploads index.html to it.
 
+# Two runs a day, each placed just AFTER a publication the other one misses. Measured
+# publication times (UTC, summer):
+#   Treasury CMT (US)  ~19:30-20:00 same day      MoF JGB (JP)    00:30 next business day
+#   Bundesbank (DE)    ~14:00 same day            BoE GLC (UK)    by ~11:00 next working day
+# The old single 00:00 run sat 30 minutes BEFORE the MoF post, so Japan was a full day
+# stale every single day for want of half an hour. The 00:45 run clears MoF and still
+# picks up the prior US/DE session; the 12:15 run clears the BoE, which would otherwise
+# wait ~13 hours for the following midnight. Both runs are idempotent.
+# Cron is fixed-UTC while ET/CET/BST shift, so these sit ~1h late in winter — the offsets
+# are chosen with enough slack to absorb that plus GitHub's scheduler jitter (runs at :00
+# queue worst, hence :45/:15).
 on:
   schedule:
-    - cron: "0 0 * * *"        # 00:00 UTC = 7pm EST / 8pm EDT (fixed)
+    - cron: "45 0 * * *"       # 00:45 UTC — after MoF JGB (09:30 JST, T+1)
+    - cron: "15 12 * * *"      # 12:15 UTC — after BoE GLC (noon London, T+1)
   workflow_dispatch: {}         # manual trigger (any branch)
 
 permissions:

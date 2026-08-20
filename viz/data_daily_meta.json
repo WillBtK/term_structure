@@ -126,8 +126,8 @@
         30.0
       ],
       "start": "1974-09-24",
-      "end": "2026-08-18",
-      "n_days": 13281
+      "end": "2026-08-19",
+      "n_days": 13282
     },
     "CH:nominal": {
       "label": "Swiss Confederation (nominal)",
@@ -196,10 +196,10 @@
       "pi_e": "consensus_cpi",
       "r_star": "ferreira",
       "shortrate_ext": null,
-      "calib_offset_pct": 0.279,
+      "calib_offset_pct": 0.278,
       "asof": "2026-07-13",
-      "coverage": 8930,
-      "n": 13281
+      "coverage": 8931,
+      "n": 13282
     }
   }
 }
