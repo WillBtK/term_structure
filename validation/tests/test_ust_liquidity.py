@@ -125,6 +125,29 @@ def test_parses_the_live_table_layout():
     assert set(nominal_coupon_bonds(df)["cusip"]) == {"91282CJK8", "912810TV0"}
 
 
+_CALLABLE_HTML = """
+<table>
+<tr><th>CUSIP</th><th>SECURITY TYPE</th><th>RATE</th><th>MATURITY DATE</th>
+    <th>CALL DATE</th><th>BUY</th><th>SELL</th><th>END OF DAY</th></tr>
+<tr><td>912810DN5</td><td>MARKET BASED BOND</td><td>11.750%</td><td>11/15/2014</td>
+    <td>11/15/2009</td><td>99.99</td><td>100.01</td><td>100.000000</td></tr>
+<tr><td>912810DP0</td><td>MARKET BASED BOND</td><td>11.250%</td><td>02/15/2015</td>
+    <td></td><td>144.00</td><td>144.06</td><td>144.031250</td></tr>
+</table>
+"""
+
+
+def test_a_callable_bond_priced_to_the_call_is_excluded():
+    """A bond nearing its call date prices toward the call, not final maturity — pricing
+    it as a plain bullet bond (which this module does) is a real mispricing, not
+    illiquidity. Treasury's last callable long bonds ran through ~2009; excluding them
+    avoids exactly the artifact a real one (912810DN5, called 2009-11-15) produced."""
+    df = parse_price_table(_CALLABLE_HTML, pd.Timestamp("2009-11-13"))
+    assert df.set_index("cusip").loc["912810DN5", "call_date"] == pd.Timestamp("2009-11-15")
+    assert pd.isna(df.set_index("cusip").loc["912810DP0", "call_date"])
+    assert list(nominal_coupon_bonds(df)["cusip"]) == ["912810DP0"]
+
+
 def test_an_unparseable_coupon_is_dropped_not_carried_into_the_bond_math():
     """A None coupon reaching cashflows() raises a TypeError several frames deep, which
     reads as a bond-math failure rather than the parse failure it is. Drop at the filter."""

@@ -43,6 +43,7 @@ _CUSIP_KEYS = ("cusip",)
 _TYPE_KEYS = ("security type", "type")
 _RATE_KEYS = ("rate", "coupon")
 _MAT_KEYS = ("maturity",)
+_CALL_KEYS = ("call",)
 _EOD_KEYS = ("end of day", "eod")
 
 
@@ -77,7 +78,7 @@ def parse_price_table(html: str, date: pd.Timestamp) -> pd.DataFrame:
     end-of-day CLEAN price per 100 face. Returns an empty frame when the page carries
     no price table (weekend/holiday, or a date before the archive starts).
     """
-    cols = ["date", "cusip", "kind", "coupon", "maturity", "price"]
+    cols = ["date", "cusip", "kind", "coupon", "maturity", "call_date", "price"]
     try:
         tables = pd.read_html(io.StringIO(html))
     except ValueError:
@@ -91,6 +92,13 @@ def parse_price_table(html: str, date: pd.Timestamp) -> pd.DataFrame:
             continue
         c_type = _find_col(t.columns, _TYPE_KEYS)
         c_rate = _find_col(t.columns, _RATE_KEYS)
+        # CALL DATE is blank for the (overwhelming majority) non-callable rows, which
+        # to_datetime coerces to NaT — exactly the "not callable" sentinel we want.
+        # Treasury's last callable long bond had a call window into Nov 2009, so this
+        # only bites a handful of very old securities, but silently pricing one to its
+        # final maturity while the market is pricing the call blows up a single bond's
+        # implied yield and can dominate the whole day's fitting residual.
+        c_call = _find_col(t.columns, _CALL_KEYS)
         out = pd.DataFrame({
             "date": date,
             "cusip": t[c_cusip].astype(str).str.strip(),
@@ -103,6 +111,8 @@ def parse_price_table(html: str, date: pd.Timestamp) -> pd.DataFrame:
                                      .str.strip(), errors="coerce")
                        if c_rate else float("nan")),
             "maturity": pd.to_datetime(t[c_mat], errors="coerce"),
+            "call_date": (pd.to_datetime(t[c_call], errors="coerce")
+                          if c_call else pd.NaT),
             "price": pd.to_numeric(t[c_eod], errors="coerce"),
         })
         return out.dropna(subset=["maturity", "price"]).reset_index(drop=True)
@@ -123,7 +133,7 @@ def fetch_day(date: pd.Timestamp) -> pd.DataFrame:
             return df
     if last is not None:
         logger.debug("no prices for %s (last error: %s)", date.date(), last)
-    return pd.DataFrame(columns=["date", "cusip", "kind", "coupon", "maturity", "price"])
+    return pd.DataFrame(columns=["date", "cusip", "kind", "coupon", "maturity", "call_date", "price"])
 
 
 # Security types published (confirmed live): MARKET BASED BILL / BOND / FRN / NOTE and
@@ -140,6 +150,13 @@ def nominal_coupon_bonds(panel: pd.DataFrame) -> pd.DataFrame:
     k = panel["kind"].astype(str).str.upper()
     keep = k.str.contains("|".join(_NOMINAL_KINDS), regex=True)
     keep &= ~k.str.contains("TIPS|INFLATION|FLOATING|FRN|STRIP", regex=True)
+    # Treasury's last callable long bonds (issued through 1984, called through ~2009)
+    # still show up in the archive's early years. Pricing one to its final maturity
+    # while the market prices it to the call is a mispricing this module has no way to
+    # correct (that needs option-adjusted pricing, out of scope here) — so it gets
+    # excluded rather than silently fed to a bullet-bond fit, same as bills/TIPS/FRNs.
+    if "call_date" in panel.columns:
+        keep &= panel["call_date"].isna()
     out = panel.loc[keep].copy()
     # A coupon that failed to parse cannot be priced; drop rather than carry a None into
     # the bond math, where it surfaces as an unrelated-looking TypeError deep in the stack.
@@ -169,7 +186,7 @@ def load_prices(start=None, end=None, refresh: bool = False,
     from validation import config as vcfg
     path = vcfg.UST_PRICES_PARQUET
     cached = pd.read_parquet(path) if path.exists() else \
-        pd.DataFrame(columns=["date", "cusip", "kind", "coupon", "maturity", "price"])
+        pd.DataFrame(columns=["date", "cusip", "kind", "coupon", "maturity", "call_date", "price"])
     if cache_only:
         return cached
     start = start or (cached["date"].max() + pd.Timedelta(days=1)
