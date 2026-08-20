@@ -31,7 +31,13 @@ concurrency:
 jobs:
   backfill:
     runs-on: ubuntu-latest
-    timeout-minutes: 330
+    # Sized to the largest window actually used: a 7-year chunk is ~1,800 sequential
+    # day-requests and ran in 61 minutes, so 150 leaves generous headroom. The old
+    # 330 was a runaway hazard rather than a real requirement -- a single mistyped
+    # window could have burned 5.5 hours, 16% of a month's free quota, before
+    # anything stopped it. Back-fills are chunked and the store accumulates across
+    # runs, so a window too big for this cap should be split, not given a longer cap.
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -41,7 +47,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt html5lib
       - name: Back-fill ${{ inputs.start }} .. ${{ inputs.end }}
-        timeout-minutes: 300
+        timeout-minutes: 120
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m validation.ust_liquidity --start "${{ inputs.start }}" --end "${{ inputs.end }}"
