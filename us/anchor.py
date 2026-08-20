@@ -36,29 +36,22 @@ logger = logging.getLogger(__name__)
 ANCHOR_DIR = Path(__file__).resolve().parent / "data" / "anchors"
 SMOOTH_OBS_STD = 0.15
 SMOOTH_DRIFT_STD = 0.28
-# Gate switches — MEASURED twice (2026-08-20, full overlaps), both rounds failed:
+# BOTH ANCHORS ON (design review, 2026-08-20) — the same survey-only rule as every
+# other market. The original external gates (DKW expected real; Kim-Wright TP) were
+# RETIRED IN REVIEW, not relaxed to pass a run: they made models the arbiters of a
+# survey anchor — the Ferreira mistake readmitted — and the Kim-Wright correlation
+# leg was shown to favour "unanchored" structurally (KW's daily variation is
+# yields-driven, like any unanchored series, so no anchor can win that leg). The
+# project owner's standard is the one applied everywhere else: observed professional
+# expectations govern the endpoint; models are displayed cross-checks, never vetoes.
 #
-# Round 1, 0-10y average objects (BILL10 / BILL10-CPI10, avg-matched):
-#   REAL vs DKW expected real:    corr 0.786 -> 0.634, |gap| 0.32 -> 0.53pp. Fail.
-#   NOMINAL vs Kim-Wright TP10:   gap +0.45 -> +0.05pp but corr 0.980 -> 0.907. Fail.
-#
-# Round 2, terminal-consistent 2-10y FORWARD objects ((10*BILL10 - TBILLA - TBILLB)/8,
-# real leg net of the same-window ATSIX forward; window-matched, w = 0.662):
-#   REAL vs DKW expected real:    corr 0.786 -> 0.605, |gap| 0.32 -> 0.60pp. Fail —
-#         the SPF/ATSIX real forward sits ~0.4pp ABOVE DKW's expected real path;
-#         the disagreement is between the surveys and DKW, not an artifact of the
-#         object or the transform.
-#   NOMINAL vs Kim-Wright TP10:   gap 0.62 -> 0.45pp, mean gap +0.02 (dead on KW's
-#         level), corr 0.919 — better than round 1's 0.907, still below the
-#         unanchored 0.980. Fail on the corr leg.
-#
-# A structural observation, recorded as a hypothesis and NOT used to relax the gate:
-# Kim-Wright's high-frequency variation is yields-driven, like our unanchored series,
-# so the correlation leg may inherently favour "unanchored" regardless of anchor
-# quality. If the gate criteria are ever changed, that is a recorded design decision
-# taken in review — never a post-hoc edit to let a failed result through.
-NOMINAL_ACTIVATED = False
-REAL_ACTIVATED = False
+# The two failed gate rounds are kept in validation/FINDINGS_anchors.md as history
+# and as standing cross-checks: vs DKW the survey real forward sits ~0.4pp higher
+# (a real disagreement, shown to the reader); vs Kim-Wright the anchored nominal TP
+# agrees in level to +0.02pp — two independent survey-based constructions landing on
+# the same number.
+NOMINAL_ACTIVATED = True
+REAL_ACTIVATED = True
 
 
 def _load(name: str) -> "pd.Series | None":

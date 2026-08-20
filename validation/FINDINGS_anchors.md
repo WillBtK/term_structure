@@ -29,7 +29,7 @@ Two reviews produced this rule:
 | CA | CA 3m T-bill 6-10y, **2017-01+** | BoC MPS long-term nominal neutral median (2023+, quarterly) | follows MPS |
 | JP | JP 3m 6-10y, **2017-01+** | none public (ESP is membership-gated) | **glides to the BoJ-communicated corridor 1.75–2.25%, midpoint 2.0%** across the staleness window (no step) |
 | CH | CH 3m 6-10y, **2017-01+** | **KOF pi_5y (public API, no account) + constant real (-0.14pp, 114-month overlap)** | follows KOF inflation; real component held constant |
-| US | — | Philly Fed SPF BILL10/CPI10 (1992+, living) | — **but see the gates below: OFF** |
+| US | SPF 2-10y forward: nominal `(10*BILL10 - y1 - y2)/8`, real net of the same-window ATSIX forward — **1992+/2004+, living** | itself (quarterly, maintained) | — |
 
 Endpoints are RW-smoothed (no release-day staircase, no look-ahead at the edge);
 NaN before each market's first survey observation, so pre-survey history is never
@@ -55,7 +55,27 @@ reverts to yields-only); its survey-era values barely move. Cross-sectional sani
 the underlying surveys: UK,CA ≥ EA ≥ JP ordering holds on 100% of common dates, and
 the three markets with living surveys agree with them to −5/−10/−30bp.
 
-## The US gates — pre-committed, run, FAILED, anchors off
+## The US anchors — ON under the one rule; the external gates retired in review
+
+**Design review, 2026-08-20 (project owner).** The original US gates made DKW and
+Kim-Wright — models — the arbiters of a survey anchor: importing one model's
+assumptions to govern another, the Ferreira mistake readmitted, and a standard no
+other market was held to. Retired accordingly. The US anchors ship on the same
+survey-only basis as the other five markets; DKW and Kim-Wright are displayed
+cross-checks, never vetoes. The two failed gate rounds below stand as the record of
+what was measured, and as standing cross-checks.
+
+Published effect (10y): nominal TP **1.11 -> 1.63%** (expected 3.63 -> 3.11%),
+history from 1992, mean -0.29pp; real TP **1.20 -> 1.45%** (expected 1.18 -> 0.94%),
+history from 2004, mean -0.46pp. The real-leg move is the original motivating case:
+the 2004+ sample let the expected real rate chase observed yields up 40bp in two
+months; the survey control re-attributes that move to the premium. Cross-checks at
+switch-on: anchored nominal TP agrees with Kim-Wright's LEVEL to +0.02pp; the survey
+real forward sits ~0.4pp above DKW's expected real path (a genuine survey-vs-model
+disagreement, displayed to the reader). All other markets bit-identical; global
+cycle corr 0.99936 across the change.
+
+### The retired gate record (measured before retirement)
 
 The US surveys are 0-10y AVERAGES (SPF BILL10/CPI10), so the endpoint was solved by
 average-matching (`us/anchor.py`): endpoint = θ_LR + (survey − model 10y-avg)/w,

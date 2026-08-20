@@ -191,6 +191,24 @@
     }
   },
   "anchor": {
+    "US:nominal": {
+      "source": "spf_fwd_2_10",
+      "object": "2-10y forward average (window-matched)",
+      "w": 0.6624,
+      "first": "1992-02-18",
+      "asof": null,
+      "coverage": 8614,
+      "n": 16259
+    },
+    "US:real": {
+      "source": "spf_fwd_2_10-atsix",
+      "object": "2-10y forward average (window-matched)",
+      "w": 0.6624,
+      "first": "2004-01-02",
+      "asof": null,
+      "coverage": 5661,
+      "n": 5661
+    },
     "UK:nominal": {
       "source": "consensus_shortrate+boe_mps",
       "first": "2017-01-09",
