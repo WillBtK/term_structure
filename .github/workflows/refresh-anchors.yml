@@ -53,6 +53,10 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m canada.fetch_neutral
+      - name: Fetch KOF Consensus medians (CH; public API, no account)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m switzerland.fetch_neutral
       - name: Commit refreshed anchor CSVs (if any changed)
         run: |
           git config user.name  "atlas-bot"
@@ -66,6 +70,7 @@ jobs:
           git add us/data/anchors/spf_bill10.csv us/data/anchors/spf_cpi10.csv 2>/dev/null || true
           git add uk/data/anchors/boe_mps_neutral.csv 2>/dev/null || true
           git add canada/data/anchors/boc_mps_neutral.csv 2>/dev/null || true
+          git add switzerland/data/anchors/kof_cpi_5y.csv switzerland/data/anchors/kof_3m_12m.csv 2>/dev/null || true
           if ! git diff --cached --quiet; then
             git commit -m "Refresh neutral-anchor fallbacks (Ferreira r* JA/EA, Tankan 5y, ECB SPF) [skip ci]"
             git push
