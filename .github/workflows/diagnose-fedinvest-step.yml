@@ -1,0 +1,64 @@
+name: Diagnose FedInvest Nov-2009 step
+
+# TEMPORARY. There is a large, sudden drop in the UST nominal noise gauge between
+# 2009-11-13 and 2009-11-16 (~72bp -> ~3bp overnight) that looks like a data/parsing
+# artifact rather than a real liquidity event. This dumps the raw price table for both
+# dates (and a couple of neighbours) so the cause can be diagnosed. Delete once resolved.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt html5lib
+      - name: Dump raw tables around the step
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python - <<'EOF'
+          import pandas as pd
+          from us.fetch_fedinvest import fetch_day, nominal_coupon_bonds
+
+          dates = ["2009-11-12", "2009-11-13", "2009-11-16", "2009-11-17"]
+          panels = {}
+          for ds in dates:
+              d = pd.Timestamp(ds)
+              raw = fetch_day(d)
+              nb = nominal_coupon_bonds(raw)
+              panels[ds] = nb
+              print(f"\n=== {ds} ===")
+              print(f"raw rows: {len(raw)}  nominal coupon rows: {len(nb)}")
+              if len(raw):
+                  print("kinds:", sorted(raw['kind'].unique()))
+              if len(nb):
+                  print(nb.sort_values("cusip").head(8).to_string(index=False))
+                  print("price dtype:", nb["price"].dtype, " unique decimals sample:",
+                        nb["price"].astype(str).str.split(".").str[-1].str.len().value_counts().to_dict())
+
+          # Common CUSIPs across the step, price + coupon side by side
+          common = set(panels["2009-11-13"]["cusip"]) & set(panels["2009-11-16"]["cusip"])
+          print(f"\n=== common CUSIPs 11-13 vs 11-16: {len(common)} ===")
+          a = panels["2009-11-13"].set_index("cusip").loc[sorted(common)]
+          b = panels["2009-11-16"].set_index("cusip").loc[sorted(common)]
+          cmp = pd.DataFrame({
+              "coupon_13": a["coupon"], "coupon_16": b["coupon"],
+              "maturity_13": a["maturity"], "maturity_16": b["maturity"],
+              "price_13": a["price"], "price_16": b["price"],
+          })
+          cmp["price_delta"] = cmp["price_16"] - cmp["price_13"]
+          print(cmp.head(20).to_string())
+          print("\nprice_delta describe:")
+          print(cmp["price_delta"].describe())
+          EOF
