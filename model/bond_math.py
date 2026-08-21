@@ -155,6 +155,34 @@ def _clean_from_ytm(t, cf, accrued: float, ytm: float, freq: int) -> float:
     return float(np.sum(cf * (1.0 + ytm / freq) ** (-freq * t))) - accrued
 
 
+def macaulay_duration(settle, maturity, coupon_pct: float, ytm: float,
+                      freq: int = FREQ) -> float:
+    """Macaulay duration in YEARS at a semiannually-compounded yield ``ytm`` (decimal).
+
+    Present-value-weighted mean time to cashflow, divided by the DIRTY price -- the
+    accrued interest is part of what the buyer pays, so excluding it would overstate
+    duration on a bond deep into its coupon period.
+
+    A bill (``coupon_pct=0``) has a single cashflow, so this returns its time to
+    maturity exactly, which is the property the ten-year-equivalent weighting relies on.
+    """
+    t, cf, _ = _priced_schedule(settle, maturity, coupon_pct, freq)
+    if t.size == 0:
+        return np.nan
+    pv = cf * (1.0 + ytm / freq) ** (-freq * t)
+    dirty = float(pv.sum())
+    if dirty <= 0:
+        return np.nan
+    return float((t * pv).sum() / dirty)
+
+
+def modified_duration(settle, maturity, coupon_pct: float, ytm: float,
+                      freq: int = FREQ) -> float:
+    """Modified duration -- the price sensitivity ``-(dP/P)/dy`` -- in years."""
+    mac = macaulay_duration(settle, maturity, coupon_pct, ytm, freq)
+    return mac / (1.0 + ytm / freq)
+
+
 def ytm_from_price(clean_price: float, settle, maturity, coupon_pct: float,
                    freq: int = FREQ, lo: float = -0.20, hi: float = 1.0) -> float:
     """Semiannually-compounded yield to maturity (decimal) from a CLEAN price.
