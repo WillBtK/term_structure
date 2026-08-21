@@ -14,21 +14,27 @@ Japan from 0.82 to 0.91, roughly halving the RMSE in each.
 
     TP_i = a_i + b_i * TP_US + c_i * (driver_i - driver_US)
 
-One correction to the motivating intuition, because it changes how the model should be
-sold rather than whether to build it. Co-movement is NOT stronger now. Across the four
-markets PC1 takes 93.8% of the variance in levels over the whole sample, but that is the
-shared collapse in premia from the 1980s; in rolling ten-year windows it falls from 0.89
-through 2000 to 0.65 through 2024, and on monthly CHANGES it is 0.53. The US beta has
-fallen with it: on 2010+ levels the UK reads 0.65, Germany 0.54 and Japan 0.24, against
-0.98, 0.89 and 0.78 over the full sample. Japan has very nearly decoupled -- twelve-month
-changes since 2010 give it a US beta of 0.12 -- which is what yield-curve control was
-for.
+Two things to be careful about when selling this, neither of which is a reason not to
+build it.
 
-The structure still wins, and wins by MORE on the recent sample (2010+ levels: UK 0.53 ->
-0.82, Germany 0.35 -> 0.76, Japan 0.62 -> 0.83). But it wins because the relative drivers
-capture the divergence, not because the markets have converged. A committee should be
-told the US sets the level and each market's own QE and fiscal path decide how far it
-trades away from it -- not that the four markets have become one.
+The first is that 93.8% of variance in PC1 is a LEVEL artefact. It is the shared collapse
+in premia since the 1980s, and no ten-year window comes near it: rolling PC1 runs 0.51 in
+1995, 0.90 through 2002-03, 0.58 in 2011, 0.85 in 2017, 0.60 in 2022 and 0.80 today,
+averaging about 0.74 with no trend either way. On monthly CHANGES it is 0.53. So the
+common factor is real and currently near the top of its range -- but it is a cyclical 60
+to 90 percent, not a structural 94.
+
+The second is that common DIRECTION is not common AMPLITUDE. The US betas have fallen
+even as PC1 has cycled back up: on 2010+ levels the UK reads 0.65, Germany 0.54 and Japan
+0.24, against 0.98, 0.89 and 0.78 over the full sample, and on twelve-month changes since
+2010 Japan's beta is 0.12. Japan has very nearly decoupled, which is what yield-curve
+control was for.
+
+The structure wins by MORE on the recent sample (2010+ levels: UK 0.53 -> 0.82, Germany
+0.35 -> 0.76, Japan 0.62 -> 0.83), and it wins because the relative drivers capture that
+divergence in amplitude. A committee should be told the US sets the direction and each
+market's own QE and fiscal path decide how far it travels -- not that the four markets
+have become one.
 
 Two things this structure repairs on its own. Germany's fiscal coefficient, unidentified
 in isolation and pinned at zero by the sign constraint, comes back at +1.8bp per point of
