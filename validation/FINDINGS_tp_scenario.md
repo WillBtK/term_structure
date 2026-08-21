@@ -16,42 +16,56 @@ Term premium against the stock-bond correlation, annual observations, 1981-2023:
 
 | | pooled | CA | CH | DE | JP | UK | US |
 |---|---|---|---|---|---|---|---|
-| corr(TP 3y, SBC) | **+0.58** | +0.73 | +0.49 | −0.03 | +0.84 | +0.00 | +0.69 |
-| corr(TP 10y, SBC) | **+0.59** | +0.80 | +0.53 | −0.14 | +0.82 | +0.01 | +0.73 |
+| corr(TP 3y, SBC) | **+0.60** | +0.73 | +0.49 | +0.68 | +0.84 | +0.61 | +0.69 |
+| corr(TP 10y, SBC) | **+0.63** | +0.80 | +0.53 | +0.76 | +0.82 | +0.62 | +0.73 |
 
-**The DE/UK zeros are a sample-span artefact, not a contradiction.** Their panels start
-in 2007 — the Bund daily curve begins 1997 and UK industrial production 1997, and the
-10-year windows consume the first decade — so both sit *entirely inside one correlation
-regime*. That is exactly the case `FINDINGS_sbc.md` predicts the model cannot speak to.
-Every market whose sample spans the regime change (US 1981-, CA/JP/CH 1996-98-) shows a
-strong positive relationship. Fitted parameters therefore use **US, CA, JP, CH only**.
+**All six markets are positive, and getting there was the finding.** In the first cut DE
+and UK correlated ~0.00 and were excluded. Both turned out to be sample-span artefacts
+rather than contradictions: their panels began only in 2007 and therefore sat entirely
+inside one correlation regime. Extending them fixed both —
+
+- **UK**: industrial production from `GBRPROINDMISMEI` (1948+) instead of the OECD
+  quarterly series (1997+). Sample 2007→1989, correlation +0.01 → **+0.62**.
+- **Germany**: the binding constraint was never the premium but the **yield**, since the
+  correlation is built from bond returns and the daily Bund curve starts 1997. The 10y is
+  now reconstructed from the **monthly Bundesbank Svensson parameters** (1972+). Sample
+  2007→1982, correlation −0.14 → **+0.76**. The splice is verified clean: reconstructed
+  monthly and production daily agree at the seam to **0.000pp**.
+
+This is the strongest evidence in the whole chain that the earlier zeros reflected
+missing regime variation rather than a broken model — the prediction was made *before*
+the data was extended, and extending it moved both markets exactly as predicted. Fitted
+parameters now use **all six**.
 
 ## Fair value
 
 | tenor | fair value | R² |
 |---|---|---|
-| 3y | TP\* = +0.67 + 2.88·SBC − 0.016·gap | 0.387 |
-| 10y | TP\* = +1.71 + 4.99·SBC − 0.041·gap | 0.417 |
+| 3y | TP\* = +0.63 + 2.97·SBC − 0.004·gap | 0.359 |
+| 10y | TP\* = +1.65 + 5.12·SBC − 0.027·gap | 0.408 |
 
-The SBC loading is **larger at 10y than 3y** (4.99 vs 2.88), which is the monotonicity
+n=197 (was 154 before the history extensions).
+
+The SBC loading is **larger at 10y than 3y** (5.12 vs 2.97), which is the monotonicity
 check this model has to pass: longer duration is more exposed to the inflation-risk
 channel. It was not imposed.
 
 The output gap enters with the right sign (slack lowers the premium) but adds almost
-nothing — R² 0.336→0.337 at 3y. That is an honest negative on a *crude* proxy: this uses
-detrended industrial production, not the forecast-appended two-sided filter intended for
-production. Worth retrying with the proper gap; not worth claiming now.
+nothing: R² 0.358→0.359 at 3y (+0.001) and 0.397→0.408 at 10y (+0.012). That is an honest
+negative on a *crude* proxy — this uses detrended industrial production, not the
+forecast-appended two-sided filter intended for production. Worth retrying with the proper
+gap; not worth claiming now.
 
 ## Error correction — and a correction to an earlier guess
 
 | tenor | λ (per year) | half-life | closed by 3y | closed by 10y |
 |---|---|---|---|---|
-| 3y | 0.493 | 1.0y | **87%** | 100% |
-| 10y | 0.315 | 1.8y | **68%** | 98% |
+| 3y | 0.417 | 1.3y | **80%** | 100% |
+| 10y | 0.264 | 2.3y | **60%** | 95% |
 
 I earlier guessed that a 3-year horizon would not be long enough to converge. The data
-says that is right for the 10y tenor (only ~two-thirds of the way) but wrong for the 3y
-tenor (~87%, essentially there). So:
+says that is right for the 10y tenor (60%, well short) but much less so for the 3y tenor
+(80%). So:
 
 - **The 10-year-horizon answer is fair value** at both tenors — starting point is
   irrelevant.
@@ -60,33 +74,33 @@ tenor (~87%, essentially there). So:
 
 ## The output
 
-σ_g at the panel median (4.43pp), US starting points:
+σ_g at the panel median (4.16pp), US starting points:
 
 **10y term premium**
 
 | terminal core inflation | σ_π | implied SBC | fair value | TP @3y | TP @10y |
 |---|---|---|---|---|---|
-| 1.0% | 0.61pp | −0.16 | 0.91% | 0.93% | 0.91% |
-| 2.0% | 0.91pp | −0.10 | 1.23% | 1.15% | 1.23% |
-| 3.0% | 1.32pp | −0.01 | 1.67% | 1.44% | 1.65% |
-| 4.0% | 1.73pp | +0.08 | 2.10% | 1.73% | 2.07% |
-| 5.0% | 2.14pp | +0.16 | 2.53% | 2.03% | 2.49% |
+| 1.0% | 0.61pp | −0.14 | 0.96% | 0.96% | 0.96% |
+| 2.0% | 0.91pp | −0.09 | 1.21% | 1.11% | 1.20% |
+| 3.0% | 1.32pp | −0.02 | 1.55% | 1.32% | 1.52% |
+| 4.0% | 1.73pp | +0.05 | 1.89% | 1.52% | 1.84% |
+| 5.0% | 2.14pp | +0.11 | 2.23% | 1.72% | 2.17% |
 
 **3y term premium**
 
 | terminal core inflation | fair value | TP @3y | TP @10y |
 |---|---|---|---|
-| 2.0% | 0.39% | 0.28% | 0.39% |
-| 3.0% | 0.64% | 0.49% | 0.64% |
-| 4.0% | 0.89% | 0.71% | 0.89% |
+| 2.0% | 0.37% | 0.20% | 0.37% |
+| 3.0% | 0.57% | 0.36% | 0.56% |
+| 4.0% | 0.77% | 0.51% | 0.76% |
 
-Roughly **+0.43pp of 10y term premium per 1pp of terminal core inflation** above the Okun
-kink, and about +0.25pp at the 3y tenor. Below ~1.25% inflation the hockey stick flattens
+Roughly **+0.34pp of 10y term premium per 1pp of terminal core inflation** above the Okun
+kink, and about +0.20pp at the 3y tenor. Below ~1.25% inflation the hockey stick flattens
 and further disinflation buys nothing.
 
 ## Caveats
 
-1. **This explains ~40% of term premium variation, not all of it.** R² 0.39-0.42. The
+1. **This explains ~40% of term premium variation, not all of it.** R² 0.36-0.41. The
    macro-uncertainty channel is one driver among several — QE/QT and bond supply are the
    obvious absentees and are deliberately still to come. Do not present the output as a
    complete account.
@@ -107,5 +121,8 @@ and further disinflation buys nothing.
 5. **Regime-level tool.** Inherited from the correlation link: this answers "where does
    the premium settle in a world that looks like this", not "where is it next quarter".
 
-6. **DE and UK have no usable estimate** of their own and currently inherit the
-   long-sample parameters. Flag that in any DE/UK scenario output.
+6. **Japan remains the one market whose correlation link misfits** (see
+   `FINDINGS_sbc.md`): its inflation-volatility coefficient has the wrong sign, plausibly
+   because deflation, ZIRP and YCC make JGBs behave unlike a normal duration asset. Its
+   *term premium* correlates strongly with the SBC (+0.82), so it is the macro→correlation
+   step that is weak, not this one — but flag it in any Japan scenario output.

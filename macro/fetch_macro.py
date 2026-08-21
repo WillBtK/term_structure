@@ -32,13 +32,39 @@ SHARE_PRICE_SERIES = {
 }
 
 # OECD industrial production, quarterly index.
+#
+# The UK is the exception. Its OECD quarterly series (PRINTO01GBQ661N) only starts in
+# 1997, which — after a 10-year rolling window — leaves a UK sample beginning in 2007,
+# entirely inside one stock-bond-correlation regime and therefore uninformative about the
+# regime shift the model exists to capture. GBRPROINDMISMEI is the same concept (total
+# industry production volume) back to 1948. On the 1998-2024 overlap the two agree
+# closely on year-on-year growth: correlation 0.923, mean gap +0.006pp.
+#
+# It is MONTHLY where the others are quarterly, and monthly year-on-year growth is more
+# volatile than quarterly (4.41 vs 3.86 on the overlap). Since sigma_g enters the model
+# as a RATIO, leaving that difference in would hand the UK a systematically inflated
+# growth volatility and a correspondingly deflated ratio. So it is resampled to quarterly
+# first and then flows through exactly the same transformation as every other market.
 IND_PROD_SERIES = {
     "US": "PRINTO01USQ661N", "DE": "PRINTO01DEQ661N", "JP": "PRINTO01JPQ661N",
-    "UK": "PRINTO01GBQ661N", "CH": "PRINTO01CHQ661N", "CA": "PRINTO01CAQ661N",
+    "UK": "GBRPROINDMISMEI", "CH": "PRINTO01CHQ661N", "CA": "PRINTO01CAQ661N",
 }
 
+# Series that arrive monthly and must be collapsed to quarterly for comparability.
+_MONTHLY_IND_PROD = {"UK"}
 
-def _load(series: dict, path: Path, refresh: bool) -> pd.DataFrame:
+
+def _load(series: dict, path: Path, refresh: bool,
+          to_quarterly: frozenset = frozenset()) -> pd.DataFrame:
+    """Fetch each series and assemble one frame.
+
+    ``to_quarterly`` names series that arrive MONTHLY and must be collapsed to quarters
+    BEFORE assembly. Doing it afterwards would be a silent disaster: a monthly index
+    unioned into a quarterly frame leaves every other column NaN on the intervening
+    months, and the downstream year-on-year transform is a positional ``shift(4)`` — so
+    on a mixed index "four rows back" silently stops meaning "four quarters back" for
+    every market, not just the monthly one.
+    """
     if not refresh and path.exists():
         return pd.read_parquet(path)
     from validation.fred_api import fred_series
@@ -50,6 +76,8 @@ def _load(series: dict, path: Path, refresh: bool) -> pd.DataFrame:
             logger.warning("fetch failed for %s (%s): %s", country, sid, exc)
             continue
         s.index = pd.DatetimeIndex(s.index)
+        if country in to_quarterly:
+            s = s.resample("QS").mean().dropna()
         cols[country] = s
     if not cols:
         raise RuntimeError(f"no series fetched for {path.name}")
@@ -65,8 +93,13 @@ def load_share_prices(refresh: bool = False) -> pd.DataFrame:
 
 
 def load_ind_prod(refresh: bool = False) -> pd.DataFrame:
-    """Quarterly industrial production index per market."""
-    return _load(IND_PROD_SERIES, IND_PROD_PARQUET, refresh)
+    """Quarterly industrial production index per market.
+
+    Markets in ``_MONTHLY_IND_PROD`` are sourced monthly and averaged to quarters, so
+    every column carries the same sampling and their growth volatilities are comparable.
+    """
+    return _load(IND_PROD_SERIES, IND_PROD_PARQUET, refresh,
+                 to_quarterly=frozenset(_MONTHLY_IND_PROD))
 
 
 def growth_yoy_monthly(refresh: bool = False) -> pd.DataFrame:

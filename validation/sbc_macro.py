@@ -40,10 +40,11 @@ def build_panel(window: int = DEFAULT_WINDOW) -> pd.DataFrame:
     infl = core_inflation_yoy()
     grow = growth_yoy_monthly()
 
-    d = pd.read_parquet("viz/data_daily.parquet")
-    y10 = (d[(d.instrument == "nominal") & (d.tenor == 10.0)]
-           .pivot_table(index="date", columns="country", values="observed"))
-    y10m = y10.resample("MS").last() * 100.0        # decimal -> percent
+    # History-extended: Germany's 10y comes from the monthly Bundesbank Svensson
+    # parameters before 1997, which is what lets its correlation reach back past the
+    # regime change (see macro.tp_history.long_yield_monthly).
+    from macro.tp_history import long_yield_monthly
+    y10m = long_yield_monthly(10.0)
 
     frames = []
     for c in MARKETS:

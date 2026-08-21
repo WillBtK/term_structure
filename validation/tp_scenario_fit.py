@@ -18,11 +18,12 @@ from model.tp_scenario import (FairValueParams, fit_error_correction, fit_fair_v
 
 logger = logging.getLogger(__name__)
 
-# Markets whose samples span the 1990s-2000s regime change. DE and UK enter only from
-# 2007 (Bund daily curve from 1997, UK industrial production from 1997), so their samples
-# sit entirely inside one correlation regime and carry no information about the shift the
-# model is built to capture. They are reported but excluded from the fitted parameters.
-LONG_SAMPLE = ["US", "CA", "JP", "CH"]
+# All six now span the regime change. DE previously entered only from 2007 (daily Bund
+# curve from 1997) and UK likewise (OECD industrial production from 1997); both are now
+# extended -- DE/JP by splicing the committed monthly historical exhibits onto production
+# (`macro.tp_history`), UK by sourcing industrial production from GBRPROINDMISMEI, which
+# runs from 1948. See FINDINGS_tp_scenario.md.
+LONG_SAMPLE = ["US", "CA", "JP", "CH", "DE", "UK"]
 WINDOW = 120
 
 
@@ -31,13 +32,13 @@ def build_panel() -> pd.DataFrame:
     from macro.fetch_macro import growth_yoy_monthly, load_ind_prod, load_share_prices
 
     eq, infl, grow = load_share_prices(), core_inflation_yoy(), growth_yoy_monthly()
-    d = pd.read_parquet("viz/data_daily.parquet")
-    nom = d[d.instrument == "nominal"]
-    y10 = (nom[nom.tenor == 10.0].pivot_table(index="date", columns="country",
-                                              values="observed").resample("MS").last() * 100)
-    tp = {t: (nom[nom.tenor == t].pivot_table(index="date", columns="country",
-                                              values="term_premium").resample("MS").last() * 100)
-          for t in (3.0, 10.0)}
+    # History-extended yields AND premia. Germany needed both: the premium via the
+    # committed monthly exhibit, and the 10y YIELD via the monthly Bundesbank Svensson
+    # parameters, since the correlation is built from bond returns and was the binding
+    # constraint (daily Bund curve starts 1997).
+    from macro.tp_history import long_yield_monthly, spliced_tp
+    y10 = long_yield_monthly(10.0)
+    tp = {t: spliced_tp(t) for t in (3.0, 10.0)}
     frames = []
     for c in ["US", "DE", "JP", "UK", "CH", "CA"]:
         sbc = realised_sbc(eq[c], y10[c], window=WINDOW).rename("sbc")
