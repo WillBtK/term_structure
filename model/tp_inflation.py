@@ -183,3 +183,30 @@ def ewma_level(core_yoy: pd.Series, halflife_m: int = DEFAULT_HALFLIFE_M) -> pd.
     'the prevailing regime', short enough that the 2021-24 episode registers as the
     high-inflation event it was rather than being averaged away."""
     return core_yoy.ewm(halflife=halflife_m, min_periods=24).mean()
+
+
+def scenario_premium(tp_today: float, expectations_today: float,
+                     expectations_scenario, slope: float) -> "float | np.ndarray":
+    """Scenario premium ANCHORED to today's observed level.
+
+        TP(scenario) = TP_today + slope * (pi_scenario - pi_today)
+
+    The model explains how the premium MOVES with long-run inflation expectations. It
+    does not explain the whole level, and today it under-predicts the US ten-year premium
+    by about 1.4pp and the UK by 1.1pp. That gap is the fiscal and issuance environment --
+    deficits, heavy supply, a shrinking official bid -- which is real but which this tool
+    deliberately does not forecast.
+
+    Anchoring absorbs it without pretending to model it. The scenario answers "where does
+    the premium go RELATIVE to today", today's level comes from the observed premium, and
+    the standing assumption is stated rather than buried: the fiscal stance is unchanged
+    from today. A user who wants a fiscal scenario overrides this intercept by hand; the
+    alternative -- forecasting deficits to forecast a premium -- imports an error far
+    larger than the one it removes.
+
+    Below the 2% kink the premium is flat, so the difference is taken on the kinked
+    variable rather than on raw expectations.
+    """
+    a = np.maximum(np.asarray(expectations_scenario, dtype=float) - TARGET_KINK, 0.0)
+    b = max(float(expectations_today) - TARGET_KINK, 0.0)
+    return float(tp_today) + slope * (a - b)
