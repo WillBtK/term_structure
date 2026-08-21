@@ -80,3 +80,7 @@ def _main() -> None:
             continue
         print(f"  {yr}      {w.tye_share.mean():5.1f}%         {w.par_share.mean():5.1f}%"
               f"        {w.ref_duration.mean():.2f}y")
+
+
+if __name__ == "__main__":
+    _main()

@@ -152,11 +152,18 @@ def _shape_soma(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _main() -> None:
+    """Report what is cached. Pass ``--refresh`` to re-download.
+
+    Refresh is OPT-IN because a full pull is ~280 SOMA requests and several minutes;
+    defaulting to it meant every re-run silently re-fetched data already on disk.
+    """
+    import sys
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    m = fetch_mspd(refresh=True)
+    refresh = "--refresh" in sys.argv
+    m = fetch_mspd(refresh=refresh)
     print(f"MSPD: {len(m):,} security-months, {m['record_date'].min().date()}"
           f"..{m['record_date'].max().date()}, {m['record_date'].nunique()} snapshots")
-    s = fetch_soma(refresh=True)
+    s = fetch_soma(refresh=refresh)
     # NB: s["asof"], never s.asof -- ``asof`` is a DataFrame METHOD, so attribute
     # access silently returns the bound method instead of the column.
     print(f"SOMA: {len(s):,} security-months, {s['asof'].min().date()}"
