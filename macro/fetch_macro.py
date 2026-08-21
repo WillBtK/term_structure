@@ -1,4 +1,4 @@
-"""Equity prices and industrial production for the six Atlas markets, from FRED.
+"""Equity prices and industrial production for the six Atlas markets.
 
 These are the two series the stock-bond-correlation channel needs beyond core CPI:
 share prices to build the equity leg of the correlation, and a real-activity series to
@@ -7,10 +7,9 @@ measure growth volatility.
 Why industrial production rather than GDP. The relationship is identified off the
 1970s-90s, when the inflation and growth regimes actually changed. FRED's real GDP
 series start in 1991-1995 for Germany, Japan and Switzerland — after the interesting
-part — whereas OECD industrial production runs from the late 1950s for five of the six.
+part — whereas industrial production runs from the late 1950s or earlier everywhere.
 IP is a noisier proxy for "growth" than GDP, but a noisy proxy over the full regime
-history beats a clean one that omits it. UK IP is the exception (1997+), so the UK
-sample is short and its estimates should be read accordingly.
+history beats a clean one that omits it.
 """
 from __future__ import annotations
 
@@ -31,53 +30,59 @@ SHARE_PRICE_SERIES = {
     "UK": "SPASTT01GBM661N", "CH": "SPASTT01CHM661N", "CA": "SPASTT01CAM661N",
 }
 
-# OECD industrial production, quarterly index.
+# Industrial production, quarterly index.
 #
-# The UK is the exception. Its OECD quarterly series (PRINTO01GBQ661N) only starts in
-# 1997, which — after a 10-year rolling window — leaves a UK sample beginning in 2007,
-# entirely inside one stock-bond-correlation regime and therefore uninformative about the
-# regime shift the model exists to capture. GBRPROINDMISMEI is the same concept (total
-# industry production volume) back to 1948. On the 1998-2024 overlap the two agree
-# closely on year-on-year growth: correlation 0.923, mean gap +0.006pp.
+# The UK is the exception, and is sourced from the ONS rather than FRED. Its OECD
+# quarterly series (PRINTO01GBQ661N) only starts in 1997, which -- after a 10-year
+# rolling window -- leaves a UK sample beginning in 2007, entirely inside one
+# stock-bond-correlation regime and therefore uninformative about the regime shift the
+# model exists to capture. K222 ("IOP: B-E: PRODUCTION: CVMSA") is the ONS's own
+# seasonally adjusted chained-volume production index, published quarterly back to
+# 1948 Q1 -- the same sampling as every other market here, so it needs no special
+# treatment downstream.
 #
-# It is MONTHLY where the others are quarterly, and monthly year-on-year growth is more
-# volatile than quarterly (4.41 vs 3.86 on the overlap). Since sigma_g enters the model
-# as a RATIO, leaving that difference in would hand the UK a systematically inflated
-# growth volatility and a correspondingly deflated ratio. So it is resampled to quarterly
-# first and then flows through exactly the same transformation as every other market.
+# It is preferred over FRED's GBRPROINDMISMEI, which mirrors the same ONS concept but
+# is a stale vintage that ends 2024-03. On the 1948-2024 overlap the two agree almost
+# exactly where the data is settled (year-on-year growth correlation 0.999 pre-1970,
+# 1.000 for 1970-90, 0.975 overall) and diverge only around COVID, where revisions to
+# the primary series have not reached the mirror.
 IND_PROD_SERIES = {
     "US": "PRINTO01USQ661N", "DE": "PRINTO01DEQ661N", "JP": "PRINTO01JPQ661N",
-    "UK": "GBRPROINDMISMEI", "CH": "PRINTO01CHQ661N", "CA": "PRINTO01CAQ661N",
+    "UK": "ons:K222/DIOP", "CH": "PRINTO01CHQ661N", "CA": "PRINTO01CAQ661N",
 }
 
-# Series that arrive monthly and must be collapsed to quarterly for comparability.
-_MONTHLY_IND_PROD = {"UK"}
+
+def _fetch_one(sid: str) -> pd.Series:
+    """One series from whichever provider its identifier names.
+
+    ``ons:<CDID>/<DATASET>`` reads the ONS website JSON; anything else is a FRED id.
+    """
+    if sid.startswith("ons:"):
+        from macro.fetch_ons import ons_series
+        cdid, _, dataset = sid[len("ons:"):].partition("/")
+        return ons_series(cdid, dataset, freq="quarters")
+    from validation.fred_api import fred_series
+    return fred_series(sid)
 
 
-def _load(series: dict, path: Path, refresh: bool,
-          to_quarterly: frozenset = frozenset()) -> pd.DataFrame:
+def _load(series: dict, path: Path, refresh: bool) -> pd.DataFrame:
     """Fetch each series and assemble one frame.
 
-    ``to_quarterly`` names series that arrive MONTHLY and must be collapsed to quarters
-    BEFORE assembly. Doing it afterwards would be a silent disaster: a monthly index
-    unioned into a quarterly frame leaves every other column NaN on the intervening
-    months, and the downstream year-on-year transform is a positional ``shift(4)`` — so
-    on a mixed index "four rows back" silently stops meaning "four quarters back" for
-    every market, not just the monthly one.
+    Every series must arrive at the SAME frequency. The downstream year-on-year
+    transform is a positional ``shift(4)``, so a single column at a different frequency
+    would union extra rows into the index and silently stop "four rows back" meaning
+    "four quarters back" -- for every market, not just the odd one out.
     """
     if not refresh and path.exists():
         return pd.read_parquet(path)
-    from validation.fred_api import fred_series
     cols = {}
     for country, sid in series.items():
         try:
-            s = fred_series(sid).dropna()
+            s = _fetch_one(sid).dropna()
         except Exception as exc:                                    # noqa: BLE001
             logger.warning("fetch failed for %s (%s): %s", country, sid, exc)
             continue
         s.index = pd.DatetimeIndex(s.index)
-        if country in to_quarterly:
-            s = s.resample("QS").mean().dropna()
         cols[country] = s
     if not cols:
         raise RuntimeError(f"no series fetched for {path.name}")
@@ -93,13 +98,8 @@ def load_share_prices(refresh: bool = False) -> pd.DataFrame:
 
 
 def load_ind_prod(refresh: bool = False) -> pd.DataFrame:
-    """Quarterly industrial production index per market.
-
-    Markets in ``_MONTHLY_IND_PROD`` are sourced monthly and averaged to quarters, so
-    every column carries the same sampling and their growth volatilities are comparable.
-    """
-    return _load(IND_PROD_SERIES, IND_PROD_PARQUET, refresh,
-                 to_quarterly=frozenset(_MONTHLY_IND_PROD))
+    """Quarterly industrial production index per market."""
+    return _load(IND_PROD_SERIES, IND_PROD_PARQUET, refresh)
 
 
 def growth_yoy_monthly(refresh: bool = False) -> pd.DataFrame:

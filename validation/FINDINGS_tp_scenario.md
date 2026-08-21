@@ -12,7 +12,7 @@ Reproduce with `python -m validation.tp_scenario_fit`.
 
 ## The final link
 
-Term premium against the stock-bond correlation, annual observations, 1981-2023:
+Term premium against the stock-bond correlation, annual observations, 1981-2024:
 
 | | pooled | CA | CH | DE | JP | UK | US |
 |---|---|---|---|---|---|---|---|
@@ -24,8 +24,11 @@ and UK correlated ~0.00 and were excluded. Both turned out to be sample-span art
 rather than contradictions: their panels began only in 2007 and therefore sat entirely
 inside one correlation regime. Extending them fixed both —
 
-- **UK**: industrial production from `GBRPROINDMISMEI` (1948+) instead of the OECD
-  quarterly series (1997+). Sample 2007→1989, correlation +0.01 → **+0.62**.
+- **UK**: industrial production from the ONS's own **K222** ("IOP: B-E: PRODUCTION:
+  CVMSA", quarterly, 1948 Q1+) instead of the OECD quarterly series (1997+). Sample
+  2007→1989, correlation +0.01 → **+0.62**. Read from the ONS rather than FRED's mirror
+  of it, which is a stale vintage ending 2024-03 and only publishes the monthly figures
+  (see `FINDINGS_sbc.md`).
 - **Germany**: the binding constraint was never the premium but the **yield**, since the
   correlation is built from bond returns and the daily Bund curve starts 1997. The 10y is
   now reconstructed from the **monthly Bundesbank Svensson parameters** (1972+). Sample
@@ -41,17 +44,17 @@ parameters now use **all six**.
 
 | tenor | fair value | R² |
 |---|---|---|
-| 3y | TP\* = +0.63 + 2.97·SBC − 0.004·gap | 0.359 |
-| 10y | TP\* = +1.65 + 5.12·SBC − 0.027·gap | 0.408 |
+| 3y | TP\* = +0.62 + 2.95·SBC − 0.003·gap | 0.358 |
+| 10y | TP\* = +1.64 + 5.10·SBC − 0.025·gap | 0.407 |
 
-n=197 (was 154 before the history extensions).
+n=198 (was 154 before the history extensions).
 
-The SBC loading is **larger at 10y than 3y** (5.12 vs 2.97), which is the monotonicity
+The SBC loading is **larger at 10y than 3y** (5.10 vs 2.95), which is the monotonicity
 check this model has to pass: longer duration is more exposed to the inflation-risk
 channel. It was not imposed.
 
 The output gap enters with the right sign (slack lowers the premium) but adds almost
-nothing: R² 0.358→0.359 at 3y (+0.001) and 0.397→0.408 at 10y (+0.012). That is an honest
+nothing: R² 0.357→0.358 at 3y (+0.001) and 0.397→0.407 at 10y (+0.010). That is an honest
 negative on a *crude* proxy — this uses detrended industrial production, not the
 forecast-appended two-sided filter intended for production. Worth retrying with the proper
 gap; not worth claiming now.
@@ -60,12 +63,12 @@ gap; not worth claiming now.
 
 | tenor | λ (per year) | half-life | closed by 3y | closed by 10y |
 |---|---|---|---|---|
-| 3y | 0.417 | 1.3y | **80%** | 100% |
-| 10y | 0.264 | 2.3y | **60%** | 95% |
+| 3y | 0.424 | 1.3y | **81%** | 100% |
+| 10y | 0.269 | 2.2y | **61%** | 96% |
 
 I earlier guessed that a 3-year horizon would not be long enough to converge. The data
-says that is right for the 10y tenor (60%, well short) but much less so for the 3y tenor
-(80%). So:
+says that is right for the 10y tenor (61%, well short) but much less so for the 3y tenor
+(81%). So:
 
 - **The 10-year-horizon answer is fair value** at both tenors — starting point is
   irrelevant.
@@ -74,28 +77,28 @@ says that is right for the 10y tenor (60%, well short) but much less so for the 
 
 ## The output
 
-σ_g at the panel median (4.16pp), US starting points:
+σ_g at the panel median (4.13pp), US starting points:
 
 **10y term premium**
 
 | terminal core inflation | σ_π | implied SBC | fair value | TP @3y | TP @10y |
 |---|---|---|---|---|---|
-| 1.0% | 0.61pp | −0.14 | 0.96% | 0.96% | 0.96% |
-| 2.0% | 0.91pp | −0.09 | 1.21% | 1.11% | 1.20% |
-| 3.0% | 1.32pp | −0.02 | 1.55% | 1.32% | 1.52% |
-| 4.0% | 1.73pp | +0.05 | 1.89% | 1.52% | 1.84% |
-| 5.0% | 2.14pp | +0.11 | 2.23% | 1.72% | 2.17% |
+| 1.0% | 0.61pp | −0.13 | 0.96% | 0.96% | 0.96% |
+| 2.0% | 0.91pp | −0.09 | 1.19% | 1.11% | 1.18% |
+| 3.0% | 1.32pp | −0.03 | 1.51% | 1.30% | 1.48% |
+| 4.0% | 1.73pp | +0.03 | 1.82% | 1.49% | 1.78% |
+| 5.0% | 2.14pp | +0.10 | 2.13% | 1.68% | 2.08% |
 
 **3y term premium**
 
 | terminal core inflation | fair value | TP @3y | TP @10y |
 |---|---|---|---|
-| 2.0% | 0.37% | 0.20% | 0.37% |
-| 3.0% | 0.57% | 0.36% | 0.56% |
-| 4.0% | 0.77% | 0.51% | 0.76% |
+| 2.0% | 0.36% | 0.19% | 0.35% |
+| 3.0% | 0.54% | 0.34% | 0.53% |
+| 4.0% | 0.72% | 0.49% | 0.71% |
 
-Roughly **+0.34pp of 10y term premium per 1pp of terminal core inflation** above the Okun
-kink, and about +0.20pp at the 3y tenor. Below ~1.25% inflation the hockey stick flattens
+Roughly **+0.31pp of 10y term premium per 1pp of terminal core inflation** above the Okun
+kink, and about +0.18pp at the 3y tenor. Below ~1.25% inflation the hockey stick flattens
 and further disinflation buys nothing.
 
 ## Caveats
