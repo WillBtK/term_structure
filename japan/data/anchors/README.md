@@ -16,7 +16,14 @@ Releases are intermittent/irregular; the loader carries the last observation **f
 | `consensus_shortrate_6_10y.csv` | Consensus Economics **3-month interbank rate, 6–10y-ahead** forecast | Consensus (proprietary) | 2017+ | **Primary** nominal anchor, used directly within a staleness window |
 | `consensus_cpi_6_10y.csv` | Consensus Economics **CPI, 6–10y-ahead** forecast | Consensus (proprietary) | 1990+ | Inflation leg π^e of the public bridge |
 | `ferreira_rstar_jp.csv` | **Longer-run real neutral rate, Japan** | Fed FEDS Note "Real-Time Global Longer-Run Neutral Rates" (Davis-Ferreira / Ferreira-Shousha) | 1960+ semi-annual | Real leg r* of the public bridge |
-| `tankan_infl_5y.csv` | **Tankan 5-years-ahead** enterprise inflation expectation | Bank of Japan, "Inflation Outlook of Enterprises" | 2014+ quarterly | Public π^e fallback that maintains the anchor forward when Consensus lapses |
+| `tankan_infl_5y.csv` | **Tankan 5-years-ahead** general-price expectation, all enterprises, all industries | Bank of Japan Tankan summary, section 7 ("Inflation Outlook of Enterprises") | 2020Q1+ quarterly | Public π^e rung that maintains the anchor forward when Consensus lapses — used by `macro/inflation_expectations.py` |
+
+> Written by `python -m japan.fetch_tankan`, which parses the release PDF
+> (`tk/gaiyo/<era>/tka<yymm>.pdf`). The earlier fetcher scraped the standalone
+> "Inflation Outlook of Enterprises" release page; that release was discontinued after
+> 2019 and its page became a link-free archive index, so the scrape returned False on
+> every run and this file never existed. History starts 2020Q1 because pre-2020 rounds
+> published the table in a differently laid-out standalone PDF.
 
 ## How they combine (degradation ladder — see `neutral_anchor.py`)
 1. **Consensus 3m-interbank 6–10y** directly (2017+), carried forward up to ~1.5 releases.

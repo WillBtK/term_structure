@@ -147,36 +147,18 @@ def fetch_ferreira() -> bool:
 
 
 def fetch_tankan() -> bool:
-    """Scrape the BoJ 'Inflation Outlook of Enterprises' page for its data file and
-    extract the 5-years-ahead all-enterprises average. Best-effort; never raises.
-    (BoJ's comprehensive file is complex/Shift-JIS — confirm the parse on first CI run.)"""
-    try:
-        url = os.environ.get("TANKAN_CSV") or _find_data_href(TANKAN_NOTE)
-        if not url:
-            logger.warning("fetch_neutral: no Tankan data link found on %s", TANKAN_NOTE)
-            return False
-        raw = requests.get(url, headers=_UA, timeout=_TIMEOUT); raw.raise_for_status()
-        if url.lower().split("?")[0].endswith(("xlsx", "xls")):
-            df = pd.read_excel(io.BytesIO(raw.content), header=None)
-        else:
-            txt = raw.content.decode("shift_jis", "replace")
-            df = pd.read_csv(io.StringIO(txt), header=None)
-        # Heuristic: a row of quarterly period labels + a '5 year'/'5-year' column tag.
-        flat = df.astype(str)
-        col5 = None
-        for j in range(flat.shape[1]):
-            if flat[j].str.contains(r"5\s*[- ]?\s*year", case=False, regex=True).any():
-                col5 = j; break
-        if col5 is None:
-            logger.warning("fetch_neutral: no '5-year' column found in Tankan file -> keeping committed file")
-            return False
-        per = df.iloc[:, 0].map(lambda v: pd.to_datetime(str(v), errors="coerce"))
-        s = pd.Series(pd.to_numeric(df.iloc[:, col5], errors="coerce").to_numpy(), index=per)
-        s = s[s.index.notna()]
-        return _write_if_ok("tankan_infl_5y.csv", s)
-    except Exception as e:                                         # noqa: BLE001
-        logger.warning("fetch_neutral: Tankan refresh failed (%s) -> keeping committed file", e)
-        return False
+    """Delegates to japan.fetch_tankan.
+
+    This used to scrape the standalone "Inflation Outlook of Enterprises" release page
+    for a data link. That release was discontinued after 2019 and its landing page became
+    an archive index -- still HTTP 200, but listing only the 2014 and 2016 sub-directories
+    and carrying no data link at all -- so the scrape found nothing, logged a warning and
+    returned False on every run since it was written. The rung was documented in the
+    anchors README as Japan's public fallback and never once produced a file. The table
+    now lives in section 7 of the main Tankan summary PDF, which the new module parses.
+    """
+    from japan.fetch_tankan import fetch_tankan as _fetch
+    return _fetch()
 
 
 def main() -> None:

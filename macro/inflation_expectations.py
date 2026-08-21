@@ -20,16 +20,13 @@ overlap, so the handover leaves no step to be misread as a change of view.
     DE   Consensus 6-10y                       <-  ECB SPF longer-term
     UK   Consensus 6-10y                       <-  BoE Market Participants Survey, CPI
                                                    five years ahead
-    JP   Consensus 6-10y                       <-  nothing public
+    JP   Consensus 6-10y                       <-  Tankan, general prices five years
+                                                   ahead (see japan/fetch_tankan.py)
 
-Japan has no rung, and the module says so out loud rather than freezing quietly: past
-the staleness window it logs a warning naming the last observation. Two things make that
-tolerable rather than a hole. The Bank of Japan publishes its Tankan inflation outlook
-only through a search interface with no stable file, and no Japanese long-horizon survey
-is both public and machine-readable. And Japan's inflation coefficients are borrowed from
-the US anyway -- six of its 388 monthly observations sit above the inflation target -- so
-its expectations series carries almost no weight in the fit. If that changes, the rung is
-one entry in EXTENDERS.
+A rung sits idle while its anchor is current -- which is true of all four today -- and
+takes over the month the anchor stops moving. Past the staleness window with no rung
+reaching further, the module logs a warning naming the last observation rather than
+freezing quietly.
 
 These are the same anchors the term-premium decomposition uses for its shifting
 endpoints, so the driver model and the premium it explains read the same view of
@@ -61,7 +58,8 @@ EXTENDERS = {
     "US": [("EXPINF10YR", "Cleveland Fed 10y expected inflation")],
     "DE": [("germany/data/anchors/ecb_spf_infl_lt.csv", "ECB SPF longer-term")],
     "UK": [("uk/data/anchors/boe_mps_cpi_5y.csv", "BoE MPS, CPI five years ahead")],
-    "JP": [],
+    "JP": [("japan/data/anchors/tankan_infl_5y.csv",
+            "Tankan, general prices five years ahead")],
 }
 
 # How long an anchor may sit unrefreshed before the absence of a rung is worth saying.
@@ -99,7 +97,10 @@ def _bridge(base: pd.Series, rung: pd.Series, label: str, country: str,
     would be read as a change of view rather than a change of source. Subtracting the
     mean gap over the overlap removes it. Inside the anchor's own span nothing changes.
     """
-    rung = rung.resample("MS").mean()
+    # Forward-filled to monthly on the same reasoning as the anchor: a survey round is
+    # the prevailing view until the next one. Without this a quarterly rung contributes
+    # one point per quarter to the overlap count and is refused for being too thin.
+    rung = rung.resample("MS").mean().ffill()
     both = pd.concat([base.rename("a"), rung.rename("b")], axis=1).dropna()
     if len(both) < min_overlap:
         logger.info("  %s: %s overlaps the anchor by only %d months (<%d) -- not used",
