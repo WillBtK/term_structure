@@ -29,6 +29,8 @@ _TIMEOUT = 60
 # its identifier, so the path has to be known per source dataset.
 DATASET_PATHS = {
     "diop": "economy/economicoutputandproductivity/output",
+    "ukea": "economy/grossdomesticproductgdp",
+    "pusf": "economy/governmentpublicsectorandtaxes/publicsectorfinance",
 }
 
 _QUARTER_MONTH = {"Q1": "01", "Q2": "04", "Q3": "07", "Q4": "10"}
