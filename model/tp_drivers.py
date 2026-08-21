@@ -179,7 +179,7 @@ def _us_holdings(index: pd.DatetimeIndex) -> pd.DataFrame:
 def build_panel(country: str = "US") -> pd.DataFrame:
     """Monthly panel of one market's term premium and its drivers."""
     from macro.debt_gdp import history as debt_history
-    from macro.fetch_core_cpi import core_inflation_yoy
+    from macro.fetch_core_cpi import core_inflation_vol
     from macro.inflation_expectations import expectations
     from macro.tp_history import spliced_tp
 
@@ -197,8 +197,7 @@ def build_panel(country: str = "US") -> pd.DataFrame:
     debt = debt_history(country)
     debt.index = pd.DatetimeIndex([pd.Timestamp(int(y), 1, 1) for y in debt.index])
     d["debt_gdp"] = debt.reindex(d.index.union(debt.index)).ffill().reindex(d.index)
-    d["inflation_uncertainty"] = core_inflation_yoy()[country].rolling(60).std().reindex(
-        d.index).ffill()
+    d["inflation_uncertainty"] = core_inflation_vol()[country].reindex(d.index).ffill()
     keep = ["tp", *dict.fromkeys((*DRIVERS, *(US_DRIVERS if country == "US" else ())))]
     return d[[c for c in keep if c in d]].dropna()
 

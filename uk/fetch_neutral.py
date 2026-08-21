@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 ANCHOR_DIR = Path(__file__).resolve().parent / "data" / "anchors"
 OUT = "boe_mps_neutral.csv"
+OUT_CPI = "boe_mps_cpi_5y.csv"
 _URL = ("https://www.bankofengland.co.uk/-/media/boe/files/markets/market-intelligence/"
         "survey/{year}/market-participants-survey-results-{month}-{year}.xlsx")
 _MONTHS = ["january", "february", "march", "april", "may", "june",
@@ -70,11 +71,42 @@ def _round_value(content: bytes):
     return None
 
 
+def _round_cpi(content: bytes):
+    """Median five-years-ahead CPI inflation from one round's workbook, or None.
+
+    The MPS asks its inflation question on a sheet whose rows run 'End-2026 Q2 ...
+    One year ahead ... Five years ahead'. That last row is the UK's public long-run
+    inflation expectation, and it is what keeps the Consensus anchor current once the
+    proprietary snapshot goes stale. The sheet is found by its row labels rather than by
+    name, since the question numbering drifts between rounds -- and it is distinguished
+    from the Bank Rate sheet, which also carries a 'Five years ahead' row, by having no
+    MPC meeting dates in it.
+    """
+    x = pd.read_excel(io.BytesIO(content), sheet_name=None, header=None)
+    for name, df in x.items():
+        if 0 not in df.columns:
+            continue
+        col0 = df[0].astype(str)
+        if col0.str.contains("MPC", na=False).sum() >= 3:
+            continue                                  # that is the Bank Rate path
+        if not col0.str.contains(r"(?:One|Two|Three) years? ahead", case=False,
+                                 regex=True, na=False).any():
+            continue                                  # inflation path has this ladder
+        hdr = df.iloc[0].astype(str).str.lower().tolist()
+        cols = [i for i, h in enumerate(hdr) if "50th" in h]
+        rows = df[col0.str.contains("Five years ahead", case=False, na=False)]
+        if cols and len(rows):
+            v = pd.to_numeric(rows.iloc[0, cols[0]], errors="coerce")
+            if pd.notna(v) and 0.0 <= float(v) <= 10.0:
+                return float(v)
+    return None
+
+
 def fetch_boe_mps(out_dir: "Path | None" = None) -> bool:
     """Crawl every round since 2022 and write the median series."""
     import requests
     out = Path(out_dir) if out_dir is not None else ANCHOR_DIR
-    rows = []
+    rows, cpi = [], []
     today = pd.Timestamp.today()
     try:
         for year in range(FIRST_YEAR, today.year + 1):
@@ -86,10 +118,14 @@ def fetch_boe_mps(out_dir: "Path | None" = None) -> bool:
                                      headers={"User-Agent": "Mozilla/5.0"})
                     if r.status_code != 200 or b"PK" != r.content[:2]:  # xlsx = zip
                         continue
+                    stamp = pd.Timestamp(year=year, month=mi, day=15)
                     got = _round_value(r.content)
                     if got:
-                        rows.append({"date": pd.Timestamp(year=year, month=mi, day=15),
-                                     "value": got[0], "question": got[1]})
+                        rows.append({"date": stamp, "value": got[0],
+                                     "question": got[1]})
+                    infl = _round_cpi(r.content)
+                    if infl is not None:
+                        cpi.append({"date": stamp, "value": infl})
                 except Exception as exc:                            # noqa: BLE001
                     logger.debug("MPS %s-%d: %s", month, year, exc)
         if len(rows) < 8:
@@ -104,6 +140,15 @@ def fetch_boe_mps(out_dir: "Path | None" = None) -> bool:
         logger.info("BoE MPS: %d rounds %s..%s (%d neutral-question, %d five-year); "
                     "latest %.2f%%", len(df), df["date"].min().date(),
                     df["date"].max().date(), n_neu, len(df) - n_neu, df["value"].iloc[-1])
+        if len(cpi) >= 8:
+            c = pd.DataFrame(cpi).sort_values("date")
+            c.to_csv(out / OUT_CPI, index=False)
+            logger.info("BoE MPS 5y CPI: %d rounds %s..%s, latest %.2f%%", len(c),
+                        c["date"].min().date(), c["date"].max().date(),
+                        c["value"].iloc[-1])
+        else:
+            logger.warning("BoE MPS 5y CPI: only %d rounds parsed - keeping committed "
+                           "file", len(cpi))
         return True
     except Exception as exc:                                        # noqa: BLE001
         logger.warning("BoE MPS fetch failed (%s) — keeping committed file", exc)
