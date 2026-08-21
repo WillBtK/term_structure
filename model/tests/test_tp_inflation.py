@@ -4,8 +4,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from model.tp_inflation import (TARGET_KINK, UPPER_KINK, InflationShape,
-                                ewma_level, fit_constrained, fit_shape)
+from model.tp_inflation import (HIGH_SLOPE_FLOOR, TARGET_KINK, UPPER_KINK,
+                                InflationShape, ewma_level, fit_constrained,
+                                fit_shape)
 
 
 def _series(pi, tp):
@@ -47,8 +48,8 @@ def test_shared_upper_branch_rescues_a_market_with_no_high_inflation_data():
         noise = rng.normal(0, 0.05 if name != "DE" else 0.6, len(pi))
         tpm[name], pim[name] = _series(pi, truth.premium(pi) + noise)
     out = fit_constrained(tpm, pim, identified=("US", "UK"))
-    shared = out.pop("_shared_high")
-    assert abs(shared - truth.slope_high) < 0.1
+    shared = out.pop("_shared_high_fitted")
+    assert abs(shared - truth.slope_high) < 0.1     # the UNfloored estimate
     for c, s in out.items():
         assert s.slope_high > 0, f"{c} upper branch went negative"
         assert s.premium(6.0) > s.premium(5.0), f"{c} premium falls as inflation rises"
@@ -67,3 +68,24 @@ def test_settled_inflation_is_its_own_ewma():
     idx = pd.date_range("2000-01-01", periods=400, freq="MS")
     flat = pd.Series(4.0, index=idx)
     assert abs(ewma_level(flat).iloc[-1] - 4.0) < 1e-6
+
+
+def test_the_premium_never_falls_as_inflation_rises():
+    """The constraint that matters most. A premium that declines in a rising-inflation
+    world is not something any investor would accept, however well it fits."""
+    rng = np.random.default_rng(3)
+    # A market whose data genuinely suggests a FLAT or falling upper branch.
+    wide = np.linspace(0.5, 9.0, 500)
+    truth = InflationShape(0.5, 1.2, -1.35, UPPER_KINK, np.nan, 0)   # upper slope -0.15
+    tpm, pim = {}, {}
+    for name in ("US", "UK", "DE"):
+        idx = pd.date_range("1980-01-01", periods=len(wide), freq="MS")
+        tpm[name] = pd.Series(truth.premium(wide) + rng.normal(0, .05, len(wide)), index=idx)
+        pim[name] = pd.Series(wide, index=idx)
+    out = fit_constrained(tpm, pim, identified=("US", "UK"))
+    out.pop("_shared_high_fitted")
+    grid = np.arange(0.0, 12.01, 0.25)
+    for c, s in out.items():
+        assert s.slope_high >= HIGH_SLOPE_FLOOR * s.slope_mid - 1e-9, c
+        p = s.premium(grid)
+        assert np.all(np.diff(p) >= -1e-9), f"{c} premium falls as inflation rises"

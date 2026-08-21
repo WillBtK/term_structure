@@ -97,6 +97,17 @@ def fit_shape(tp: pd.Series, inflation_ewma: pd.Series,
 
 UPPER_KINK = 5.0           # imposed, not searched -- see fit_constrained
 
+# The high-inflation marginal effect is floored at this fraction of the market's own
+# 2-to-5% slope. This is a judgement, applied openly. The data does say the response
+# flattens above 5%, but a flattening all the way to zero would mean inflation risk
+# simply stops being priced once inflation is high -- which no investor believes and no
+# committee would accept. Since every high-inflation observation we have comes from a
+# disinflation with improving credibility, the flat reading is exactly what a sample of
+# descents would produce, and it is the wrong analogue for a scenario going the other
+# way. Flooring keeps the curve monotone in inflation by construction rather than by
+# luck, and it binds only where the fit had gone implausibly flat.
+HIGH_SLOPE_FLOOR = 1.0 / 3.0
+
 
 def fit_constrained(tp_by_market: dict, pi_by_market: dict,
                     identified=("US", "UK")) -> dict:
@@ -125,13 +136,18 @@ def fit_constrained(tp_by_market: dict, pi_by_market: dict,
     y = np.concatenate(pool_y)
     X = np.vstack(pool_x)
     b, _, _ = _ols(y, [X[:, 0], X[:, 1]])
-    g = float(b[1] + b[2])                     # the shared marginal effect above 5%
+    g_fitted = float(b[1] + b[2])              # the shared marginal effect above 5%
 
-    out = {"_shared_high": g}
+    out = {"_shared_high_fitted": g_fitted}
     for c, tp in tp_by_market.items():
         d = pd.DataFrame({"tp": tp, "pi": pi_by_market[c]}).dropna()
         pi = d["pi"].values
         mid = np.maximum(pi - TARGET_KINK, 0.0) - np.maximum(pi - UPPER_KINK, 0.0)
+        adj = d["tp"].values - g_fitted * np.maximum(pi - UPPER_KINK, 0.0)
+        bb, r, _ = _ols(adj, [mid])
+        # Floor the upper branch, then re-fit the level so the curve still passes
+        # through the data rather than being shifted by the adjustment.
+        g = max(g_fitted, HIGH_SLOPE_FLOOR * float(bb[1]))
         adj = d["tp"].values - g * np.maximum(pi - UPPER_KINK, 0.0)
         bb, r, _ = _ols(adj, [mid])
         fitted = (bb[0] + bb[1] * mid + g * np.maximum(pi - UPPER_KINK, 0.0))

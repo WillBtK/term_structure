@@ -41,27 +41,41 @@ and turning the German 3-year premium to −0.39% at 6%. That is not a finding, 
 running out of data. Each market keeps its own intercept and its own 2-to-5% sensitivity,
 which is where the real cross-market differences are and where every market has data.
 
+## Monotonicity is imposed, not hoped for
+
+The unconstrained fit says the marginal effect above 5% is **+0.339** at ten years and
+**+0.107** at three — the second close enough to zero that another point of inflation
+would add 11bp. Taken literally that means inflation risk stops being priced once
+inflation is high, which no investor believes and no committee would accept.
+
+It is also exactly what our sample would produce whether or not it were true. **Every
+high-inflation observation we have is a disinflation** with improving credibility, and
+that is the wrong analogue for a scenario going the other way.
+
+So the high-inflation slope is **floored at one third of each market's own 2-to-5%
+slope**. This is a judgement, applied openly and in one place (`HIGH_SLOPE_FLOOR`). It
+costs almost nothing in fit — the ten-year US R² moves 0.822 to 0.824 — and it makes the
+curve non-decreasing in inflation **by construction**, which is asserted in the tests
+rather than left to luck. It binds at three years for every market and at ten years for
+the US and Germany.
+
 ## Fitted, 10-year term premium
 
-Shared marginal effect above 5%: **+0.339**
-
-| market | n | at target | slope 2-5% | R² | 2% | 3% | 4% | 5% | 6% |
-|---|---|---|---|---|---|---|---|---|---|
-| US | 659 | −0.08% | +1.158 | 0.822 | −0.08 | +1.08 | +2.24 | +3.40 | +3.73 |
-| UK | 570 | +0.52% | +0.883 | 0.767 | +0.52 | +1.41 | +2.29 | +3.17 | +3.51 |
-| DE | 646 | +0.96% | +1.417 | 0.547 | +0.96 | +2.37 | +3.79 | +5.21 | +5.55 |
-| JP | 622 | +1.26% | +0.807 | 0.479 | +1.26 | +2.06 | +2.87 | +3.68 | +4.02 |
+| market | n | at target | slope 2-5% | slope >5% | R² | 3% | 4% | 5% | 6% | 8% |
+|---|---|---|---|---|---|---|---|---|---|---|
+| US | 659 | −0.07% | +1.135 | +0.386 | 0.824 | +1.07 | +2.20 | +3.34 | +3.72 | +4.50 |
+| UK | 570 | +0.52% | +0.883 | +0.339 | 0.767 | +1.41 | +2.29 | +3.17 | +3.51 | +4.19 |
+| DE | 646 | +0.96% | +1.412 | +0.472 | 0.546 | +2.37 | +3.78 | +5.19 | +5.67 | +6.61 |
+| JP | 622 | +1.26% | +0.807 | +0.339 | 0.479 | +2.06 | +2.87 | +3.68 | +4.02 | +4.69 |
 
 ## Fitted, 3-year term premium
 
-Shared marginal effect above 5%: **+0.107**
-
-| market | n | at target | slope 2-5% | R² | 2% | 3% | 4% | 5% | 6% |
-|---|---|---|---|---|---|---|---|---|---|
-| US | 781 | −0.15% | +0.636 | 0.590 | −0.15 | +0.48 | +1.12 | +1.76 | +1.86 |
-| UK | 570 | +0.08% | +0.466 | 0.498 | +0.08 | +0.55 | +1.01 | +1.48 | +1.59 |
-| DE | 646 | +0.34% | +0.849 | 0.375 | +0.34 | +1.19 | +2.03 | +2.88 | +2.99 |
-| JP | 620 | +0.36% | +0.416 | 0.405 | +0.36 | +0.78 | +1.20 | +1.61 | +1.72 |
+| market | n | at target | slope 2-5% | slope >5% | R² | 3% | 4% | 5% | 6% | 8% |
+|---|---|---|---|---|---|---|---|---|---|---|
+| US | 781 | −0.13% | +0.589 | +0.212 | 0.591 | +0.46 | +1.05 | +1.64 | +1.85 | +2.27 |
+| UK | 570 | +0.09% | +0.406 | +0.155 | 0.496 | +0.50 | +0.91 | +1.31 | +1.47 | +1.78 |
+| DE | 646 | +0.34% | +0.842 | +0.283 | 0.371 | +1.18 | +2.02 | +2.87 | +3.15 | +3.72 |
+| JP | 620 | +0.37% | +0.382 | +0.139 | 0.381 | +0.75 | +1.13 | +1.51 | +1.65 | +1.93 |
 
 ## The sentence this is for
 
@@ -90,10 +104,10 @@ historical episodes count as high-inflation when fitting.
    of the independent regime-switching exhibit on the level, with a correlation of
    **+0.111** on the path. It anchors where the premium settles; it does not track it.
 
-3. **The upper branch comes from disinflations.** Every high-inflation observation in the
-   clean windows is an inflation *descent* with improving credibility. An ascent with
-   deteriorating credibility is a different experiment that we have not observed, and the
-   flattening above 5% may not survive one.
+3. **The upper branch comes from disinflations, and is floored for that reason.** Every
+   high-inflation observation is an inflation *descent* with improving credibility. An
+   ascent is a different experiment we have not observed. The floor is the honest
+   response: it says we do not believe the flat reading, and states by how much.
 
 4. **The balance sheet is a control, not a driver.** It improves the QE-era fit modestly,
    is worth roughly 2bp under a neutral policy, and belongs nowhere near a committee
