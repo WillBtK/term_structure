@@ -5,17 +5,18 @@
 Monthly US term premia for `WillBtK/imf_fiscal_sensitivity`, which regresses yields and
 premia on CBO fiscal projections and currently uses ACM.
 
-**Fetch it the same way that repo fetches CBO** — `raw.githubusercontent.com` works,
-no new plumbing:
+**Clone the repo — do not use a raw URL.** An earlier version of this file said to
+fetch over `raw.githubusercontent.com` "the same way that repo fetches CBO". That was
+wrong: the CBO mirrors are public, **this repo is private**, and
+`raw.githubusercontent.com` returns 404 for private repos regardless of caller or token
+in the URL.
 
-```python
-import pandas as pd
-URL = ("https://raw.githubusercontent.com/WillBtK/term_structure/main/"
-       "exports/us_term_premia_monthly.csv")
-tp = pd.read_csv(URL, index_col="month", parse_dates=True)
+```bash
+git clone --depth 1 https://github.com/WillBtK/term_structure /home/user/term_structure
 ```
 
-Regenerate with `python -m exports.term_premia_monthly`.
+then read `exports/us_term_premia_monthly.csv` from the checkout. Regenerate it with
+`python -m exports.term_premia_monthly`.
 
 ### What it adds over ACM
 
