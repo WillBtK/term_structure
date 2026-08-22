@@ -39,11 +39,21 @@ from scenarios.engine import load_scenario, latest_states, debt_projections, run
 | step | what happens |
 |---|---|
 | **Term premium** | the driver models price the scenario's *change*; today's observed premium supplies the level |
-| **Yield** | `y(h) = y(0) + ΔTP + ΔP̄`, `P̄` the ten-year average of your policy path |
+| **Yield** | `y(h) = TP(h) + P̄(h)`, `P̄` the ten-year average of your policy path |
 | **Return** | Leibowitz constant-maturity: `R = y₀ + (Δy/H)·((H+1)/2 − D)`, deflated by your own inflation path for the real figure |
 
-Anchoring is the discipline: the model supplies changes, never levels, so whatever it
-cannot explain today it carries forward untouched instead of forecasting away.
+**Only the premium is anchored**, and the asymmetry is deliberate. The driver model
+cannot explain today's premium level and should not pretend to, so its residual is
+carried forward untouched. The expectations leg is different: your policy path *is* your
+forecast of the expected average short rate, so taking only its change and discarding
+its level would throw away the view you came to express.
+
+Today's curve prices an expected average of `y(0) − TP(0)` — 3.11% for the US against a
+4.75% yield and a 1.63% premium. A path averaging 3.50% says the market is 39bp too low,
+and that belongs in the answer: it raises every projected yield and costs return. Every
+result carries `policy_gap` so the disagreement is visible rather than buried, and an
+unchanged scenario returns today's yield **only when your path matches what is priced**
+— which is where the sheet opens.
 
 ## The two inflation channels
 

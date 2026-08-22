@@ -81,6 +81,9 @@ svg{display:block;width:100%;height:auto;overflow:visible}
 .res dt{color:var(--muted)}
 .res dd{margin:0;text-align:right;font-family:"IBM Plex Mono",monospace}
 .pos{color:var(--pos)}.neg{color:var(--neg)}
+.res dt.tot,.res dd.tot{padding-top:5px;margin-top:3px;border-top:1px solid var(--rule-soft);
+  font-weight:600;color:var(--ink)}
+.gapnote{font-size:11.5px;line-height:1.45;color:var(--muted);margin:10px 0 0}
 .legend{display:flex;gap:14px;font-size:11.5px;color:var(--ink-2);align-items:center;margin-bottom:2px}
 .sw{display:inline-block;width:14px;height:2px;margin-right:5px;vertical-align:middle;border-radius:1px}
 footer{border-top:1px solid var(--rule);padding-top:18px;color:var(--muted);font-size:12.5px;max-width:80ch}
@@ -99,8 +102,10 @@ footer{border-top:1px solid var(--rule);padding-top:18px;color:var(--muted);font
   <p class="lede">Three annual projections per market &mdash; policy rate, headline inflation, real growth &mdash;
   mapped through the term&#8209;premium driver models to a ten&#8209;year yield and a constant&#8209;maturity return,
   in three years' time and in ten. Growth is context: it is assumed to have landed on your policy path already.
-  Every projection is anchored on today's observed yield &mdash; the model supplies the change, never the level,
-  so whatever it cannot explain today it carries forward untouched rather than forecasting away.</p>
+  The yield is the premium plus the average policy rate your path implies over the bond's life &mdash;
+  so your rate view is taken literally, and disagreeing with what the curve prices shows up as a
+  capital gain or loss. The premium alone is anchored: whatever the model cannot explain today
+  it carries forward untouched rather than forecasting away.</p>
   <div class="tabs" role="tablist" id="tabs"></div>
 </header>
 
@@ -147,8 +152,11 @@ const ROWS = [["policy_rate","Policy rate"],["inflation","Inflation (headline)"]
               ["real_growth","Real growth"]];
 let market = "US", S = {};
 
-/* ---- The neutral opening: policy flat (so the ten-year average never moves, whatever
-   the level) and inflation at the market's SURVEYED long-run expectation.
+/* ---- The neutral opening: policy flat at the average the CURVE already prices
+   (y - TP), and inflation at the market's SURVEYED long-run expectation. Opening on
+   the curve's own number is what makes "no view" return today's yield: the policy
+   path's level is taken literally, so a path above what is priced is a real
+   disagreement and moves the yield.
    No single flat path zeroes both inflation channels, and that is correct rather than
    a defect: the premium reads a long-run EXPECTATION, which the survey puts at
    2.3% for the US, while the uncertainty channel measures departures from where
@@ -157,10 +165,11 @@ let market = "US", S = {};
    about +0.1 on the volatility driver, seven basis points of premium. The
    expectations channel, which carries fifteen times the weight, is exactly neutral. */
 function defaults(c){
-  const m = D.markets[c], sh = m.hist.short.v, last = sh[sh.length-1];
+  const m = D.markets[c];
+  const curve = m.y_today - m.tp_today;   // the market's own expected average policy
   const o = {policy_rate:{}, inflation:{}, real_growth:{}};
   for(let y=1;y<=NYRS;y++){
-    o.policy_rate[y] = +last.toFixed(2);
+    o.policy_rate[y] = +curve.toFixed(2);
     o.inflation[y]   = +m.drivers.expected_inflation.toFixed(2);
     o.real_growth[y] = 1.5;
   }
@@ -245,12 +254,13 @@ function compute(c){
       tp[h] = M.tp_today + (spreadPremium(c, usH[h], ownH, tpUs[h]) - p0);
     });
   }
-  const pbar0 = fwdAvg(sc.policy_rate, 0);
+  const curve = M.y_today - M.tp_today;              // what the market prices
+  const gap = fwdAvg(sc.policy_rate, 0) - curve;
   return HORIZONS.map(h => {
     const pbar = fwdAvg(sc.policy_rate, h);
-    const y = M.y_today + (tp[h] - tp[0]) + (pbar - pbar0);
+    const y = tp[h] + pbar;                          // the identity, not a difference
     const nom = leibowitz(M.y_today, y, h, M.duration);
-    return {h, tp: tp[h], pbar, y, nom, real: realRet(nom, sc, h)};
+    return {h, tp: tp[h], pbar, y, nom, real: realRet(nom, sc, h), curve, gap};
   });
 }
 
@@ -331,7 +341,8 @@ function renderResults(){
       <div class="sub">ten-year yield &middot; ${(r.y-M.y_today>=0?"+":"")}${(r.y-M.y_today).toFixed(2)}pp vs today</div>
       <dl>
         <dt>Term premium</dt><dd>${r.tp>=0?"+":""}${r.tp.toFixed(2)}%</dd>
-        <dt>Avg policy, next 10y</dt><dd>${r.pbar.toFixed(2)}%</dd>
+        <dt>+ avg policy, next 10y</dt><dd>${r.pbar.toFixed(2)}%</dd>
+        <dt class="tot">= ten-year yield</dt><dd class="tot">${r.y.toFixed(2)}%</dd>
         <dt>Return, nominal p.a.</dt><dd class="${sign(r.nom)}">${r.nom>=0?"+":""}${r.nom.toFixed(2)}%</dd>
         <dt>Return, real p.a.</dt><dd class="${sign(r.real)}">${r.real>=0?"+":""}${r.real.toFixed(2)}%</dd>
       </dl>
@@ -342,10 +353,17 @@ function renderResults(){
       <div class="sub">ten-year yield &middot; the anchor for both projections</div>
       <dl>
         <dt>Term premium</dt><dd>${M.tp_today>=0?"+":""}${M.tp_today.toFixed(2)}%</dd>
+        <dt>+ avg policy priced</dt><dd>${rows[0].curve.toFixed(2)}%</dd>
+        <dt class="tot">= ten-year yield</dt><dd class="tot">${M.y_today.toFixed(2)}%</dd>
+        <dt>Your path vs priced</dt><dd class="${rows[0].gap>=0?"neg":"pos"}">${rows[0].gap>=0?"+":""}${rows[0].gap.toFixed(2)}pp</dd>
         <dt>Macaulay duration</dt><dd>${M.duration.toFixed(1)}y</dd>
-        <dt>Core inflation</dt><dd>${M.ewma.last.toFixed(2)}%</dd>
-        <dt>Price-insensitive</dt><dd>${M.drivers.price_insensitive.toFixed(1)}% GDP</dd>
       </dl>
+      <p class="gapnote">${Math.abs(rows[0].gap) < 0.05
+        ? "Your policy path matches what the curve prices, so the projections start from today's yield."
+        : "Your policy path averages " + Math.abs(rows[0].gap).toFixed(2) + "pp "
+          + (rows[0].gap > 0 ? "above" : "below") + " what the curve prices. That disagreement is"
+          + " carried into every projected yield, and " + (rows[0].gap > 0 ? "costs" : "adds to")
+          + " return."}</p>
     </div>`;
 }
 function render(){
@@ -398,7 +416,9 @@ document.getElementById("export").onclick = async () => {
 document.getElementById("foot").innerHTML =
   `Term premia from the AFNS + Christensen&ndash;Rudebusch shadow-rate models; the premium responds to your
    inflation path through long-run expectations and their volatility, plus the committed debt projection.
-   Yield = today's yield + the change in premium + the change in the ten-year average of your policy path.
+   Yield = term premium + the ten-year average of your policy path, the identity the results card sets out.
+   Only the premium is anchored to today; your policy path's LEVEL is taken at face value, so a path above
+   what the curve prices raises every projected yield and costs return.
    Return is the Leibowitz constant-maturity approximation on a ${D.markets.US.duration.toFixed(1)}-year-duration
    position, deflated by your own inflation path for the real figure. These are sensitivities, not forecasts:
    the scenario carries the uncertainty. Japan is directional only &mdash; its beta on the US premium is 0.74

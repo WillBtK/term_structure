@@ -114,40 +114,63 @@ def test_a_swinging_path_raises_uncertainty_a_flat_one_does_not():
 
 # ----------------------------------------------------------------- the full chain
 
-def _flat_everything():
-    """A scenario that reproduces today exactly: policy at the level whose 10y
-    average shifts nothing (any flat path does -- Pbar(h)=Pbar(0)), inflation at
-    today's expectation, drivers pinned at today."""
-    return flat_scenario(policy=3.0, infl=TODAY["expected_inflation"],
+CURVE = STATE.y_today - STATE.tp_today          # what today's curve prices
+
+
+def _flat_everything(policy=CURVE):
+    """The genuinely neutral scenario: a policy path whose ten-year average equals
+    what the curve already prices, inflation at today's expectation, drivers pinned."""
+    return flat_scenario(policy=policy, infl=TODAY["expected_inflation"],
                          price_insensitive={i: TODAY["price_insensitive"]
                                             for i in range(1, 4)},
                          debt_gdp={i: TODAY["debt_gdp"] for i in range(1, 4)})
 
 
-def test_an_unchanged_scenario_returns_todays_yield_and_carry():
-    sc = _flat_everything()
-    tp = {0: STATE.tp_today}
+def _rows(sc, state=STATE, model=US_MODEL):
+    tp = {0: state.tp_today}
     for h in HORIZONS:
-        d = drivers_at(STATE, sc, h)
-        tp[h] = US_MODEL.scenario(STATE.drivers_today, d, STATE.tp_today)
-    rows = run_market(STATE, sc, tp)
-    for r in rows:
+        tp[h] = model.scenario(state.drivers_today, drivers_at(state, sc, h),
+                               state.tp_today)
+    return run_market(state, sc, tp)
+
+
+def test_the_yield_is_always_the_premium_plus_the_expected_policy_average():
+    """The identity the results card asserts. It must hold exactly, for every
+    scenario -- not just the neutral one."""
+    for policy in (CURVE, CURVE + 1.5, 0.5):
+        for r in _rows(_flat_everything(policy=policy)):
+            assert r.yield_10y == pytest.approx(r.tp + r.policy_avg, abs=1e-12)
+
+
+def test_a_policy_path_matching_the_curve_returns_todays_yield_and_carry():
+    for r in _rows(_flat_everything()):
+        assert r.policy_gap == pytest.approx(0.0, abs=1e-9)
         assert r.yield_10y == pytest.approx(STATE.y_today, abs=1e-9)
         assert r.nominal_return == pytest.approx(STATE.y_today, abs=1e-9)
 
 
+def test_a_policy_view_above_the_curve_raises_the_yield_and_costs_return():
+    """The whole point of taking the level: disagreeing with the market has to show
+    up as a capital loss, not be quietly discarded."""
+    base, hawk = _rows(_flat_everything()), _rows(_flat_everything(policy=CURVE + 0.5))
+    for b, h in zip(base, hawk):
+        assert h.policy_gap == pytest.approx(0.5, abs=1e-9)
+        assert h.yield_10y == pytest.approx(b.yield_10y + 0.5, abs=1e-9)
+        assert h.nominal_return < b.nominal_return
+
+
+def test_the_policy_gap_is_measured_against_the_curve_not_the_scenario():
+    r = _rows(_flat_everything(policy=CURVE + 0.4))[0]
+    assert r.curve_expected == pytest.approx(CURVE, abs=1e-12)
+    assert r.policy_gap == pytest.approx(0.4, abs=1e-9)
+
+
 def test_higher_inflation_means_higher_yield_and_lower_three_year_return():
-    base, hot = _flat_everything(), None
-    hot = flat_scenario(policy=3.0, infl=4.5,
+    base = _flat_everything()
+    hot = flat_scenario(policy=CURVE, infl=4.5,
                         price_insensitive=base.price_insensitive,
                         debt_gdp=base.debt_gdp)
-    def yield3(sc):
-        tp = {0: STATE.tp_today}
-        for h in HORIZONS:
-            tp[h] = US_MODEL.scenario(STATE.drivers_today,
-                                      drivers_at(STATE, sc, h), STATE.tp_today)
-        return run_market(STATE, sc, tp)[0]
-    b, h = yield3(base), yield3(hot)
+    b, h = _rows(base)[0], _rows(hot)[0]
     assert h.yield_10y > b.yield_10y + 1.0     # premium + expectations both rise
     assert h.nominal_return < b.nominal_return
     assert h.real_return < b.real_return - 1.0
@@ -162,13 +185,15 @@ def test_spread_market_inherits_the_us_move_at_its_beta():
     de_state = MarketState("DE", 3.32, 0.96,
                            {"expected_inflation": 2.3, "inflation_uncertainty": 0.4,
                             "price_insensitive": 16.0, "debt_gdp": 64.0}, CORE)
-    de_flat = flat_scenario("DE", policy=2.0, infl=float(CORE.iloc[-1]),
+    de_curve = de_state.y_today - de_state.tp_today
+    de_flat = flat_scenario("DE", policy=de_curve, infl=float(CORE.iloc[-1]),
                             price_insensitive={1: 16.0}, debt_gdp={1: 64.0})
     res = run(US_MODEL, {"DE": rel},
               {"US": STATE, "DE": de_state},
               {"US": _flat_everything(), "DE": de_flat})
-    for r in res["DE"]:                        # nothing moved anywhere -> anchored
+    for r in res["DE"]:            # nothing moved and the path matches the curve
         assert r.yield_10y == pytest.approx(de_state.y_today, abs=1e-9)
+        assert r.yield_10y == pytest.approx(r.tp + r.policy_avg, abs=1e-12)
 
 
 def test_load_scenario_roundtrip_and_validation(tmp_path):

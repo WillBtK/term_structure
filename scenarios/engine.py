@@ -26,12 +26,26 @@ The chain, every link anchored to today:
      overrides it; debt/GDP defaults to the committed WEO/national-source projection
      (``macro.debt_gdp``), also overridable.
 
-  2. YIELD.  y(h) = y(0) + [TP(h) - TP(0)] + [Pbar(h) - Pbar(0)], where Pbar(t) is
-     the average of the user's policy path over the ten years from t, the path held
-     flat beyond its last projected year (their terminal IS their long-run view).
-     The same anchoring logic as the premium: the model never restates today's
-     yield, it only moves it by what the scenario changes. A ten-year-ahead yield
-     needs policy expectations to year twenty, which the flat extension provides.
+  2. YIELD.  y(h) = TP(h) + Pbar(h), where Pbar(t) is the average of the user's
+     policy path over the ten years from t, the path held flat beyond its last
+     projected year (their terminal IS their long-run view). A ten-year-ahead yield
+     needs policy expectations out to year twenty, which the flat extension provides.
+
+     The identity is deliberate and it is NOT anchored the way the premium is. The
+     premium is anchored because the driver model cannot explain today's level and
+     should not pretend to. The expectations leg is different: the user's policy path
+     IS their forecast of the expected average short rate, so taking only its change
+     and discarding its level would throw away the view they came to express. Today's
+     curve prices an expected average of y(0) - TP(0) -- 3.11% for the US against a
+     4.75% yield and a 1.63% premium -- and a user who projects 3.50% is saying the
+     market is 39bp too low. That belongs in the answer, and it shows up as a higher
+     projected yield and a worse return.
+
+     The consequence, stated because it replaces an earlier property: an unchanged
+     scenario returns today's yield only when the policy path's ten-year average
+     matches what the curve prices. ``policy_gap`` reports that difference on every
+     result so a level disagreement is visible rather than buried, and the scenario
+     sheet shows it as its own line.
 
   3. RETURN.  A constant-maturity ten-year position held H years with the yield
      moving linearly from y(0) to y(H) earns, annualised (Leibowitz-Bova-Kogelman),
@@ -191,10 +205,12 @@ class ScenarioResult:
     horizon: int                      # years ahead
     tp: float                         # projected 10y term premium, %
     policy_avg: float                 # 10y-forward average policy rate at horizon, %
-    yield_10y: float                  # projected 10y yield, %
+    yield_10y: float                  # projected 10y yield, % == tp + policy_avg
     nominal_return: float             # annualised, buying today and holding `horizon`
     real_return: float
     duration: float
+    curve_expected: float             # what today's curve prices: y(0) - TP(0), %
+    policy_gap: float                 # your view today minus the curve's, pp
 
 
 def run_market(state: MarketState, scenario: Scenario, tp_path: dict,
@@ -208,16 +224,18 @@ def run_market(state: MarketState, scenario: Scenario, tp_path: dict,
     today = pd.Timestamp.today().normalize()
     dur = macaulay_duration(today, today + pd.DateOffset(years=int(TENOR)),
                             coupon_pct=state.y_today, ytm=state.y_today / 100.0)
-    pbar0 = forward_average(scenario.policy_rate, 0)
+    curve = state.y_today - state.tp_today          # the market's expected average
+    gap = forward_average(scenario.policy_rate, 0) - curve
     out = []
     for h in HORIZONS:
         pbar = forward_average(scenario.policy_rate, h)
-        y = state.y_today + (tp_path[h] - tp_path[0]) + (pbar - pbar0)
+        y = tp_path[h] + pbar                       # the identity, not a difference
         nom = leibowitz_return(state.y_today, y, h, dur)
         out.append(ScenarioResult(
             country=state.country, horizon=h, tp=tp_path[h], policy_avg=pbar,
             yield_10y=y, nominal_return=nom,
-            real_return=real_return(nom, scenario, h), duration=dur))
+            real_return=real_return(nom, scenario, h), duration=dur,
+            curve_expected=curve, policy_gap=gap))
     return out
 
 
@@ -333,9 +351,12 @@ def _main() -> None:
         st = states[c]
         print(f"\n{c}: 10y today {st.y_today:.2f}%  (TP {st.tp_today:+.2f}%),  "
               f"D={rows[0].duration:.1f}y")
+        print(f"  curve prices an expected average policy rate of {rows[0].curve_expected:.2f}%;"
+              f" your path today averages {rows[0].curve_expected + rows[0].policy_gap:.2f}%"
+              f" ({rows[0].policy_gap:+.2f}pp)")
         for r in rows:
-            print(f"  {r.horizon:>2}y horizon: TP {r.tp:+.2f}%  avg policy "
-                  f"{r.policy_avg:.2f}%  ->  10y yield {r.yield_10y:.2f}%   "
+            print(f"  {r.horizon:>2}y horizon: TP {r.tp:+.2f}% + avg policy "
+                  f"{r.policy_avg:.2f}%  =  10y yield {r.yield_10y:.2f}%   "
                   f"return {r.nominal_return:+.2f}% nom / {r.real_return:+.2f}% real p.a.")
 
 
