@@ -23,6 +23,7 @@ import logging
 import warnings
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -39,19 +40,61 @@ def annual(s: pd.Series, start: str = HIST_FROM) -> dict:
             "v": [round(float(v), 2) for v in a]}
 
 
-def _market_policy_path(curve: dict, years: int = 12) -> list:
-    """The market's expected short rate in each of the next ``years`` calendar years,
-    differenced out of the cumulative expected-rate curve. This is what the sheet opens
-    on: entering nothing then reproduces the market's own forward path exactly, so any
-    edit is visibly a departure from it rather than from a flat line."""
+def monthly(s: pd.Series, start: str = HIST_FROM) -> dict:
+    """A monthly series as a start date plus values -- no per-point dates, which keeps
+    forty years of four series per market inside the payload budget. Gaps are kept as
+    nulls so the chart breaks the line rather than inventing a straight segment."""
+    a = s.loc[start:].resample("MS").mean()
+    if a.dropna().empty:
+        return {"t0": None, "v": []}
+    a = a.loc[a.first_valid_index():a.last_valid_index()]
+    t0 = a.index[0]
+    return {"t0": round(t0.year + (t0.month - 1) / 12.0, 4),
+            "v": [None if pd.isna(v) else round(float(v), 2) for v in a]}
+
+
+def _curve_path(curve: dict, years: int = 12) -> list:
+    """Year-by-year forwards implied by a curve of AVERAGES over 0..tau, via
+    C(t) = t*curve(t). Used for the market's policy path and for breakeven inflation."""
     from scenarios.engine import market_forward_average
-    if not curve:
+    return [] if not curve else [round(market_forward_average(curve, k, span=1.0), 3)
+                                 for k in range(years)]
+
+
+def _forward_tens(observed: dict, horizons: int = 11) -> list:
+    """The market's own forward ten-year yield at each horizon -- what the curve already
+    prices for the bond we are projecting, and so the reference our path has to beat.
+    Same cumulative identity, applied to observed yields rather than expected rates."""
+    from scenarios.engine import market_forward_average
+    if not observed:
         return []
-    out = []
-    for k in range(years):
-        # the average over a one-year window k years out == that year's expected rate
-        out.append(round(market_forward_average(curve, k, span=1.0), 3))
-    return out
+    return [round(market_forward_average(observed, h, span=10.0), 3)
+            for h in range(horizons)]
+
+
+def _deficit_history(country: str) -> list:
+    """Deficit history, percent of GDP, deficit-positive, as [[year, value], ...].
+
+    The US series is the DRIVER's own history -- a hundred vintages of CBO's
+    five-year-ahead projection, which is the statistic the coefficient was measured on.
+    The others have no vintage archive (the recorded upgrade path), so they show the
+    realised balance from the same official source that supplies their projection.
+    Both are deficits in percent of GDP; the chart says which is which.
+    """
+    try:
+        if country == "US":
+            from macro.fetch_cbo import load
+            s = load()
+            return [[round(d.year + (d.month - 1) / 12.0, 2), round(float(v), 2)]
+                    for d, v in s.items()]
+        from macro.fiscal_projections import FILES
+        d = pd.read_csv(FILES[country])
+        now = pd.Timestamp.today().year
+        return [[int(r["year"]), round(-float(r["balance_pct_gdp"]), 2)]
+                for _, r in d.iterrows() if int(r["year"]) <= now]
+    except Exception as exc:                                        # noqa: BLE001
+        logger.warning("no deficit history for %s (%s)", country, exc)
+        return []
 
 
 def build() -> dict:
@@ -65,6 +108,7 @@ def build() -> dict:
                                   market_forward_average)
 
     panels = {c: build_panel(c) for c in MARKETS}
+    allobs = pd.read_parquet(HERE.parent / "viz" / "data_daily.parquet")
     us_m = fit_market("US", panels["US"])
     spread = {c: fit_relative(c, build_pair(c, panels), us_m)
               for c in MARKETS if c != "US"}
@@ -87,6 +131,20 @@ def build() -> dict:
         v = ((hist - m) ** 2).ewm(halflife=HL).mean()
         mk = obs[obs["country"] == c]
         short = mk[mk["tenor"] == sorted(mk["tenor"].unique())[0]]
+        ten = mk[mk["tenor"] == TENOR].set_index("date")["observed"].sort_index() * 100
+        shortm = short.set_index("date")["observed"].sort_index() * 100
+        # today's nominal curve, and the breakeven curve where a real curve exists
+        cm = allobs[(allobs["country"] == c) & (allobs["date"] == mk["date"].max())]
+        nom = (cm[cm["instrument"] == "nominal"].dropna(subset=["observed"])
+               .set_index("tenor")["observed"] * 100).sort_index()
+        rl = (cm[cm["instrument"] == "real"].dropna(subset=["observed"])
+              .set_index("tenor")["observed"] * 100).sort_index()
+        be = {}
+        for t in rl.index:                       # breakeven = nominal - real, by tenor
+            if len(nom):
+                be[float(t)] = float(np.interp(float(t), nom.index.values.astype(float),
+                                               nom.values) - rl.loc[t])
+        dh = _deficit_history(c)
         payload["markets"][c] = {
             "y_today": round(st.y_today, 3), "tp_today": round(st.tp_today, 3),
             "drivers": {k: round(float(x), 3) for k, x in st.drivers_today.items()},
@@ -97,19 +155,22 @@ def build() -> dict:
                      "v": round(float(v.iloc[-1]), 6),
                      "last": round(float(hist.iloc[-1]), 3),
                      "asof": str(hist.index[-1].date())},
-            "debt_proj": {str(k): round(x, 1) for k, x in sorted(debt.get(c, {}).items())},
             "deficit_proj": {str(k): round(float(x), 2)
                              for k, x in sorted(deficits.get(c, {}).items())},
             # the market's own expected-rate curve, and the year-by-year policy path
             # implied by it -- the sheet's genuinely neutral opening
             "expected_curve": {str(t): round(float(v), 4)
                                for t, v in sorted(st.expected_curve.items())},
-            "market_policy_path": _market_policy_path(st.expected_curve),
-            "hist": {
-                "core": annual(core[c]),
-                "short": annual(short.set_index("date")["observed"].sort_index() * 100),
-                "ten": annual(mk[mk["tenor"] == TENOR]
-                              .set_index("date")["observed"].sort_index() * 100)},
+            "market_policy_path": _curve_path(st.expected_curve),
+            # the market's own forward ten-year yield -- the benchmark for our path
+            "fwd10": _forward_tens({float(t): float(v) for t, v in nom.items()}),
+            # market-implied inflation from breakevens, where a real curve exists
+            "be_path": _curve_path(be) if be else [],
+            "deficit_hist": dh,
+            "hist": {"core": annual(core[c]), "short": annual(shortm),
+                     "ten": annual(ten)},
+            "mhist": {"core": monthly(core[c]), "short": monthly(shortm),
+                      "ten": monthly(ten), "tp": monthly(panels[c]["tp"])},
             "model": ({"kind": "us", "intercept": us_m.intercept, "coef": us_m.coef,
                        "adjust": us_m.adjust, "base": us_m.base}
                       if c == "US" else

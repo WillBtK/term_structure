@@ -53,12 +53,22 @@ def test_the_committed_payload_carries_everything_the_page_reads():
     for c in MARKETS:
         m = p["markets"][c]
         assert set(m) >= {"y_today", "tp_today", "drivers", "duration", "ewma",
-                          "debt_proj", "deficit_proj", "hist", "model"}
-        # every market carries its official 5y-ahead projected deficit
+                          "deficit_proj", "hist", "mhist", "model", "expected_curve",
+                          "market_policy_path", "fwd10", "deficit_hist"}
+        # the debt STOCK enters no model any more, so it is not shipped either
+        assert "debt_proj" not in m
         want = {"expected_inflation", "inflation_uncertainty",
                 "price_insensitive", "debt_gdp", "fiscal"}
         assert set(m["drivers"]) == want
         assert m["deficit_proj"]            # CBO / OBR / AMECO / CAO default path
+        # the market's own forward ten-year yield, one per projection horizon
+        assert len(m["fwd10"]) == 11 and all(isinstance(v, (int, float)) for v in m["fwd10"])
+        # monthly history: a start date plus values, long enough to be a real series
+        for k in ("core", "short", "ten", "tp"):
+            mh = m["mhist"][k]
+            assert mh["t0"] is not None and len(mh["v"]) > 100
+        # breakevens exist exactly where a real curve does
+        assert bool(m["be_path"]) is (c in ("US", "UK"))
         assert 4.0 < m["duration"] < 10.0                # a 10y par bond
         assert m["ewma"]["v"] >= 0.0
         for k in ("core", "short", "ten"):

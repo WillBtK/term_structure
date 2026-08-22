@@ -91,9 +91,15 @@ the status quo moves nothing and only your own departures count.
 
 ## The sheet
 
-`scenarios/sheet/index.html` is the published input page — country tabs, an editable
-calendar-year grid stacked directly above the charts it drives, a hold-flat-from
-selector, and live yield/return. It computes entirely in
+`scenarios/sheet/index.html` is the published input page. The headline sits at the top:
+the ten-year yield's monthly history, your projected path, and **the curve's own forward
+ten-year yield** (`fwd10`, from `C(t)=t·y(t)` on the nominal curve) — the benchmark a
+view has to beat — with the result cards beside it. Below that, a calendar-year entry
+grid whose top row is the **derived ten-year yield** (hover a cell for the term-premium
+split), a hold-flat-from selector, and four half-width charts: policy rate against the
+market's implied path, inflation against the market breakeven (US CPI-linked and UK
+**RPI**-linked, so the UK line sits ~1pp above CPI by construction), term premium, and
+deficit. All history is monthly with hover readouts. It computes entirely in
 the browser from `scenarios/data/sheet_payload.json` (built by `build_sheet.py`), and
 agrees with `scenarios.engine` to about **0.2 basis points**; the gap is payload
 rounding, nothing else. Export writes a CSV in exactly the format `load_scenario` reads.

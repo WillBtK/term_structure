@@ -12,8 +12,8 @@ the market actually trades on -- rather than one convenient multilateral source:
     JP   Cabinet Office medium-to-long-term projections, central+local fiscal
          balance, BASELINE case ("current projection"), to FY2040
 
-All returned DEFICIT-POSITIVE in percent of GDP, keyed by years ahead (1 = first full
-year). Committed CSV caches under ``macro/data`` keep everything runnable offline; a
+All returned DEFICIT-POSITIVE in percent of GDP, keyed by years ahead (0 = the current
+year where the source projects it, 1 = the first full year). Committed CSV caches under ``macro/data`` keep everything runnable offline; a
 failed fetch keeps the committed file.
 
 Vintage archives -- the real-time panels that would let each market MEASURE its own
@@ -162,7 +162,8 @@ def refresh(markets=("DE", "UK", "JP")) -> None:
 
 
 def path(country: str) -> dict:
-    """Projected DEFICIT path, % of GDP, keyed by years ahead (1 = first full year).
+    """Projected DEFICIT path, % of GDP, keyed by years ahead (0 = the current year
+    where the source projects it, 1 = the first full year).
 
     Only projection years are returned -- history is not a path. The last projected
     year extends flat downstream, which for Germany means the Commission's two-year
@@ -177,9 +178,13 @@ def path(country: str) -> dict:
                                 "run python -m macro.fiscal_projections")
     d = pd.read_csv(f)
     now = pd.Timestamp.today().year
+    # The current year is included when the source projects it (year 0), so a sheet
+    # column for this calendar year shows this year's projected deficit rather than
+    # falling back to the five-year-ahead statistic and reading as a step. Horizon
+    # averages sample whole years from 1 onward, so year 0 never enters them.
     out = {int(r["year"]) - now: -float(r["balance_pct_gdp"])
-           for _, r in d.iterrows() if int(r["year"]) > now}
-    return {k: v for k, v in sorted(out.items()) if 1 <= k <= 15}
+           for _, r in d.iterrows() if int(r["year"]) >= now}
+    return {k: v for k, v in sorted(out.items()) if 0 <= k <= 15}
 
 
 def five_year_ahead(country: str) -> float:
