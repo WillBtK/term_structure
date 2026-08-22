@@ -103,14 +103,22 @@ deficit. All history is monthly with hover readouts.
 **UK breakevens are put on a CPI footing before display.** Index-linked gilts pay RPI,
 which has run roughly a point above CPI (the Carli formula effect plus coverage and
 weight differences); `UK_RPI_WEDGE = 0.9pp` is the middle of the usual 0.7–1.0 range.
-The deduction is *not* flat: the 2020 UK Statistics Authority reform aligns RPI to CPIH
-from **February 2030**, so only the pre-reform share of each forward year is adjusted
-and the straddling year is pro-rated. A flat point would understate long-dated UK
+The deduction is *not* flat, and the reason is that the 2020 reform changes the **index
+itself** from **February 2030** — every RPI-linked cashflow after that date accrues on
+CPIH methodology, on gilts already in issue as much as on new ones. There is no
+grandfathering and no compensation (pension trustees sought judicial review in 2022 and
+lost), and the date follows from the consent lock in the Statistics and Registration
+Service Act: the Authority needed the Chancellor's agreement while any "relevant"
+index-linked gilt remained in issue, and the last of those matures in 2030. So the
+forward curve genuinely should be fully converged by then: only the pre-reform share of
+each forward year is adjusted, and the straddling year is pro-rated. A flat point would understate long-dated UK
 expectations by most of a point — and the correction matters for reading the curve: the
 raw RPI forwards fall from 3.9% to 3.1%, which looks like expected disinflation, but on
 a CPI footing the path is a roughly flat 3%. The apparent decline was mostly the reform.
-The footnote under the chart states the adjustment; breakevens still carry an inflation
-risk premium, which is not adjusted away. It computes entirely in
+The footnote under the chart states the adjustment. Two things are deliberately left in:
+breakevens carry an inflation risk premium, and UK linkers are further supported by
+structural liability-driven demand — which is why the adjusted UK line still reads above
+target. Neither is adjusted away. It computes entirely in
 the browser from `scenarios/data/sheet_payload.json` (built by `build_sheet.py`), and
 agrees with `scenarios.engine` to about **0.2 basis points**; the gap is payload
 rounding, nothing else. Export writes a CSV in exactly the format `load_scenario` reads.

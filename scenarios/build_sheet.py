@@ -39,13 +39,20 @@ HIST_FROM = "1990"
 # has averaged roughly a point; 0.9pp is the middle of the usual 0.7-1.0 range and
 # close to what inflation swaps traded as the "wedge".
 #
-# It is NOT a flat adjustment. In November 2020 the UK Statistics Authority and the
-# Chancellor confirmed RPI will be aligned to CPIH from FEBRUARY 2030, with no
-# compensation for linker holders. Beyond that date RPI is CPIH, so no wedge is due
-# -- and CPIH differs from CPI only marginally (owner-occupier housing costs).
-# Subtracting a flat point would therefore understate long-dated UK expectations by
-# most of a point. The wedge is applied only to the share of each forward year that
-# falls before the reform.
+# It is NOT a flat adjustment, and the reason matters. The November 2020 decision
+# changes the RPI INDEX ITSELF from February 2030, not the terms of new issues: every
+# RPI-linked cashflow accruing after that date -- on gilts already in issue as much as
+# on anything sold later -- is calculated on CPIH methodology. There is no
+# grandfathering and, explicitly, no compensation, which is why pension trustees
+# sought judicial review in 2022 and lost. The date follows from the consent lock in
+# the Statistics and Registration Service Act: the Authority needed the Chancellor's
+# agreement while any "relevant" index-linked gilt remained in issue, and the last of
+# those matures in 2030.
+#
+# So the forward curve genuinely should be fully converged by then, and a flat
+# deduction would understate long-dated UK expectations by most of a point. The wedge
+# is applied only to the share of each forward year falling before the reform. Beyond
+# it RPI is CPIH, which differs from CPI only marginally (owner-occupier housing).
 UK_RPI_WEDGE = 0.9          # percentage points of RPI over CPI, pre-reform
 RPI_REFORM = 2030.083       # February 2030
 
@@ -80,8 +87,10 @@ def _cpi_adjust(country: str, path: list, t0: float) -> tuple:
         pre = max(0.0, min(b, RPI_REFORM) - a) / (b - a)     # share still on RPI rules
         out.append(round(v - UK_RPI_WEDGE * pre, 3))
     return out, (f"Index-linked gilts pay RPI, so {UK_RPI_WEDGE:.1f}pp is deducted for "
-                 "the portion of each forward year before RPI is aligned to CPIH in "
-                 "February 2030; no wedge is applied beyond that date.")
+                 "the portion of each forward year before February 2030. The 2020 reform "
+                 "changes the RPI index itself, so every RPI-linked cashflow after that "
+                 "date accrues on CPIH methodology &mdash; on gilts already in issue, not "
+                 "just new ones &mdash; and no wedge is applied beyond it.")
 
 
 def _curve_path(curve: dict, years: int = 12) -> list:
@@ -179,6 +188,12 @@ def build() -> dict:
         be_path, be_note = _cpi_adjust(c, _curve_path(be) if be else [], year_frac)
         if be_path and not be_note:
             be_note = "Breakevens are CPI-linked; no index adjustment is applied."
+        if be_path:
+            be_note += (" They still carry an inflation risk premium, so they sit above "
+                        "expected inflation" +
+                        (", and UK linkers are further supported by structural "
+                         "liability-driven demand; neither is adjusted away here."
+                         if c == "UK" else "; that is not adjusted away here."))
         payload["markets"][c] = {
             "y_today": round(st.y_today, 3), "tp_today": round(st.tp_today, 3),
             "drivers": {k: round(float(x), 3) for k, x in st.drivers_today.items()},
