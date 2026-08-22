@@ -57,8 +57,11 @@ def build() -> dict:
     obs = obs[obs["instrument"] == "nominal"]
     today = pd.Timestamp.today().normalize()
 
+    from macro.fetch_cbo import projected_deficit_path
     payload = {"halflife": HL, "tenor": TENOR, "lam": 0.5 ** (1.0 / HL),
-               "asof": str(obs["date"].max().date()), "markets": {}}
+               "asof": str(obs["date"].max().date()), "markets": {},
+               "us_deficit_path": {str(k): round(v, 2)
+                                   for k, v in projected_deficit_path().items()}}
     for c in MARKETS:
         st, hist = states[c], core[c].dropna()
         m = hist.ewm(halflife=HL).mean()
@@ -82,7 +85,7 @@ def build() -> dict:
                 "ten": annual(mk[mk["tenor"] == TENOR]
                               .set_index("date")["observed"].sort_index() * 100)},
             "model": ({"kind": "us", "intercept": us_m.intercept, "coef": us_m.coef,
-                       "debt_fitted": us_m.debt_fitted, "debt_base": us_m.debt_base}
+                       "adjust": us_m.adjust, "base": us_m.base}
                       if c == "US" else
                       {"kind": "spread", "intercept": spread[c].intercept,
                        "beta_us": spread[c].beta_us, "coef": spread[c].coef,

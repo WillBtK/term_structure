@@ -141,3 +141,65 @@ absorb, not theirs. Two options, neither yet done:
 * add maturities to the export — cheapest, and keeps the endpoint logic on our side;
 * export the daily factor states alongside the endpoint series, after which
   `model/term_premium.py` gives exact values at any τ.
+
+---
+
+# Implemented: the US fiscal channel, measured with the trend and shipped without it
+
+`model/tp_drivers.py::measure_us_fiscal` + `_fit_us_production`. The architecture keeps
+estimation and projection separate, which is the design decision the whole exercise
+turned on:
+
+* **Measured**: post-break only (2008-09), at **vintage frequency** (the ~43 months CBO
+  actually published, recovered from the series itself), with trend and trend² purging
+  the shared drift that let uncertainty steal the coefficient. Result **+51.9bp per pp
+  of GDP, t = +6.7** — inside the 40–66bp window this document establishes. Robustness:
+  monthly NW(24) +40.4 (t +5.0), linear trend only +35.3, excluding COVID +42.4.
+* **Shipped**: as a fixed sensitivity applied to the *change* from today's CBO reading
+  (5.87%), the mechanism the calibrated debt term established. No trend regressor exists
+  in the production model — the purged drift lands in the residual, where ρ decays it.
+  Imposing the coefficient on the pre-break history instead would assert an effect the
+  pre-break data rejects.
+* **The US debt driver is gone.** Debt and the projected balance are collinear
+  alternatives, not a joint model; the balance is the identified one. DE/JP keep the
+  calibrated debt term and the UK its fitted debt coefficient *pending
+  projected-balance sources for them* (AMECO/OBR — the concept exists there too).
+* Real-time honesty in backtests: a training window ending before ~2012 has too few
+  post-break vintages to measure the channel and gets a zero coefficient, which is what
+  a real-time modeller would have had.
+
+## Gates
+
+| gate | before | after |
+|---|---|---|
+| frozen-2015 decade, US RMSE | 0.72pp | **0.52pp** |
+| frozen-2015 end-point error | −0.25pp | −0.86pp |
+| rolling 36m vs random walk, US | 0.95 (ratio 0.98) | **0.93 (ratio 0.96)** |
+| spreads (UK/DE/JP) | — | unchanged, by construction |
+| fiscal coefficient vs the 40–66bp window | absent | **51.9** ✓ |
+
+The frozen-decade RMSE falls 28% — the channel does real out-of-sample work across the
+hardest window available. The end-point error worsens (the 2015-frozen measurement has
+only ~20 vintages and under-sizes the coefficient, leaving the 2026 projection low);
+the path as a whole is much closer.
+
+## Consequences a user sees
+
+* The sheet's US tab gains a **Deficit (% GDP)** row, defaulting to CBO's own baseline —
+  entering nothing runs the official projection, visibly, rather than a frozen constant.
+  A ten-year holder prices the year-5 (long-run) deficit at ~52bp per point of GDP.
+* The default is no longer premium-flat: CBO's own baseline has the deficit widening to
+  ~6.6%, worth ~+0.3pp of premium at the ten-year horizon. That is CBO's view, entered
+  in a visible input row — not a hidden model view.
+* Stated on the page: the fiscal effect is a real-rate effect; widening the deficit is
+  not by itself a reason to raise the inflation path.
+
+## One attribution shift to keep an eye on
+
+With debt out of the long-sample fit, the ownership coefficient eased from −4.3 to
+**−3.0bp per % of GDP** — now just *below* the 4–8bp event-study band it used to sit
+inside. The three slow-moving level variables (debt, ownership, uncertainty) share
+their secular identification, and removing one reshuffles the others. The scenario
+consequences are modest (QE scenarios move ~30% less than before), but if a future
+re-estimation pushes it lower still, the ownership channel needs its own
+event-study-anchored treatment rather than a free coefficient.

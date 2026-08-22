@@ -54,6 +54,13 @@ DRIVERS = ("expected_inflation", "inflation_uncertainty",
 CORE = DRIVERS[:3]                 # always estimated
 MARKETS = ("US", "UK", "DE", "JP")
 
+# The US fiscal driver: the CBO five-year-ahead projected TOTAL BALANCE, deficit-
+# positive -- not the debt stock, and not the realised deficit. The regime break at
+# 2008-09 (Quandt-Andrews SupF 19-24 at 1% across our own premium tenors) makes the
+# post-break sample the only place a fiscal sensitivity exists to measure, and the
+# projected balance is the only fiscal object identified there.
+US_FISCAL_BREAK = "2008-09-01"
+
 # The sign of every driver is known before a single regression is run, and where the
 # data disagrees the data is wrong. Unconstrained, Germany reads MORE debt as LOWER
 # premium (-0.062, t=-11.0) and Japan reads MORE inflation uncertainty as lower premium
@@ -158,20 +165,32 @@ class DriverModel:
     driver_sd: dict = field(default_factory=dict)
     debt_fitted: bool = True
     debt_base: float = 0.0
+    # Channels applied to the CHANGE from a base value rather than fitted over the
+    # whole history -- the pattern the calibrated debt term established, generalised.
+    # The US fiscal sensitivity lives here: measured post-break only, so applying it
+    # to the full history would impose an effect the pre-break data rejects.
+    adjust: dict = field(default_factory=dict)
+    base: dict = field(default_factory=dict)
 
     def premium(self, **kw) -> float:
-        """Modelled term premium in percent, from a full set of driver values."""
-        missing = set(self.drivers) - set(kw)
+        """Modelled term premium in percent, from a full set of driver values.
+
+        Extra keys are tolerated -- the US driver dict also carries ``debt_gdp`` for
+        the spread markets' relative computation even though the US model itself no
+        longer uses it.
+        """
+        missing = (set(self.drivers) | set(self.adjust)) - set(kw)
         if missing:
             raise TypeError(f"premium() missing drivers: {sorted(missing)}")
         x = dict(kw)
         x["expected_inflation"] = max(float(x["expected_inflation"]) - TARGET_KINK, 0.0)
-        # Where the fiscal term is calibrated rather than fitted it is measured FROM
-        # today's debt ratio, so it contributes nothing at the base case and only what a
-        # scenario moves. Where it is fitted it is already part of the level.
-        x["debt_gdp"] = float(x["debt_gdp"]) - (0.0 if self.debt_fitted
-                                                else self.debt_base)
-        return self.intercept + sum(self.coef[k] * float(x[k]) for k in self.drivers)
+        if "debt_gdp" in self.drivers:
+            # Calibrated debt is measured FROM today's ratio; fitted debt is level.
+            x["debt_gdp"] = float(x["debt_gdp"]) - (0.0 if self.debt_fitted
+                                                    else self.debt_base)
+        out = self.intercept + sum(self.coef[k] * float(x[k]) for k in self.drivers)
+        return out + sum(g * (float(x[k]) - self.base[k])
+                         for k, g in self.adjust.items())
 
     def fit_error(self, panel: pd.DataFrame) -> pd.Series:
         """Modelled minus actual over the estimation sample -- the chart the review
@@ -230,6 +249,8 @@ def build_panel(country: str = "US") -> pd.DataFrame:
                       "expected_inflation": expectations(country)}).dropna()
     if country == "US":
         d = d.join(_us_holdings(d.index))
+        from macro.fetch_cbo import monthly as cbo_monthly
+        d["fiscal"] = cbo_monthly(d.index)
     else:
         from supply.price_insensitive import price_insensitive
         pi = price_insensitive(country)["total"]
@@ -241,8 +262,14 @@ def build_panel(country: str = "US") -> pd.DataFrame:
     debt.index = pd.DatetimeIndex([pd.Timestamp(int(y), 1, 1) for y in debt.index])
     d["debt_gdp"] = debt.reindex(d.index.union(debt.index)).ffill().reindex(d.index)
     d["inflation_uncertainty"] = core_inflation_vol()[country].reindex(d.index).ffill()
-    keep = ["tp", *dict.fromkeys((*DRIVERS, *(US_DRIVERS if country == "US" else ())))]
-    return d[[c for c in keep if c in d]].dropna()
+    keep = ["tp", *dict.fromkeys((*DRIVERS, *(US_DRIVERS if country == "US" else ()),
+                                  *(("fiscal",) if country == "US" else ())))]
+    # fiscal starts in 1984 and the panel in 1982; dropna on it would cost the first
+    # two years of the inflation identification for a driver that is measured
+    # post-break anyway.
+    core_cols = [c for c in keep if c in d and c != "fiscal"]
+    out = d[[c for c in keep if c in d]].dropna(subset=core_cols)
+    return out
 
 
 def fit(panel: pd.DataFrame | None = None, drivers: tuple = DRIVERS,
@@ -315,6 +342,91 @@ def _constrained(X_: pd.DataFrame, y: np.ndarray, cols: list) -> tuple:
              for i, k in enumerate(cols)})
 
 
+def measure_us_fiscal(p: pd.DataFrame, break_date: str = US_FISCAL_BREAK) -> dict:
+    """The US fiscal sensitivity: measured with a trend, shipped without one.
+
+    Post-break only, because that is where the sensitivity exists -- the identical
+    regression pre-break returns nothing, in this data and in the source literature
+    (Furceri, Goncalves and Li 2025; Laubach 2009).
+
+    Trend and trend-squared are in the MEASUREMENT because without them the inflation-
+    uncertainty driver steals the coefficient: uncertainty and the projected deficit
+    both drift upward across 2008-2026 while correlating NEGATIVELY within every
+    episode (-0.76, +0.34, -0.76), so their +0.57 full-window correlation is a shared
+    trend, not a mechanism, and it cut the fiscal coefficient from ~40bp to 14bp. The
+    trend terms are NOT shipped: a trend in a projection extrapolates, which is the
+    failure mode the residual-decay parameter exists to prevent. Purged at measurement,
+    the drift lands in the model's residual, where rho handles it.
+
+    Estimated at VINTAGE frequency -- the months CBO actually published -- because the
+    monthly panel manufactures observations by forward-fill: 216 rows carrying ~43
+    independent readings. Vintage dates are recovered from the series itself (months
+    where the value changes), so the measurement needs no extra data dependency.
+    Monthly with NW(24) gives +40.4bp (t+5.0); linear-trend-only +35.3; excluding
+    COVID +42.4 -- the estimate is the top of a 35-52bp range, not a knife edge.
+    """
+    q = p.loc[break_date:].dropna(
+        subset=["tp", "fiscal", *CORE]).copy()
+    if not q.empty:
+        # vintage months: where the forward-filled series takes a new value
+        chg = q["fiscal"].ne(q["fiscal"].shift())
+        chg.iloc[0] = True
+        q = q[chg.values]
+    if len(q) < 15:
+        # A short post-break window cannot separate six regressors; a real-time fit
+        # from the early 2010s honestly had no measurable fiscal channel yet.
+        return {"coef": 0.0, "tstat": float("nan"), "n_vintages": int(len(q)),
+                "break": break_date}
+    x = design(q, CORE)
+    A = np.column_stack([np.ones(len(q)), q["fiscal"].values,
+                         *[x[k].values for k in CORE],
+                         np.arange(len(q)), np.arange(len(q)) ** 2])
+    y = q["tp"].values
+    b, *_ = np.linalg.lstsq(A, y, rcond=None)
+    r = y - A @ b
+    L = 4
+    S = (A * r[:, None]).T @ (A * r[:, None])
+    for l in range(1, L + 1):
+        w = 1 - l / (L + 1)
+        G = (A[l:] * r[l:, None]).T @ (A[:-l] * r[:-l, None])
+        S += w * (G + G.T)
+    XtXi = np.linalg.pinv(A.T @ A)
+    se = np.sqrt(np.maximum(np.diag(XtXi @ S @ XtXi), 0))
+    coef = max(float(b[1]), 0.0)
+    return {"coef": coef, "tstat": float(b[1] / se[1]) if se[1] > 0 else 0.0,
+            "n_vintages": int(len(q)), "break": break_date}
+
+
+def _fit_us_production(p: pd.DataFrame) -> DriverModel:
+    """The US model: three drivers fitted on the long sample, fiscal as a measured
+    post-break adjustment.
+
+    The split follows what identifies each piece. Expected inflation is identified off
+    the 1982-2000 disinflation; inflation uncertainty off the same era's collapse in
+    volatility; ownership off the full rise and fall of the official bid. The fiscal
+    sensitivity exists only post-2008, so it is measured there and applied to the
+    CHANGE from today's reading -- imposing it on the pre-break history would assert an
+    effect the pre-break data rejects, and (tested) collapses the fit.
+    """
+    core = list(CORE)
+    coef, tstat = _constrained(design(p, core), p["tp"].values, core)
+    fiscal = measure_us_fiscal(p)
+    a, r = _refit_intercept(p, coef, core)
+    yy = p["tp"].values
+    post = np.asarray(p.index >= "2000-01-01")
+    fiscal_base = float(p["fiscal"].dropna().iloc[-1])
+    return DriverModel(
+        intercept=a, coef=coef,
+        tstat={**tstat, "fiscal": fiscal["tstat"]},
+        r2=float(1 - (r @ r) / ((yy - yy.mean()) ** 2).sum()),
+        r2_post2000=float(1 - (r[post] ** 2).sum()
+                          / ((yy[post] - yy[post].mean()) ** 2).sum()),
+        rmse=float(np.sqrt((r ** 2).mean())), n=len(p),
+        drivers=tuple(core), country="US",
+        driver_sd={k: float(design(p, core)[k].std()) for k in core},
+        adjust={"fiscal": fiscal["coef"]}, base={"fiscal": fiscal_base})
+
+
 def fit_market(country: str, panel: pd.DataFrame | None = None,
                reference: DriverModel | None = None) -> DriverModel:
     """The production fit for one market.
@@ -326,6 +438,8 @@ def fit_market(country: str, panel: pd.DataFrame | None = None,
     own history cannot identify falls back to the US.
     """
     p = build_panel(country) if panel is None else panel
+    if country == "US" and "fiscal" in p and p["fiscal"].notna().sum() > 40:
+        return _fit_us_production(p)
     X_ = design(p)
     y = p["tp"].values
     debt_base = float(p["debt_gdp"].iloc[-1])
@@ -340,7 +454,10 @@ def fit_market(country: str, panel: pd.DataFrame | None = None,
     if reference is not None:
         ref_sd = reference.driver_sd
         for k in est:
-            weak = float(X_[k].std()) < MIN_VARIATION * ref_sd.get(k, np.inf)
+            if k not in reference.coef:      # the US no longer fits debt at all
+                continue
+            weak = (k in ref_sd
+                    and float(X_[k].std()) < MIN_VARIATION * ref_sd[k])
             if weak or abs(coef[k]) < 1e-9:
                 coef[k], tstat[k] = reference.coef[k], float("nan")
                 borrowed.append(k)
@@ -378,8 +495,11 @@ def _report(m: DriverModel, p: pd.DataFrame) -> None:
                "  from US   " if k in m.borrowed else
                f"  (t={m.tstat[k]:+5.1f})")
         print(f"  {k:22} {m.coef[k]:+.4f}{tag}   today {p[k].iloc[-1]:7.2f}")
+    for k, g in m.adjust.items():
+        print(f"  {k:22} {g:+.4f}  (t={m.tstat.get(k, float('nan')):+5.1f}, "
+              f"post-break, from today's {m.base[k]:.2f})")
     tp0 = float(p["tp"].iloc[-1])
-    today = {k: float(p[k].iloc[-1]) for k in m.drivers}
+    today = {k: float(p[k].iloc[-1]) for k in (*m.drivers, *m.adjust) if k in p}
     print(f"  actual {tp0:+.2f}%   model {m.premium(**today):+.2f}%   "
           f"residual {tp0 - m.premium(**today):+.2f}pp (held constant in scenarios)")
 

@@ -92,13 +92,21 @@ REQUIRED_COLUMNS = ("year", "policy_rate", "inflation", "real_growth")
 class Scenario:
     """One market's annual projections, all in percent, keyed by projection year
     (1 = the first full year ahead). ``real_growth`` is carried but never used in the
-    arithmetic -- it is the story behind the policy path, not a second input to it."""
+    arithmetic -- it is the story behind the policy path, not a second input to it.
+
+    ``deficit`` (deficit-positive, % of GDP) drives the US fiscal channel; for the
+    other markets it is currently ignored -- their fiscal channel still runs on the
+    relative debt stock, pending projected-balance sources for them. One constraint
+    worth restating from the evidence: the fiscal effect is a REAL-rate effect --
+    the inflation-risk premium does not respond -- so widening the deficit is not by
+    itself a reason to also raise the inflation path."""
     country: str
     policy_rate: dict
     inflation: dict
     real_growth: dict = field(default_factory=dict)
     price_insensitive: dict = field(default_factory=dict)   # optional override, % GDP
     debt_gdp: dict = field(default_factory=dict)            # optional override, % GDP
+    deficit: dict = field(default_factory=dict)             # optional override, % GDP
 
     def __post_init__(self):
         for name in ("policy_rate", "inflation"):
@@ -176,8 +184,9 @@ def propagated_uncertainty(state: MarketState, scenario: Scenario, horizon: int,
 
 
 def drivers_at(state: MarketState, scenario: Scenario, horizon: int,
-               debt_default: dict | None = None) -> dict:
-    """The four driver values the premium model sees at a horizon."""
+               debt_default: dict | None = None,
+               deficit_default: dict | None = None) -> dict:
+    """The driver values the premium models see at a horizon."""
     out = {
         "expected_inflation": forward_average(scenario.inflation, horizon),
         "inflation_uncertainty": propagated_uncertainty(state, scenario, horizon),
@@ -191,6 +200,14 @@ def drivers_at(state: MarketState, scenario: Scenario, horizon: int,
         out["debt_gdp"] = step(debt_default, horizon)
     else:
         out["debt_gdp"] = state.drivers_today["debt_gdp"]
+    if "fiscal" in state.drivers_today:
+        # The driver is the FIVE-YEAR-AHEAD projected deficit, so at horizon h the
+        # prevailing projection looks at year h+5 of the path. With annual inputs held
+        # flat beyond their last year, that is usually the terminal deficit -- which is
+        # the right object: a bond bought at h prices the fiscal path over its life.
+        path = scenario.deficit or deficit_default
+        out["fiscal"] = (step(path, horizon + 5) if path
+                         else state.drivers_today["fiscal"])
     return out
 
 
@@ -247,7 +264,7 @@ def run_market(state: MarketState, scenario: Scenario, tp_path: dict,
 
 
 def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dict,
-        debt_defaults: dict | None = None,
+        debt_defaults: dict | None = None, deficit_defaults: dict | None = None,
         rho: float = RESIDUAL_PERSISTENCE) -> dict:
     """All markets. The US premium path is computed first; every spread market's
     premium is a beta on it plus its drivers relative to the US, both at the same
@@ -259,9 +276,11 @@ def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dic
     multiplies.
     """
     debt_defaults = debt_defaults or {}
+    deficit_defaults = deficit_defaults or {}
     us_state, us_scen = states["US"], scenarios["US"]
     us_drv = {0: us_state.drivers_today}
-    us_drv.update({h: drivers_at(us_state, us_scen, h, debt_defaults.get("US"))
+    us_drv.update({h: drivers_at(us_state, us_scen, h, debt_defaults.get("US"),
+                                 deficit_defaults.get("US"))
                    for h in HORIZONS})
     us_tp = {0: us_state.tp_today}
     us_tp.update({h: us_model.scenario(us_drv[0], us_drv[h], us_state.tp_today,
@@ -303,6 +322,17 @@ def load_scenario(path: "Path | str") -> Scenario:
                     debt_gdp=col("debt_gdp"))
 
 
+def deficit_defaults() -> dict:
+    """The CBO baseline as the default US fiscal path -- entering nothing runs the
+    official projection, visible in the sheet's grid rather than hidden."""
+    try:
+        from macro.fetch_cbo import projected_deficit_path
+        return {"US": projected_deficit_path()}
+    except Exception as exc:                                    # noqa: BLE001
+        logger.warning("no CBO deficit path (%s); US fiscal holds at today", exc)
+        return {}
+
+
 def latest_states(markets=("US", "UK", "DE", "JP")) -> dict:
     """Today's anchors from the repo's own data."""
     from macro.fetch_core_cpi import core_inflation_yoy
@@ -315,10 +345,11 @@ def latest_states(markets=("US", "UK", "DE", "JP")) -> dict:
     for c in markets:
         p = build_panel(c)
         last = obs[obs["country"] == c].sort_values("date").iloc[-1]
+        keys = [k for k in (*DRIVERS, "fiscal") if k in p]
         out[c] = MarketState(
             country=c, y_today=float(last["observed"]) * 100.0,
             tp_today=float(p["tp"].iloc[-1]),
-            drivers_today={k: float(p[k].iloc[-1]) for k in DRIVERS},
+            drivers_today={k: float(p[k].dropna().iloc[-1]) for k in keys},
             core_history=core[c])
     return out
 
@@ -366,7 +397,7 @@ def _main() -> None:
                      RESIDUAL_PERSISTENCE))
     print(f"residual persistence rho = {rho}/yr "
           f"({rho ** 3:.0%} of today's residual survives to 3y, {rho ** 10:.0%} to 10y)")
-    res = run(us_model, spread, states, demo, debt, rho=rho)
+    res = run(us_model, spread, states, demo, debt, deficit_defaults(), rho=rho)
     for c, rows in res.items():
         st = states[c]
         print(f"\n{c}: 10y today {st.y_today:.2f}%  (TP {st.tp_today:+.2f}%),  "

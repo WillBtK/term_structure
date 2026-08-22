@@ -54,8 +54,11 @@ def test_the_committed_payload_carries_everything_the_page_reads():
         m = p["markets"][c]
         assert set(m) >= {"y_today", "tp_today", "drivers", "duration", "ewma",
                           "debt_proj", "hist", "model"}
-        assert set(m["drivers"]) == {"expected_inflation", "inflation_uncertainty",
-                                     "price_insensitive", "debt_gdp"}
+        want = {"expected_inflation", "inflation_uncertainty",
+                "price_insensitive", "debt_gdp"}
+        if c == "US":
+            want |= {"fiscal"}          # the CBO 5y-ahead projected deficit
+        assert set(m["drivers"]) == want
         assert 4.0 < m["duration"] < 10.0                # a 10y par bond
         assert m["ewma"]["v"] >= 0.0
         for k in ("core", "short", "ten"):
@@ -63,7 +66,12 @@ def test_the_committed_payload_carries_everything_the_page_reads():
             assert len(h["years"]) == len(h["v"]) > 10
         mod = m["model"]
         if c == "US":
-            assert mod["kind"] == "us" and set(mod["coef"]) == set(m["drivers"])
+            assert mod["kind"] == "us"
+            assert set(mod["coef"]) == {"expected_inflation", "inflation_uncertainty",
+                                        "price_insensitive"}
+            assert set(mod["adjust"]) == set(mod["base"]) == {"fiscal"}
+            assert 0.35 <= mod["adjust"]["fiscal"] <= 0.66   # the measured window
+            assert p["us_deficit_path"]                       # CBO default path present
         else:
             assert mod["kind"] == "spread" and 0.0 <= mod["beta_us"] <= 1.5
             assert not set(mod["coef"]) & set(mod["adjust"])   # fitted xor adjusted

@@ -247,3 +247,38 @@ def test_load_scenario_roundtrip_and_validation(tmp_path):
     bad.write_text("year,policy_rate\n1,3.5\n")
     with pytest.raises(ValueError, match="missing columns"):
         load_scenario(bad)
+
+
+def test_the_us_fiscal_driver_reads_the_path_five_years_ahead():
+    """The driver is the five-year-ahead projected deficit, so horizon h looks at
+    year h+5 of the path, flat beyond its last year."""
+    st = MarketState("US", 4.74, 1.63, {**TODAY, "fiscal": 5.9}, CORE)
+    sc = flat_scenario()
+    path = {1: 5.0, 2: 5.5, 3: 6.0}
+    d = drivers_at(st, sc, 3, deficit_default=path)
+    assert d["fiscal"] == 6.0                      # year 8 -> flat extension of year 3
+    d0 = drivers_at(st, sc, 0, deficit_default=path)
+    assert d0["fiscal"] == 6.0                     # year 5 -> also the terminal
+    assert "fiscal" not in drivers_at(
+        MarketState("DE", 3.3, 0.96, dict(TODAY), CORE), sc, 3)
+
+
+def test_without_any_path_the_us_fiscal_driver_holds_at_today():
+    st = MarketState("US", 4.74, 1.63, {**TODAY, "fiscal": 5.87}, CORE)
+    assert drivers_at(st, flat_scenario(), 3)["fiscal"] == 5.87
+
+
+def test_a_wider_deficit_path_raises_the_us_premium_at_the_measured_sensitivity():
+    m = DriverModel(intercept=0.5,
+                    coef={"expected_inflation": 1.0, "inflation_uncertainty": 0.8,
+                          "price_insensitive": -0.03},
+                    drivers=("expected_inflation", "inflation_uncertainty",
+                             "price_insensitive"),
+                    adjust={"fiscal": 0.52}, base={"fiscal": 5.87})
+    st = MarketState("US", 4.74, 1.63, {**TODAY, "fiscal": 5.87}, CORE)
+    sc = flat_scenario()
+    base = drivers_at(st, sc, 3, deficit_default={1: 5.87})
+    wide = drivers_at(st, sc, 3, deficit_default={1: 7.87})
+    got = (m.scenario(st.drivers_today, wide, 1.63, horizon=3, rho=1.0)
+           - m.scenario(st.drivers_today, base, 1.63, horizon=3, rho=1.0))
+    assert got == pytest.approx(2.0 * 0.52, abs=1e-9)

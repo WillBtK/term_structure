@@ -51,8 +51,13 @@ HORIZON = 36
 def _us_fitted(m, xrow) -> float:
     out = m.intercept + sum(m.coef[k] * xrow[k] for k in m.drivers
                             if m.debt_fitted or k != "debt_gdp")
-    if not m.debt_fitted:
+    if not m.debt_fitted and "debt_gdp" in m.coef:
         out += m.coef["debt_gdp"] * (xrow["debt_gdp"] - m.debt_base)
+    for k, g in m.adjust.items():
+        # measured-from-base channels: the backtest hands them the realised driver,
+        # exactly as a scenario would
+        if k in xrow.index and pd.notna(xrow[k]):
+            out += g * (xrow[k] - m.base[k])
     return out
 
 

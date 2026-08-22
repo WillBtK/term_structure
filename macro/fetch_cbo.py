@@ -107,6 +107,37 @@ def load(refresh: bool = False) -> pd.Series:
     return s
 
 
+PATH_OUT = HERE / "data" / "cbo_deficit_path.csv"
+
+
+def projected_deficit_path(refresh: bool = False) -> dict:
+    """CBO's CURRENT projected deficit path, % of GDP, keyed by years ahead (1..11).
+
+    The scenario tool's default fiscal path: what CBO itself projects, so a user who
+    enters nothing is running the official baseline rather than a frozen constant.
+    Deficit-positive, like everything downstream.
+    """
+    if not refresh and PATH_OUT.is_file():
+        df = pd.read_csv(PATH_OUT)
+        return {int(r["year_ahead"]): float(r["deficit_pct_gdp"])
+                for _, r in df.iterrows()}
+    b = _csv(EVAL + "baselines.csv")
+    d = b[(b["component"] == "deficit") & (b["category"] == "Total")]
+    latest = d["baseline_date"].max()
+    d = d[(d["baseline_date"] == latest)
+          & (d["projected_year_number"].between(1, 11))].copy()
+    d = d.merge(gdp_denominator(), left_on="projected_fiscal_year",
+                right_on="fy", how="left").dropna(subset=["gdp"])
+    out = {int(r["projected_year_number"]): float(-r["value"] / r["gdp"] * 100.0)
+           for _, r in d.iterrows()}
+    PATH_OUT.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"year_ahead": list(out), "deficit_pct_gdp": list(out.values())}
+                 ).to_csv(PATH_OUT, index=False)
+    logger.info("CBO current deficit path (%s): years %d..%d, %.2f%%..%.2f%%",
+                latest, min(out), max(out), out[min(out)], out[max(out)])
+    return out
+
+
 def monthly(index: pd.DatetimeIndex, refresh: bool = False) -> pd.Series:
     """As-of merged onto a monthly grid: a vintage stands until CBO publishes again."""
     s = load(refresh=refresh)
@@ -120,6 +151,9 @@ def _main() -> None:
           f"{s.index.min().date()}..{s.index.max().date()}")
     print(f"  post-2008-09: {int((s.index >= '2008-09-01').sum())} vintages")
     print(s.tail(6).round(2).to_string())
+    path = projected_deficit_path(refresh=True)
+    print(f"\ncurrent projected path (years ahead): "
+          + "  ".join(f"{k}:{v:.1f}" for k, v in sorted(path.items())))
 
 
 if __name__ == "__main__":

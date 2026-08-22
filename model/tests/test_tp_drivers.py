@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import pandas as pd
 
 from model.tp_drivers import (DEBT_COEF, DRIVERS, SIGNS, TARGET_KINK, DriverModel,
@@ -103,3 +104,74 @@ def test_a_perverse_debt_sample_falls_back_to_the_calibration():
     assert not m.debt_fitted
     assert m.coef["debt_gdp"] == DEBT_COEF
     assert m.debt_base == 240.0
+
+
+def _us_panel(n=420, seed=3, fiscal_coef=0.5):
+    """Synthetic US history with a post-break-only fiscal effect and a drift that a
+    naive regression would let the uncertainty driver absorb."""
+    rng = np.random.default_rng(seed)
+    idx = pd.date_range("1992-01-01", periods=n, freq="MS")
+    post = idx >= "2008-09-01"
+    p = pd.DataFrame({
+        "expected_inflation": np.r_[np.linspace(4.0, 2.3, n - post.sum()),
+                                    np.full(post.sum(), 2.3)],
+        "inflation_uncertainty": np.abs(rng.normal(1.0, 0.3, n))
+                                 + np.where(post, np.linspace(0, 1.0, n)[:], 0),
+        "price_insensitive": rng.normal(25.0, 6.0, n),
+        "debt_gdp": np.linspace(60, 100, n)}, index=idx)
+    # fiscal: flat pre-break, drifting and wiggling after, updated ~3x a year
+    fiscal = np.where(post, 3.0 + np.linspace(0, 2.5, n) + rng.normal(0, 0.6, n), 2.5)
+    fiscal = pd.Series(fiscal, index=idx).where(
+        pd.Series(np.arange(n) % 4 == 0, index=idx)).ffill().bfill()
+    p["fiscal"] = fiscal
+    x = design(p)
+    p["tp"] = (0.5 + 1.0 * x["expected_inflation"] + 0.5 * x["inflation_uncertainty"]
+               - 0.04 * x["price_insensitive"]
+               + np.where(post, fiscal_coef * (p["fiscal"] - 3.0), 0.0)
+               + rng.normal(0, 0.08, n))
+    return p
+
+
+def test_us_production_fit_measures_fiscal_post_break_and_ships_it_as_an_adjustment():
+    m = fit_market("US", _us_panel())
+    assert m.drivers == ("expected_inflation", "inflation_uncertainty",
+                         "price_insensitive")            # debt is gone from the US
+    assert "fiscal" in m.adjust and "fiscal" in m.base
+    assert abs(m.adjust["fiscal"] - 0.5) < 0.15          # recovers the planted 50bp
+    assert m.tstat["fiscal"] > 2.0
+
+
+def test_us_fiscal_contributes_nothing_at_todays_reading_and_fully_in_a_scenario():
+    m = fit_market("US", _us_panel())
+    p = _us_panel()
+    today = {k: float(p[k].iloc[-1]) for k in (*m.drivers, "fiscal")}
+    at_base = {**today, "fiscal": m.base["fiscal"]}
+    widened = {**at_base, "fiscal": m.base["fiscal"] + 2.0}
+    assert m.premium(**widened) - m.premium(**at_base) == pytest.approx(
+        2.0 * m.adjust["fiscal"], abs=1e-12)
+    # and the scenario anchor still holds exactly at h=0
+    assert m.scenario(today, today, tp_today=1.63, horizon=0) == pytest.approx(
+        1.63, abs=1e-12)
+
+
+def test_us_premium_tolerates_the_extra_debt_key_the_spreads_need():
+    """The US driver dict carries debt_gdp for the relative computation even though
+    the US model no longer uses it."""
+    m = fit_market("US", _us_panel())
+    p = _us_panel()
+    kw = {k: float(p[k].iloc[-1]) for k in (*m.drivers, "fiscal")}
+    assert m.premium(**kw) == pytest.approx(m.premium(**kw, debt_gdp=99.0), abs=1e-12)
+
+
+def test_the_trend_purge_matters_a_naive_postbreak_fit_understates_fiscal():
+    """The reason the measurement carries trend terms: with a drifting confounder the
+    unpurged regression hands part of the fiscal coefficient to uncertainty."""
+    from model.tp_drivers import measure_us_fiscal
+    p = _us_panel()
+    purged = measure_us_fiscal(p)["coef"]
+    q = p.loc["2008-09-01":]
+    x = design(q, ("expected_inflation", "inflation_uncertainty", "price_insensitive"))
+    A = np.column_stack([np.ones(len(q)), q["fiscal"].values,
+                         *[x[k].values for k in x.columns]])
+    naive = float(np.linalg.lstsq(A, q["tp"].values, rcond=None)[0][1])
+    assert abs(purged - 0.5) < abs(naive - 0.5) + 0.05   # purge is no worse, usually better
