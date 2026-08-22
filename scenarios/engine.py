@@ -9,6 +9,13 @@ headline equals core.
 
 The chain, every link anchored to today:
 
+  0. RESIDUAL DECAY.  The part of today's premium the drivers cannot explain does not
+     persist for ever. It survives at ``RESIDUAL_PERSISTENCE`` a year -- 0.9, a
+     half-life near six and a half years -- so a temporary spike is not projected
+     forward as though permanent, and the model does not assert a large mispricing
+     either. Turn it down for a shock you believe is temporary. The evidence, including
+     the markets that prefer no decay at all, is in ``model.tp_drivers``.
+
   1. TERM PREMIUM.  The driver models (``model.tp_drivers`` for the US,
      ``model.tp_relative`` for the spread markets) translate the scenario's driver
      values into a premium CHANGE from today; today's observed premium supplies the
@@ -71,7 +78,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from model.tp_drivers import DRIVERS, DriverModel
+from model.tp_drivers import DRIVERS, RESIDUAL_PERSISTENCE, DriverModel
 from model.tp_relative import RelativeModel
 
 logger = logging.getLogger(__name__)
@@ -240,17 +247,25 @@ def run_market(state: MarketState, scenario: Scenario, tp_path: dict,
 
 
 def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dict,
-        debt_defaults: dict | None = None) -> dict:
+        debt_defaults: dict | None = None,
+        rho: float = RESIDUAL_PERSISTENCE) -> dict:
     """All markets. The US premium path is computed first; every spread market's
     premium is a beta on it plus its drivers relative to the US, both at the same
-    horizon, exactly as fitted."""
+    horizon, exactly as fitted.
+
+    ``rho`` is the annual survival of the part of today's premium the drivers cannot
+    explain. It applies to both legs -- the US residual reaches the spread markets
+    twice, once through their own residual and once through the US premium their beta
+    multiplies.
+    """
     debt_defaults = debt_defaults or {}
     us_state, us_scen = states["US"], scenarios["US"]
     us_drv = {0: us_state.drivers_today}
     us_drv.update({h: drivers_at(us_state, us_scen, h, debt_defaults.get("US"))
                    for h in HORIZONS})
     us_tp = {0: us_state.tp_today}
-    us_tp.update({h: us_model.scenario(us_drv[0], us_drv[h], us_state.tp_today)
+    us_tp.update({h: us_model.scenario(us_drv[0], us_drv[h], us_state.tp_today,
+                                       horizon=h, rho=rho)
                   for h in HORIZONS})
 
     results = {"US": run_market(us_state, us_scen, us_tp, debt_defaults.get("US"))}
@@ -262,7 +277,7 @@ def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dic
         for h in HORIZONS:
             own_h = drivers_at(st, sc, h, debt_defaults.get(c))
             tp[h] = m.scenario(us_drv[0], us_drv[h], st.drivers_today, own_h,
-                               us_tp[0], us_tp[h], st.tp_today)
+                               us_tp[0], us_tp[h], st.tp_today, horizon=h, rho=rho)
         results[c] = run_market(st, sc, tp, debt_defaults.get(c))
     return results
 
@@ -346,7 +361,12 @@ def _main() -> None:
         "JP": Scenario("JP", policy_rate={1: 0.9, 2: 1.2, 3: 1.5},
                        inflation={1: 2.2, 2: 2.0, 3: 1.9}, real_growth={1: 0.8}),
     }
-    res = run(us_model, spread, states, demo, debt)
+    import sys
+    rho = float(next((a.split("=")[1] for a in sys.argv if a.startswith("--rho=")),
+                     RESIDUAL_PERSISTENCE))
+    print(f"residual persistence rho = {rho}/yr "
+          f"({rho ** 3:.0%} of today's residual survives to 3y, {rho ** 10:.0%} to 10y)")
+    res = run(us_model, spread, states, demo, debt, rho=rho)
     for c, rows in res.items():
         st = states[c]
         print(f"\n{c}: 10y today {st.y_today:.2f}%  (TP {st.tp_today:+.2f}%),  "

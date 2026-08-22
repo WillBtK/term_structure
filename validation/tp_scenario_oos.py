@@ -40,7 +40,7 @@ import numpy as np
 import pandas as pd
 
 from model.tp_drivers import MARKETS, build_panel, design, fit_market
-from model.tp_relative import SPREAD_MARKETS, build_pair, fit_relative
+from model.tp_relative import SPREAD_MARKETS, _hat, build_pair, fit_relative
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +91,63 @@ def frozen_decade(panels: dict | None = None, cut: str = FREEZE) -> pd.DataFrame
         rows.append({"market": c, "rmse": float(np.sqrt((e ** 2).mean())),
                      "end_error": float(e.iloc[-1])})
     return pd.DataFrame(rows).set_index("market")
+
+
+def residual_persistence_grid(panels: dict | None = None,
+                              horizons=(36, 120),
+                              rhos=(1.0, 0.9, 0.8, 0.7, 0.5, 0.25, 0.0)) -> pd.DataFrame:
+    """How much of today's UNEXPLAINED premium should survive to the horizon?
+
+    Full anchoring says all of it, which asserts every shock is permanent. Zero says
+    none, which asserts the premium reverts to the model's fair value -- for the US
+    today, that the ten-year yield is 71bp rich. This scores the whole range out of
+    sample on real-time refits, so the residual is the one a user would actually have
+    seen rather than an in-sample artefact. (Estimated in sample the residual looks
+    far more mean-reverting than it is: the regression forces it orthogonal to the
+    drivers over the whole span, so a full-sample AR(1) puts the US half-life at four
+    months. That number is not usable and is why this test exists.)
+    """
+    warnings.filterwarnings("ignore")
+    panels = panels or {c: build_panel(c) for c in MARKETS}
+    pairs = {c: build_pair(c, panels) for c in MARKETS if c != "US"}
+    rows = []
+    for horizon in horizons:
+        for c in MARKETS:
+            p = panels["US"] if c == "US" else pairs[c]
+            x = design(panels["US"]) if c == "US" else None
+            start = "2004-12-01" if c == "US" else "2009-12-01"
+            errs = {r: [] for r in rhos}
+            for t0 in pd.date_range(start, p.index[-1] - pd.DateOffset(months=horizon),
+                                    freq="12MS"):
+                tr = p.loc[:t0]
+                if len(tr) < 100:
+                    continue
+                try:
+                    if c == "US":
+                        m = fit_market("US", tr)
+                        fit = pd.Series([_us_fitted(m, x.iloc[i]) for i in range(len(x))],
+                                        index=p.index)
+                    else:
+                        m = fit_relative(c, tr, fit_market("US", panels["US"].loc[:t0]))
+                        fit = pd.Series(_hat(p, m.coef, m.beta_us, m.intercept),
+                                        index=p.index)
+                except Exception:                               # noqa: BLE001
+                    continue
+                i0 = p.index.get_indexer([t0], method="pad")[0]
+                i1 = i0 + horizon
+                if i1 >= len(p):
+                    break
+                res0 = p["tp"].iloc[i0] - fit.iloc[i0]
+                for r in rhos:
+                    errs[r].append(fit.iloc[i1] + r ** (horizon / 12) * res0
+                                   - p["tp"].iloc[i1])
+            if not errs[rhos[0]]:
+                continue
+            row = {"market": c, "horizon_y": horizon // 12, "n": len(errs[rhos[0]])}
+            row.update({f"rho={r}": float(np.sqrt(np.mean(np.array(errs[r]) ** 2)))
+                        for r in rhos})
+            rows.append(row)
+    return pd.DataFrame(rows).set_index(["horizon_y", "market"])
 
 
 def rolling_vs_random_walk(panels: dict | None = None,
@@ -157,6 +214,13 @@ def _main() -> None:
     print(f"\nRolling {HORIZON}m-ahead, annual refits, vs random walk "
           "(ratio < 1 beats no-change):")
     print(rolling_vs_random_walk(panels).round(2).to_string())
+    print("\nResidual persistence: RMSE by how much of today's unexplained premium "
+          "survives per year")
+    g = residual_persistence_grid(panels)
+    print(g.round(2).to_string())
+    cols = [c for c in g.columns if c.startswith("rho=")]
+    print("\nmean across cells:  " + "  ".join(f"{c} {g[c].mean():.3f}" for c in cols))
+    print("worst cell:         " + "  ".join(f"{c} {g[c].max():.3f}" for c in cols))
 
 
 if __name__ == "__main__":

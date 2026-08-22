@@ -1,12 +1,15 @@
 """The scenario engine's contracts: anchoring, Leibowitz, monotonicity, paths."""
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from model.tp_drivers import DriverModel
 from model.tp_relative import RelativeModel
+from model.tp_drivers import RESIDUAL_PERSISTENCE
 from scenarios.engine import (HORIZONS, MarketState, Scenario, drivers_at,
                               forward_average, leibowitz_return, load_scenario,
                               propagated_uncertainty, real_return, run, run_market,
@@ -126,12 +129,51 @@ def _flat_everything(policy=CURVE):
                          debt_gdp={i: TODAY["debt_gdp"] for i in range(1, 4)})
 
 
-def _rows(sc, state=STATE, model=US_MODEL):
+def _rows(sc, state=STATE, model=US_MODEL, rho=1.0):
     tp = {0: state.tp_today}
     for h in HORIZONS:
         tp[h] = model.scenario(state.drivers_today, drivers_at(state, sc, h),
-                               state.tp_today)
+                               state.tp_today, horizon=h, rho=rho)
     return run_market(state, sc, tp)
+
+
+def test_the_residual_decays_geometrically_and_is_whole_at_the_zero_horizon():
+    """rho=1 keeps today's unexplained premium for ever; rho=0 discards it at once;
+    in between it decays at rho per year. At h=0 it is always whole, whatever rho --
+    the model never restates today."""
+    sc = _flat_everything()
+    d0 = STATE.drivers_today
+    resid = STATE.tp_today - US_MODEL.premium(**d0)
+    assert abs(resid) > 0.1                                   # a real gap to decay
+    for rho in (1.0, 0.9, 0.5, 0.0):
+        assert US_MODEL.scenario(d0, d0, STATE.tp_today, horizon=0, rho=rho) == \
+            pytest.approx(STATE.tp_today, abs=1e-12)
+        for h in HORIZONS:
+            got = US_MODEL.scenario(d0, drivers_at(STATE, sc, h), STATE.tp_today,
+                                    horizon=h, rho=rho)
+            fair = US_MODEL.premium(**drivers_at(STATE, sc, h))
+            assert got == pytest.approx(fair + resid * rho ** h, abs=1e-12)
+
+
+def test_a_temporary_premium_shock_fades_rather_than_persisting():
+    """The point of the dial: an unexplained spike today must not be projected forward
+    as though permanent."""
+    spiked = replace(STATE, tp_today=STATE.tp_today + 1.0)
+    sc, rho = _flat_everything(), RESIDUAL_PERSISTENCE
+    calm_kept, calm_faded = _rows(sc, rho=1.0), _rows(sc, rho=rho)
+    kept, faded = _rows(sc, state=spiked, rho=1.0), _rows(sc, state=spiked, rho=rho)
+    for ck, cf, k, f in zip(calm_kept, calm_faded, kept, faded):
+        assert k.tp == pytest.approx(ck.tp + 1.0, abs=1e-9)      # rho=1: whole shock
+        # like for like at the same rho: the shock survives in part, never in full
+        assert f.tp == pytest.approx(cf.tp + rho ** f.horizon, abs=1e-9)
+        assert cf.tp < f.tp < k.tp
+
+
+def test_lower_persistence_never_changes_todays_anchor():
+    for rho in (1.0, 0.9, 0.0):
+        rows = _rows(_flat_everything(), rho=rho)
+        for r in rows:
+            assert r.yield_10y == pytest.approx(r.tp + r.policy_avg, abs=1e-12)
 
 
 def test_the_yield_is_always_the_premium_plus_the_expected_policy_average():
@@ -190,8 +232,8 @@ def test_spread_market_inherits_the_us_move_at_its_beta():
                             price_insensitive={1: 16.0}, debt_gdp={1: 64.0})
     res = run(US_MODEL, {"DE": rel},
               {"US": STATE, "DE": de_state},
-              {"US": _flat_everything(), "DE": de_flat})
-    for r in res["DE"]:            # nothing moved and the path matches the curve
+              {"US": _flat_everything(), "DE": de_flat}, rho=1.0)
+    for r in res["DE"]:      # nothing moved, path matches the curve, residual retained
         assert r.yield_10y == pytest.approx(de_state.y_today, abs=1e-9)
         assert r.yield_10y == pytest.approx(r.tp + r.policy_avg, abs=1e-12)
 

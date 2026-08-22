@@ -55,3 +55,54 @@ either market's coefficient moves materially on new data.
    higher number — a judgement, not an estimate.
 3. Overlapping 36m windows mean the rolling RMSEs carry wide standard errors
    (n = 10–19 per market).
+
+---
+
+# How persistent is the unexplained premium?
+
+Full anchoring — carrying today's residual whole to every horizon — asserts that every
+shock to the term premium is permanent. For a fair-value model that is an uncomfortable
+claim: a temporary spike would be projected forward for a decade. The opposite, reverting
+to the model's own fair value, asserts a mispricing: for the US today, that the ten-year
+yield is **71bp rich**. Neither is obviously right, so it was measured.
+
+`validation/tp_scenario_oos.py::residual_persistence_grid`. Real-time annual refits, so
+the residual is the one a user would actually have seen. RMSE in pp:
+
+| horizon | market | n | ρ=1.0 | ρ=0.9 | ρ=0.8 | ρ=0.7 | ρ=0.5 | ρ=0.0 |
+|---|---|---|---|---|---|---|---|---|
+| 3y | US | 19 | 0.95 | 0.86 | 0.80 | 0.76 | 0.72 | **0.71** |
+| | UK | 10 | 0.84 | 0.80 | 0.78 | **0.77** | 0.77 | 0.77 |
+| | DE | 14 | 1.10 | 1.06 | **1.05** | 1.05 | 1.06 | 1.08 |
+| | JP | 14 | 0.75 | 0.71 | 0.69 | **0.68** | 0.69 | 0.71 |
+| 10y | US | 12 | 0.94 | 0.79 | **0.78** | 0.78 | 0.78 | 0.78 |
+| | UK | 3 | 0.77 | 0.66 | 0.64 | 0.64 | 0.64 | **0.64** |
+| | DE | 7 | **1.10** | 1.43 | 1.57 | 1.62 | 1.63 | 1.64 |
+| | JP | 7 | **1.11** | 1.17 | 1.22 | 1.24 | 1.25 | 1.25 |
+| | *mean* | | 0.944 | **0.935** | 0.941 | 0.943 | 0.943 | 0.945 |
+| | *worst cell* | | **1.11** | 1.43 | 1.57 | 1.62 | 1.64 | 1.64 |
+
+## What it says
+
+**The two markets whose fair value is well identified want reversion; the two that lean
+on borrowed and calibrated coefficients want none.** The US and UK improve at both
+horizons, materially (US 3y 0.95 → 0.71). Germany and Japan are indifferent at three
+years and clearly prefer full anchoring at ten — reverting *to* an unreliable level is
+worse than staying at the observed one. Averaged over all eight cells the choice is
+close to a wash, while the worst cell degrades from 1.11 to 1.64 as reversion increases.
+
+So the honest verdict is that the evidence does not license a strong default in either
+direction. **ρ = 0.9 a year** is the aggregate optimum: a half-life near six and a half
+years, keeping 73% of the residual at three years and 35% at ten. It concedes the
+conceptual point — no shock is treated as permanent — without asserting a large
+mispricing, and it is exposed as a control on the scenario sheet rather than buried.
+A user who judges a particular shock temporary should turn it down.
+
+## A trap worth recording
+
+Estimated **in sample**, the residual looks far more mean-reverting than it is: a
+full-sample AR(1) puts the US half-life at four months and a positive residual predicts
+the premium falling over the next three years with t = −15.5. That is largely an
+artefact — the regression forces the residual orthogonal to the drivers over the whole
+span, including the future. The real-time numbers above are three to ten times less
+enthusiastic about reversion, and they are the ones to quote.

@@ -51,8 +51,8 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import lsq_linear
 
-from model.tp_drivers import (DEBT_COEF, DRIVERS, MARKETS, SIGNS, build_panel, design,
-                              fit_market)
+from model.tp_drivers import (DEBT_COEF, DRIVERS, MARKETS, RESIDUAL_PERSISTENCE, SIGNS,
+                              build_panel, design, fit_market)
 
 logger = logging.getLogger(__name__)
 
@@ -93,15 +93,21 @@ class RelativeModel:
 
     def scenario(self, us_today: dict, us_scenario: dict, own_today: dict,
                  own_scenario: dict, tp_us_today: float, tp_us_scenario: float,
-                 tp_today: float) -> float:
+                 tp_today: float, horizon: float = 0.0,
+                 rho: float = RESIDUAL_PERSISTENCE) -> float:
         """Anchored on today's observed premium, exactly as the US model is.
 
-        The model supplies the change and the market supplies the level, so whatever the
-        four drivers and the US beta fail to explain is carried forward untouched. An
-        unchanged scenario returns today's premium to the decimal.
+        The model supplies the level from the drivers and today supplies what they
+        cannot explain, with that residual decaying at ``rho`` per year rather than
+        persisting for ever -- see ``model.tp_drivers.RESIDUAL_PERSISTENCE`` for why,
+        and for the evidence that Germany and Japan prefer no decay at all while the US
+        and UK clearly prefer some.
+
+        At the zero horizon this returns today's premium exactly, whatever ``rho``.
         """
-        return float(tp_today) + (self.premium(us_scenario, own_scenario, tp_us_scenario)
-                                  - self.premium(us_today, own_today, tp_us_today))
+        residual = float(tp_today) - self.premium(us_today, own_today, tp_us_today)
+        return (self.premium(us_scenario, own_scenario, tp_us_scenario)
+                + residual * (rho ** float(horizon)))
 
 
 def _relative(own: dict, us: dict) -> dict:

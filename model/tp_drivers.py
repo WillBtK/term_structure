@@ -91,6 +91,38 @@ SIGNS = {"expected_inflation": +1, "inflation_uncertainty": +1,
 DEBT_COEF = 0.025
 MIN_DEBT_T = 2.0
 
+# How much of today's UNEXPLAINED premium survives a year, in the projection.
+#
+# The question is what to do with the part of today's premium the drivers cannot
+# explain -- +0.78pp for the US. Carrying it whole to every horizon (rho=1) says every
+# shock is permanent, which is an uncomfortable claim for a fair-value model: a
+# temporary spike would be projected forward for a decade. Discarding it (rho=0) says
+# the premium reverts to the model's fair value, which today would assert US ten-year
+# yields are 71bp rich -- a view, and a large one.
+#
+# Tested out of sample, on real-time refits, at both horizons the tool reports:
+#
+#            3-year horizon                    10-year horizon
+#          rho=1   best   at          rho=1   best   at
+#    US     0.95   0.71   rho=0        0.94   0.78   rho=0.8
+#    UK     0.84   0.77   rho=0.5      0.77   0.64   rho=0.0
+#    DE     1.10   1.05   rho=0.8      1.10   1.10   rho=1.0
+#    JP     0.75   0.68   rho=0.7      1.11   1.11   rho=1.0
+#
+# The two markets whose fair value is well identified -- the US and the UK -- want
+# reversion at both horizons, and clearly. The two whose fair value leans on borrowed
+# and calibrated coefficients want none: reverting TO an unreliable level is worse than
+# staying at the observed one. Averaged over all eight cells the choice is nearly a
+# wash (mean RMSE 0.944 at rho=1, 0.935 at rho=0.9, 0.945 at rho=0), while the worst
+# cell degrades from 1.11 to 1.64 as reversion increases.
+#
+# So 0.9 a year: the aggregate optimum, a half-life of about six and a half years, and
+# a mild decay that concedes the point without asserting a large mispricing. It retains
+# 73% of the residual at three years and 35% at ten. It is a parameter, not a constant:
+# a user who believes a particular shock is temporary should turn it down, and the
+# scenario sheet exposes it.
+RESIDUAL_PERSISTENCE = 0.9
+
 # A market estimates a coefficient only where the driver actually moves in its sample.
 # Japan has SIX observations out of 388 above the inflation target, so its inflation
 # coefficient is fitted on six points and comes back at +8.1 -- 810bp of premium per
@@ -148,8 +180,10 @@ class DriverModel:
         return (self.intercept
                 + sum(self.coef[k] * x[k] for k in self.drivers)) - panel["tp"]
 
-    def scenario(self, today: dict, scenario: dict, tp_today: float) -> float:
-        """Scenario premium ANCHORED to today's observed level.
+    def scenario(self, today: dict, scenario: dict, tp_today: float,
+                 horizon: float = 0.0, rho: float = RESIDUAL_PERSISTENCE) -> float:
+        """Scenario premium anchored to today's observed level, with the unexplained
+        part DECAYING at ``rho`` per year rather than persisting for ever.
 
         The model supplies the CHANGE in the premium; today's observed premium supplies
         the level. Left to converge on its own fair value the model would forecast the
@@ -160,8 +194,17 @@ class DriverModel:
         toward a fair value we cannot defend. It also means the three-year and ten-year
         horizons return the same premium; they differ only in the policy path and the
         holding period.
+
+        ``rho`` is what stops that anchoring becoming an assertion that every shock is
+        permanent. At ``rho=1`` today's entire residual survives to any horizon, which
+        for a fair-value model is a strong and uncomfortable claim: a temporary spike in
+        the premium would be projected forward for a decade. At ``rho=0`` the premium
+        goes straight to the model's own fair value, which for the US today would mean
+        asserting the ten-year yield is 71bp rich. The default sits between them --
+        see ``RESIDUAL_PERSISTENCE`` for the evidence.
         """
-        return float(tp_today) + (self.premium(**scenario) - self.premium(**today))
+        residual = float(tp_today) - self.premium(**today)
+        return self.premium(**scenario) + residual * (rho ** float(horizon))
 
 
 def _us_holdings(index: pd.DatetimeIndex) -> pd.DataFrame:

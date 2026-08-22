@@ -83,6 +83,15 @@ svg{display:block;width:100%;height:auto;overflow:visible}
 .pos{color:var(--pos)}.neg{color:var(--neg)}
 .res dt.tot,.res dd.tot{padding-top:5px;margin-top:3px;border-top:1px solid var(--rule-soft);
   font-weight:600;color:var(--ink)}
+.rhorow{display:flex;align-items:center;gap:10px;margin-top:14px;padding-top:12px;
+  border-top:1px solid var(--rule-soft);flex-wrap:wrap}
+.rhorow label{font:500 11px/1 "IBM Plex Mono",monospace;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--muted)}
+.rhorow select{font:400 13px/1 "IBM Plex Sans",sans-serif;color:var(--ink);
+  background:var(--sunk);border:1px solid var(--rule);border-radius:2px;padding:7px 9px;flex:1;
+  min-width:200px}
+.rhorow select:focus{outline:none;border-color:var(--focus)}
+.rhonote{font-size:11.5px;line-height:1.45;color:var(--muted);margin:8px 0 0;max-width:56ch}
 .gapnote{font-size:11.5px;line-height:1.45;color:var(--muted);margin:10px 0 0}
 .legend{display:flex;gap:14px;font-size:11.5px;color:var(--ink-2);align-items:center;margin-bottom:2px}
 .sw{display:inline-block;width:14px;height:2px;margin-right:5px;vertical-align:middle;border-radius:1px}
@@ -119,6 +128,17 @@ footer{border-top:1px solid var(--rule);padding-top:18px;color:var(--muted);font
         <tbody id="inputs"></tbody>
       </table>
       <p class="gridnote" id="note"></p>
+      <div class="rhorow">
+        <label for="rho">Today's unexplained premium</label>
+        <select id="rho">
+          <option value="1">persists in full</option>
+          <option value="0.9" selected>fades slowly &mdash; half-life 6.6y</option>
+          <option value="0.8">fades &mdash; half-life 3.1y</option>
+          <option value="0.7">fades fast &mdash; half-life 1.9y</option>
+          <option value="0">treat today's premium as fair value</option>
+        </select>
+      </div>
+      <p class="rhonote" id="rhonote"></p>
       <div class="actions">
         <button class="act" id="reset" type="button">Reset to neutral</button>
         <button class="act primary" id="export" type="button">Export scenario CSV</button>
@@ -148,6 +168,7 @@ const D = {"halflife": 30, "tenor": 10.0, "lam": 0.9771599684342459, "asof": "20
 const NAME = {"US": "United States", "UK": "United Kingdom", "DE": "Germany", "JP": "Japan"}, CUR = {"US": "Fed funds", "UK": "Bank Rate", "DE": "ECB deposit rate", "JP": "BoJ policy rate"};
 const MK = ["US","UK","DE","JP"];
 const KINK = 2.0, NYRS = 5, HORIZONS = [3,10];
+let RHO = 0.9;   // annual survival of the unexplained premium
 const ROWS = [["policy_rate","Policy rate"],["inflation","Inflation (headline)"],
               ["real_growth","Real growth"]];
 let market = "US", S = {};
@@ -242,16 +263,18 @@ function compute(c){
   const M = D.markets[c], sc = S[c], usM = D.markets.US, usS = S.US;
   const us0 = usM.drivers, usH = {};
   HORIZONS.forEach(h => usH[h] = driversAt("US", usS, h));
+  const usResid = usM.tp_today - usPremium(us0);      // what the drivers cannot explain
   const tpUs = {0: usM.tp_today};
-  HORIZONS.forEach(h => tpUs[h] = usM.tp_today + (usPremium(usH[h]) - usPremium(us0)));
+  HORIZONS.forEach(h => tpUs[h] = usPremium(usH[h]) + usResid * Math.pow(RHO, h));
 
   const tp = {0: M.tp_today};
   if(c === "US"){ HORIZONS.forEach(h => tp[h] = tpUs[h]); }
   else {
-    const own0 = M.drivers, p0 = spreadPremium(c, us0, own0, tpUs[0]);
+    const own0 = M.drivers;
+    const resid = M.tp_today - spreadPremium(c, us0, own0, tpUs[0]);
     HORIZONS.forEach(h => {
       const ownH = driversAt(c, sc, h);
-      tp[h] = M.tp_today + (spreadPremium(c, usH[h], ownH, tpUs[h]) - p0);
+      tp[h] = spreadPremium(c, usH[h], ownH, tpUs[h]) + resid * Math.pow(RHO, h);
     });
   }
   const curve = M.y_today - M.tp_today;              // what the market prices
@@ -260,7 +283,9 @@ function compute(c){
     const pbar = fwdAvg(sc.policy_rate, h);
     const y = tp[h] + pbar;                          // the identity, not a difference
     const nom = leibowitz(M.y_today, y, h, M.duration);
-    return {h, tp: tp[h], pbar, y, nom, real: realRet(nom, sc, h), curve, gap};
+    const resid0 = (c === "US") ? usResid : (M.tp_today - spreadPremium(c, us0, M.drivers, tpUs[0]));
+    return {h, tp: tp[h], pbar, y, nom, real: realRet(nom, sc, h), curve, gap,
+            carried: resid0 * Math.pow(RHO, h)};
   });
 }
 
@@ -341,6 +366,7 @@ function renderResults(){
       <div class="sub">ten-year yield &middot; ${(r.y-M.y_today>=0?"+":"")}${(r.y-M.y_today).toFixed(2)}pp vs today</div>
       <dl>
         <dt>Term premium</dt><dd>${r.tp>=0?"+":""}${r.tp.toFixed(2)}%</dd>
+        <dt style="padding-left:11px">of which unexplained</dt><dd style="color:var(--muted)">${r.carried>=0?"+":""}${r.carried.toFixed(2)}%</dd>
         <dt>+ avg policy, next 10y</dt><dd>${r.pbar.toFixed(2)}%</dd>
         <dt class="tot">= ten-year yield</dt><dd class="tot">${r.y.toFixed(2)}%</dd>
         <dt>Return, nominal p.a.</dt><dd class="${sign(r.nom)}">${r.nom>=0?"+":""}${r.nom.toFixed(2)}%</dd>
@@ -377,8 +403,20 @@ function render(){
     `Debt/GDP follows the committed projection (${dk.length ? M.debt_proj[dk[0]].toFixed(0)+"% → "
       + M.debt_proj[dk[dk.length-1]].toFixed(0)+"%" : "held at today"}). Price-insensitive ownership holds at
      ${M.drivers.price_insensitive.toFixed(1)}% of GDP. Core inflation as of ${M.ewma.asof}.`;
+  const M2 = D.markets[market];
+  document.getElementById("rhonote").innerHTML = RHO === 1
+    ? "Every shock is treated as permanent &mdash; a strong claim for a fair-value model, "
+      + "but the setting Germany and Japan prefer out of sample at ten years."
+    : (RHO === 0
+      ? "The premium goes straight to the model's own fair value, which is an assertion "
+        + "that the bond is mispriced today by the size of the residual."
+      : `${(Math.pow(RHO,3)*100).toFixed(0)}% of the unexplained premium survives to three
+         years and ${(Math.pow(RHO,10)*100).toFixed(0)}% to ten. The US and UK prefer
+         some decay out of sample at both horizons; Germany and Japan prefer none, so
+         this is a judgement rather than a fitted constant.`);
   renderInputs(); renderCharts(); renderResults();
 }
+document.getElementById("rho").onchange = e => { RHO = parseFloat(e.target.value); render(); };
 document.getElementById("reset").onclick = () => { S[market] = defaults(market); render(); };
 
 /* ---------------------------------------- export ------------------------------- */
@@ -417,8 +455,10 @@ document.getElementById("foot").innerHTML =
   `Term premia from the AFNS + Christensen&ndash;Rudebusch shadow-rate models; the premium responds to your
    inflation path through long-run expectations and their volatility, plus the committed debt projection.
    Yield = term premium + the ten-year average of your policy path, the identity the results card sets out.
-   Only the premium is anchored to today; your policy path's LEVEL is taken at face value, so a path above
-   what the curve prices raises every projected yield and costs return.
+   Your policy path's LEVEL is taken at face value, so a path above what the curve prices raises every
+   projected yield and costs return. The part of today's premium the four drivers cannot explain is carried
+   forward but allowed to fade, at the rate you choose &mdash; the default keeps 73% at three years and 35%
+   at ten, which is the aggregate out-of-sample optimum across the four markets and both horizons.
    Return is the Leibowitz constant-maturity approximation on a ${D.markets.US.duration.toFixed(1)}-year-duration
    position, deflated by your own inflation path for the real figure. These are sensitivities, not forecasts:
    the scenario carries the uncertainty. Japan is directional only &mdash; its beta on the US premium is 0.74
