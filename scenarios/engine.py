@@ -202,13 +202,24 @@ def drivers_at(state: MarketState, scenario: Scenario, horizon: int,
     else:
         out["debt_gdp"] = state.drivers_today["debt_gdp"]
     if "fiscal" in state.drivers_today:
-        # The driver is the FIVE-YEAR-AHEAD projected deficit, so at horizon h the
-        # prevailing projection looks at year h+5 of the path. With annual inputs held
-        # flat beyond their last year, that is usually the terminal deficit -- which is
-        # the right object: a bond bought at h prices the fiscal path over its life.
+        # A ten-year bond bought at horizon h prices the fiscal path over its WHOLE
+        # life, so the driver moves with the ten-year forward average of the projected
+        # deficit, not with whichever single calendar year sits h+5 ahead. Reading one
+        # year swung US fair value 43bp purely on CBO's year-8 bump -- calendar
+        # idiosyncrasy (expiring provisions and the like), not a change in trajectory.
+        #
+        # The LEVEL stays the estimation object -- today's five-year-ahead reading, the
+        # statistic the coefficient was measured on -- and what moves it is the gap
+        # between the scenario's trajectory average and the OFFICIAL baseline's. The
+        # reference is deliberately the official path rather than the scenario's own
+        # first year: entering a deficit two points wider than the baseline everywhere
+        # is a real fiscal view and must register, while running the baseline unchanged
+        # must contribute exactly nothing.
         path = scenario.deficit or deficit_default
-        out["fiscal"] = (step(path, horizon + 5) if path
-                         else state.drivers_today["fiscal"])
+        ref = deficit_default or scenario.deficit
+        today = state.drivers_today["fiscal"]
+        out["fiscal"] = (today + forward_average(path, horizon) - forward_average(ref, 0)
+                         if path else today)
     return out
 
 

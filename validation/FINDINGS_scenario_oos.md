@@ -174,3 +174,33 @@ things. The residual-persistence grid moved only at the margin (aggregate optimu
 statistically indistinguishable between ρ = 0.9 and 1.0; DE at ten years now prefers
 full anchoring more strongly); ρ = 0.9 remains the shipped default on the same
 reasoning as before.
+
+## Correction: the fiscal driver reads the trajectory, not one calendar year
+
+Building the exhibits for the CIO briefing exposed a defect in how the fiscal channel was
+projected. The driver was taken as `step(path, h+5)` — the single projected year sitting five
+years beyond the horizon. Official projections are lumpy at annual frequency for reasons that
+have nothing to do with fiscal trajectory (expiring provisions, one-off timing), and reading
+one year propagated that idiosyncrasy straight into fair value: CBO's year-8 deficit of 6.63%
+against year-10's 6.15% swung the US modelled premium **43bp** depending purely on which
+calendar year the horizon happened to land on. The horizon profile was visibly jagged
+(0.73 → 1.16 → 0.91 → 1.16 across consecutive horizons) with no economic content.
+
+A ten-year bond bought at horizon `h` prices the fiscal path over its **whole life**, so the
+driver now moves with the ten-year forward average of the projected deficit — the same
+treatment `expected_inflation` already had. Two properties are preserved deliberately:
+
+- The **level** stays the estimation object (today's five-year-ahead reading, the statistic the
+  +0.519 coefficient was measured on). Only the *change* in the trajectory average is applied.
+- The reference is the **official baseline's** average, not the scenario's own first year. A
+  first attempt referenced the scenario against itself, which silently ignored the user's input:
+  entering a flat deficit two points wider than the baseline produced no premium response at all,
+  because a flat path has the same forward average at every horizon. Referencing the official
+  path restores it — a genuinely wider path registers its full gap at every horizon, while
+  running the baseline unchanged still contributes exactly nothing.
+
+The profile is now smooth and monotone (0.68 → 0.77 → … → 1.06 over ten years, tracking the
+CBO trajectory's deterioration). Browser-vs-engine agreement tightened from 0.28bp to 0.09bp,
+since the single-year read was amplifying payload rounding. Regression tests cover both
+properties: a one-year 2pp spike now moves the driver by less than 0.25, and a genuinely wider
+path still moves it by the full 2.0.

@@ -249,18 +249,44 @@ def test_load_scenario_roundtrip_and_validation(tmp_path):
         load_scenario(bad)
 
 
-def test_the_us_fiscal_driver_reads_the_path_five_years_ahead():
-    """The driver is the five-year-ahead projected deficit, so horizon h looks at
-    year h+5 of the path, flat beyond its last year."""
+def test_the_fiscal_driver_tracks_the_trajectory_average_not_one_calendar_year():
+    """A ten-year bond prices the whole path, so the driver moves with the ten-year
+    forward average -- and at the zero horizon it sits exactly at today's reading,
+    whatever shape the path has."""
     st = MarketState("US", 4.74, 1.63, {**TODAY, "fiscal": 5.9}, CORE)
     sc = flat_scenario()
-    path = {1: 5.0, 2: 5.5, 3: 6.0}
+    path = {1: 5.0, 2: 5.5, 3: 6.0}                # rising, then flat at 6.0
+    assert drivers_at(st, sc, 0, deficit_default=path)["fiscal"] == pytest.approx(5.9)
+    # avg over years 1..10 = (5.0+5.5+6.0*8)/10 = 5.85; over 4..13 = 6.0
     d = drivers_at(st, sc, 3, deficit_default=path)
-    assert d["fiscal"] == 6.0                      # year 8 -> flat extension of year 3
-    d0 = drivers_at(st, sc, 0, deficit_default=path)
-    assert d0["fiscal"] == 6.0                     # year 5 -> also the terminal
+    assert d["fiscal"] == pytest.approx(5.9 + 6.0 - 5.85)
+
+
+def test_a_deficit_view_wider_than_the_official_baseline_registers_at_once():
+    """Overriding the path with a genuinely wider one is a fiscal view and must move
+    the driver by the full gap -- measured against the OFFICIAL baseline, not against
+    the override's own first year."""
+    st = MarketState("US", 4.74, 1.63, {**TODAY, "fiscal": 5.9}, CORE)
+    official = {y: 5.9 for y in range(1, 12)}
+    sc = Scenario("US", policy_rate={1: 3.5}, inflation={1: 2.3},
+                  deficit={y: 7.9 for y in range(1, 6)})
+    for h in (0, 3, 10):
+        d = drivers_at(st, sc, h, deficit_default=official)
+        assert d["fiscal"] == pytest.approx(7.9)   # +2.0 over today, at every horizon
     assert "fiscal" not in drivers_at(
         MarketState("DE", 3.3, 0.96, dict(TODAY), CORE), sc, 3)
+
+
+def test_a_single_year_bump_no_longer_swings_the_fiscal_driver():
+    """The defect this rule replaced: one lumpy year in an official projection used to
+    move the driver by its full size, because the horizon read that year alone."""
+    st = MarketState("US", 4.74, 1.63, {**TODAY, "fiscal": 5.9}, CORE)
+    sc = flat_scenario()
+    smooth = {y: 5.9 for y in range(1, 12)}
+    bumpy = {**smooth, 8: 7.9}                     # a 2pp one-year spike
+    d_s = drivers_at(st, sc, 3, deficit_default=smooth)["fiscal"]
+    d_b = drivers_at(st, sc, 3, deficit_default=bumpy)["fiscal"]
+    assert abs(d_b - d_s) < 0.25                   # diluted across ten years, not 2.0
 
 
 def test_without_any_path_the_us_fiscal_driver_holds_at_today():
@@ -276,9 +302,10 @@ def test_a_wider_deficit_path_raises_the_us_premium_at_the_measured_sensitivity(
                              "price_insensitive"),
                     adjust={"fiscal": 0.52}, base={"fiscal": 5.87})
     st = MarketState("US", 4.74, 1.63, {**TODAY, "fiscal": 5.87}, CORE)
-    sc = flat_scenario()
-    base = drivers_at(st, sc, 3, deficit_default={1: 5.87})
-    wide = drivers_at(st, sc, 3, deficit_default={1: 7.87})
+    official = {1: 5.87}
+    base = drivers_at(st, flat_scenario(), 3, deficit_default=official)
+    wide = drivers_at(st, Scenario("US", policy_rate={1: 3.5}, inflation={1: 2.3},
+                                   deficit={1: 7.87}), 3, deficit_default=official)
     got = (m.scenario(st.drivers_today, wide, 1.63, horizon=3, rho=1.0)
            - m.scenario(st.drivers_today, base, 1.63, horizon=3, rho=1.0))
     assert got == pytest.approx(2.0 * 0.52, abs=1e-9)

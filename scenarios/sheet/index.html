@@ -234,9 +234,17 @@ function driversAt(c, sc, h){
           inflation_uncertainty: uncertainty(c, sc, h),
           price_insensitive: M.drivers.price_insensitive,
           debt_gdp: debt};
-  // the fiscal driver is the FIVE-YEAR-AHEAD projected deficit as seen at h
+  // A ten-year bond prices the fiscal path over its whole life, so the driver moves
+  // with the ten-year forward average of the projected deficit, not with whichever
+  // single year sits h+5 ahead. The level stays today's five-year-ahead reading (the
+  // statistic the coefficient was measured on); what moves it is the gap between your
+  // trajectory average and the OFFICIAL baseline's, so running the baseline unchanged
+  // contributes exactly nothing and a genuinely wider path registers at once.
+  const dref = (M.deficit_proj && Object.keys(M.deficit_proj).length)
+    ? M.deficit_proj : sc.deficit;
   out.fiscal = (sc.deficit && Object.keys(sc.deficit).length)
-    ? step(sc.deficit, h + 5) : M.drivers.fiscal;
+    ? M.drivers.fiscal + fwdAvg(sc.deficit, h) - fwdAvg(dref, 0)
+    : M.drivers.fiscal;
   return out;
 }
 function usPremium(d){
