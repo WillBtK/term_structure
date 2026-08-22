@@ -56,6 +56,69 @@ The safer alternative is to change nothing and record that the US would fit ~13%
 with a flow measure. The evidence supports the first; sample size counsels the second.
 Not a call to make silently, so it is not made here.
 
+## CORRECTION — the test above was not a fair test
+
+Handed the prior fiscal work (`WillBtK/imf_fiscal_sensitivity`, replicating and
+extending Furceri, Goncalves and Li 2025), two things above turn out to be wrong, and
+both for the same reason: **the wrong fiscal object, on the wrong sample.**
+
+**Wrong object.** Everything above uses the *realised* annual deficit from FRED. The
+driver in that literature is the **CBO five-year-ahead projected total balance,
+observed in real time at each baseline vintage** — forward-looking by construction,
+which is the point: what should price a ten-year bond is the fiscal path expected over
+its life, not the deficit already run. It is also cyclically cleaner than the realised
+balance without any adjustment.
+
+**Wrong sample.** A Quandt-Andrews SupF search in that work puts a break at **2008-09**
+(SupF 19.35, 1%): pre-break α = −0.065 (se 0.099, indistinguishable from zero),
+post-break α = −0.595 (se 0.071), about nine times larger. Fitting across the break
+averages two regimes.
+
+Re-run with the right object and the break, on the US ten-year premium, Newey-West(24),
+bp per 1pp of GDP:
+
+| sample | CBO 5y-ahead deficit | realised deficit | debt | Δdebt | R² (deficit / others) |
+|---|---|---|---|---|---|
+| full 1984+ | +6.0bp (t +1.3) | 0 | +0.8bp (t +1.3) | 0 | 0.914 / 0.914 |
+| pre-break | 0 | 0 | 0 | 0 | 0.913 / 0.914 |
+| **post-break** | **+14.2bp (t +1.9)** | 0 | 0 | 0 | **0.726 / 0.699** |
+
+Post-break, **the projected deficit is the only fiscal driver that is identified at
+all** — every alternative pins at zero under the sign constraint. Pre-break nothing is,
+reproducing the near-zero pre-GFC result. And the full sample gives +6.0bp against
++14.2bp post-break: a **2.4× attenuation**, close to the ~3× that work predicts.
+
+Out of sample, training post-break only, three-year horizon: **0.82 for the projected
+deficit** against 0.85 debt, 0.86 Δdebt, 0.86 realised deficit — the ranking holds,
+though on 18 overlapping windows drawn from ~43 independent vintages.
+
+### So the original hypothesis was right, and this document's first half was wrong
+
+The deficit does beat debt/GDP — provided it is the projected balance and the sample is
+the post-2008 regime. The Δdebt result above survives only as a statement about
+*realised* fiscal data on a regime-averaged sample, which is not the relevant question.
+
+Magnitude: +14.2bp per pp of deficit on the term premium here, against 39.1bp at 10y in
+the source work. Ours is lower because it is a different premium (AFNS + shadow rate on
+a regime-clean sample, not ACM) and because it controls for expected inflation,
+inflation uncertainty and price-insensitive ownership — QE and the deficit move together
+post-2008, so the ownership driver absorbs part of what a fiscal-only regression
+attributes to the deficit. Scaled by that work's ~60% yield-to-premium ratio, 14.2bp of
+premium implies ~24bp of yield, against Laubach's 25bp. The three numbers are consistent.
+
+**Today this matters.** CBO's five-year-ahead deficit is 5.87% of GDP against a
+post-break mean of 3.55% — 2.3pp wide, worth **+33bp of term premium** at the post-break
+coefficient.
+
+### Caveats before this is acted on
+
+* t = +1.9. Marginal, and the 216 monthly observations rest on ~43 independent vintages.
+* The post-break sample starts in 2008-09, so the fiscal driver's whole identifying
+  range coincides with QE. Its coefficient and the ownership driver's are not cleanly
+  separable, and the honest reading is that they share the variation.
+* Fiscal drivers are mutually collinear. One at a time — never debt and deficit
+  together, which invalidates the "both" recommendation made for the UK above.
+
 ## What was ruled out
 
 The five-year average deficit — a proxy for the structural balance, closer to Laubach's
