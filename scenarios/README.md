@@ -5,20 +5,25 @@ and Japan. One instrument — the ten-year bond — at two horizons: three years
 
 ## Inputs
 
-Three annual paths per market, in percent, by year ahead (1 = the first full year):
-**policy rate**, **headline inflation**, **real growth**. Growth is carried but never
-enters the arithmetic — it is the story behind the policy path, which is treated as
-exogenous. Inflation is headline, on the stated basis that beyond base effects headline
-equals core. The last projected year is held flat beyond the grid: your terminal *is*
-your long-run view.
+Annual paths per market, in percent, **at each calendar year end**: **policy rate**,
+**headline inflation**, **real growth**. Growth is carried but never enters the
+arithmetic — it is the story behind the policy path, which is treated as exogenous.
+Inflation is headline, on the stated basis that beyond base effects headline equals
+core. The last entered year is held flat beyond the grid, so whatever year you hold
+flat from becomes your long-run view.
 
 ```
 scenarios/us.csv
-year,policy_rate,inflation,real_growth
-1,3.9,2.7,1.8
-2,3.4,2.4,1.7
-3,3.1,2.3,1.7
+year,policy_rate,inflation,real_growth,deficit
+2026,3.9,2.7,1.8,5.87
+2027,3.4,2.4,1.7,5.83
+2028,3.1,2.3,1.7,5.99
 ```
+
+The grid **opens on the market's own expected policy path**, derived from the published
+expected-rate curve, so an untouched column is not a view. `load_scenario` converts
+calendar years to horizons ahead of today (year-end *Y* is `(Y+1) − today`); a file
+written in the older years-ahead convention still loads unchanged.
 
 Optional `price_insensitive`, `debt_gdp` and `deficit` columns override the defaults
 (ownership holds at today; the deficit follows each market's committed official
@@ -44,21 +49,30 @@ from scenarios.engine import load_scenario, latest_states, debt_projections, run
 | step | what happens |
 |---|---|
 | **Term premium** | the driver models price the scenario's *change*; today's observed premium supplies the level |
-| **Yield** | `y(h) = TP(h) + P̄(h)`, `P̄` the ten-year average of your policy path |
+| **Yield** | `y(h) = TP(h) + P̄(h)`, `P̄` blending the market's forward expectation toward your path |
 | **Return** | Leibowitz constant-maturity: `R = y₀ + (Δy/H)·((H+1)/2 − D)`, deflated by your own inflation path for the real figure |
 
-**Only the premium is anchored**, and the asymmetry is deliberate. The driver model
-cannot explain today's premium level and should not pretend to, so its residual is
-carried forward untouched. The expectations leg is different: your policy path *is* your
-forecast of the expected average short rate, so taking only its change and discarding
-its level would throw away the view you came to express.
+**Both legs start from the market**, and converge at rates you control. That symmetry is
+the point. The premium leg carries today's unexplained residual forward, decaying at `ρ`
+toward the model's fair value. The expectations leg does the same with your rate view:
 
-Today's curve prices an expected average of `y(0) − TP(0)` — 3.11% for the US against a
-4.75% yield and a 1.63% premium. A path averaging 3.50% says the market is 39bp too low,
-and that belongs in the answer: it raises every projected yield and costs return. Every
-result carries `policy_gap` so the disagreement is visible rather than buried, and an
-unchanged scenario returns today's yield **only when your path matches what is priced**
-— which is where the sheet opens.
+```
+P̄(h) = mkt(h) + [your(h) − mkt(h)] · (1 − λ^h)
+```
+
+`mkt(h)` is the market's **own** expected average over the ten years from `h`, read off
+the published expected-rate curve — and it is not the same number at every horizon. The
+US curve prices 3.11% over the next ten years but 2.75% over the ten years starting in
+three, because it expects policy to fall. Anchoring every horizon on the spot ten-year
+average would smuggle that decline in as a view nobody expressed.
+
+Without this, a three-year projection paired the **market's** term premium with your
+**entire** rate view — an inconsistency that showed up as an implausibly high ten-year
+yield at short horizons. `λ = 0.8` puts about half a stated view into the three-year
+horizon and nine tenths into the ten-year one; `λ = 0` restores take-it-literally
+behaviour and `λ = 1` projects the market's own forward curve. At `h = 0` no view is in
+yet, so `y(0) = TP(0) + P̄(0)` reproduces today's yield exactly. Every result carries
+`market_policy_avg`, `view_policy_avg` and `view_weight` so the blend is inspectable.
 
 ## The two inflation channels
 
@@ -78,7 +92,8 @@ the status quo moves nothing and only your own departures count.
 ## The sheet
 
 `scenarios/sheet/index.html` is the published input page — country tabs, an editable
-grid, your paths drawn against history, and live yield/return. It computes entirely in
+calendar-year grid stacked directly above the charts it drives, a hold-flat-from
+selector, and live yield/return. It computes entirely in
 the browser from `scenarios/data/sheet_payload.json` (built by `build_sheet.py`), and
 agrees with `scenarios.engine` to about **0.2 basis points**; the gap is payload
 rounding, nothing else. Export writes a CSV in exactly the format `load_scenario` reads.

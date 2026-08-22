@@ -41,8 +41,15 @@ h1{font-family:Newsreader,Georgia,serif;font-weight:500;font-size:clamp(27px,3.8
 .tab:hover{border-color:var(--muted)}
 .tab[aria-selected="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 .tab:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
-.cols{display:grid;grid-template-columns:minmax(340px,1fr) minmax(380px,1.25fr);gap:22px;align-items:start}
-@media (max-width:900px){.cols{grid-template-columns:1fr}}
+.stack{display:flex;flex-direction:column;gap:18px}
+.ctlrow{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-top:14px;
+  padding-top:12px;border-top:1px solid var(--rule-soft)}
+.ctlrow select{font:400 12.5px/1 "IBM Plex Sans",sans-serif;color:var(--ink);
+  background:var(--sunk);border:1px solid var(--rule);border-radius:2px;padding:9px 10px}
+.ctlrow select:focus{outline:none;border-color:var(--focus)}
+table.grid th.held{color:var(--muted);opacity:.6}
+input[type=number].held{background:transparent;color:var(--muted);
+  border-style:dashed;border-color:var(--rule-soft);cursor:not-allowed}
 .card{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:16px 18px}
 .card h2{font-family:Newsreader,Georgia,serif;font-size:19px;font-weight:500;margin:0 0 3px}
 .hint{font-size:12.5px;color:var(--muted);margin:0 0 12px;max-width:52ch}
@@ -111,40 +118,29 @@ footer{border-top:1px solid var(--rule);padding-top:18px;color:var(--muted);font
   <p class="lede">Three annual projections per market &mdash; policy rate, headline inflation, real growth &mdash;
   mapped through the term&#8209;premium driver models to a ten&#8209;year yield and a constant&#8209;maturity return,
   in three years' time and in ten. Growth is context: it is assumed to have landed on your policy path already.
-  The yield is the premium plus the average policy rate your path implies over the bond's life &mdash;
-  so your rate view is taken literally, and disagreeing with what the curve prices shows up as a
-  capital gain or loss. The premium alone is anchored: whatever the model cannot explain today
-  it carries forward untouched rather than forecasting away.</p>
+  The yield is the term premium plus the average policy rate expected over the bond's life, and
+  <strong>both legs start from the market</strong> &mdash; the premium moving toward the model's fair
+  value, your rate view phasing in &mdash; at rates you control below. The grid opens on the market's
+  own expected path, so an untouched column is not a view; a column you change is one, and it prices
+  in gradually rather than all at once.</p>
   <div class="tabs" role="tablist" id="tabs"></div>
 </header>
 
-<div class="cols">
-  <div>
-    <div class="card">
-      <h2 id="mktName"></h2>
-      <p class="hint" id="mktHint"></p>
-      <table class="grid">
-        <thead><tr><th>Year ahead</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th></tr></thead>
-        <tbody id="inputs"></tbody>
-      </table>
-      <p class="gridnote" id="note"></p>
-      <div class="rhorow">
-        <label for="rho">Today's unexplained premium</label>
-        <select id="rho">
-          <option value="1">persists in full</option>
-          <option value="0.9" selected>fades slowly &mdash; half-life 6.6y</option>
-          <option value="0.8">fades &mdash; half-life 3.1y</option>
-          <option value="0.7">fades fast &mdash; half-life 1.9y</option>
-          <option value="0">treat today's premium as fair value</option>
-        </select>
-      </div>
-      <p class="rhonote" id="rhonote"></p>
-      <div class="actions">
-        <button class="act" id="reset" type="button">Reset to neutral</button>
-        <button class="act primary" id="export" type="button">Export scenario CSV</button>
-      </div>
-      <p class="status" id="status"></p>
+<div class="stack">
+  <div class="card">
+    <h2 id="mktName"></h2>
+    <p class="hint" id="mktHint"></p>
+    <table class="grid">
+      <thead><tr id="yhead"></tr></thead>
+      <tbody id="inputs"></tbody>
+    </table>
+    <div class="ctlrow">
+      <select id="flatFrom" aria-label="Hold the path flat from this year"></select>
+      <button class="act" id="reset" type="button">Reset to the market's path</button>
+      <button class="act primary" id="export" type="button">Export scenario CSV</button>
     </div>
+    <p class="gridnote" id="note"></p>
+    <p class="status" id="status"></p>
   </div>
 
   <div class="charts">
@@ -156,6 +152,31 @@ footer{border-top:1px solid var(--rule);padding-top:18px;color:var(--muted);font
     <div class="card"><div class="chart" id="c_infl"><h3>Core inflation, % &mdash; and your headline path</h3></div></div>
     <div class="card"><div class="chart" id="c_ten"><h3>Ten-year yield, % &mdash; and where the scenario puts it</h3></div></div>
   </div>
+
+  <div class="card">
+    <div class="rhorow">
+      <label for="rho">Today's unexplained premium</label>
+      <select id="rho">
+        <option value="1">persists in full</option>
+        <option value="0.9" selected>fades slowly &mdash; half-life 6.6y</option>
+        <option value="0.8">fades &mdash; half-life 3.1y</option>
+        <option value="0.7">fades fast &mdash; half-life 1.9y</option>
+        <option value="0">treat today's premium as fair value</option>
+      </select>
+    </div>
+    <p class="rhonote" id="rhonote"></p>
+    <div class="rhorow">
+      <label for="lamv">Your rate view reaches the market</label>
+      <select id="lamv">
+        <option value="0">at once &mdash; priced in full from day one</option>
+        <option value="0.7">quickly &mdash; two thirds in by 3y</option>
+        <option value="0.8" selected>gradually &mdash; half in by 3y, nine tenths by 10y</option>
+        <option value="0.9">slowly &mdash; a quarter in by 3y</option>
+        <option value="1">never &mdash; project the market's own forward path</option>
+      </select>
+    </div>
+    <p class="rhonote" id="lamnote"></p>
+  </div>
 </div>
 
 <div class="results" id="results"></div>
@@ -164,11 +185,17 @@ footer{border-top:1px solid var(--rule);padding-top:18px;color:var(--muted);font
 </div>
 
 <script>
-const D = {"halflife": 30, "tenor": 10.0, "lam": 0.9771599684342459, "asof": "2026-08-19", "markets": {"US": {"y_today": 4.745, "tp_today": 1.632, "drivers": {"expected_inflation": 2.3, "inflation_uncertainty": 1.283, "price_insensitive": 26.794, "debt_gdp": 98.71, "fiscal": 5.868}, "duration": 8.078, "ewma": {"m": 3.3519, "v": 1.645186, "last": 2.787, "asof": "2026-07-01"}, "debt_proj": {"1": 99.9, "2": 100.9, "3": 102.0, "4": 103.2, "5": 103.2, "6": 103.2, "7": 103.2, "8": 103.2, "9": 103.2, "10": 103.2, "11": 103.2, "12": 103.2}, "deficit_proj": {"1": 5.83, "2": 5.65, "3": 5.99, "4": 5.59, "5": 5.87, "6": 5.87, "7": 6.04, "8": 6.63, "9": 6.47, "10": 6.15, "11": 6.64}, "hist": {"core": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [5.03, 4.92, 3.66, 3.32, 2.83, 3.02, 2.69, 2.39, 2.29, 2.07, 2.44, 2.67, 2.32, 1.46, 1.77, 2.15, 2.51, 2.34, 2.3, 1.7, 0.96, 1.66, 2.11, 1.76, 1.75, 1.83, 2.21, 1.84, 2.14, 2.19, 1.71, 3.56, 6.15, 4.79, 3.44, 2.96, 2.84]}, "short": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [7.78, 5.48, 3.38, 3.1, 4.48, 5.69, 5.19, 5.4, 5.13, 4.91, 6.09, 3.56, 1.71, 1.15, 1.51, 3.35, 5.02, 4.7, 1.84, 0.25, 0.24, 0.2, 0.24, 0.19, 0.21, 0.22, 0.55, 1.13, 2.03, 2.2, 0.46, 0.12, 2.3, 5.36, 5.07, 4.14, 3.83]}, "ten": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [8.53, 8.06, 7.42, 6.2, 7.2, 6.63, 6.51, 6.41, 5.42, 5.96, 6.16, 5.34, 5.02, 4.36, 4.53, 4.38, 4.83, 4.73, 4.05, 3.75, 3.48, 2.97, 1.86, 2.46, 2.65, 2.23, 1.9, 2.38, 2.92, 2.15, 0.91, 1.51, 3.0, 3.98, 4.21, 4.34, 4.45]}}, "model": {"kind": "us", "intercept": 0.14562574241235732, "coef": {"expected_inflation": 1.0086285197521914, "inflation_uncertainty": 0.8097335047900561, "price_insensitive": -0.030080542227909346}, "adjust": {"fiscal": 0.5187413149810634}, "base": {"fiscal": 5.867579371341003}}}, "UK": {"y_today": 5.151, "tp_today": 1.389, "drivers": {"expected_inflation": 2.199, "inflation_uncertainty": 1.445, "price_insensitive": 37.851, "debt_gdp": 101.227, "fiscal": 1.625}, "duration": 7.94, "ewma": {"m": 3.688, "v": 2.086774, "last": 2.8, "asof": "2026-06-01"}, "debt_proj": {"1": 103.5, "2": 103.8, "3": 103.8, "4": 103.4, "5": 103.4, "6": 103.4, "7": 103.4, "8": 103.4, "9": 103.4, "10": 103.4}, "deficit_proj": {"1": 2.94, "2": 2.54, "3": 1.81, "4": 1.63}, "hist": {"core": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [9.68, 5.85, 4.12, 1.4, 2.52, 3.33, 2.15, 1.88, 1.45, 0.74, 0.08, 1.07, 1.48, 1.28, 1.07, 1.51, 1.73, 1.94, 1.93, 1.63, 1.98, 2.75, 2.13, 1.88, 1.58, 1.28, 1.57, 2.32, 1.95, 1.69, 1.47, 2.31, 5.31, 5.83, 4.38, 4.12, 3.07]}, "short": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [13.58, 10.05, 8.61, 5.48, 5.26, 6.38, 5.76, 6.7, 6.81, 5.1, 5.9, 4.73, 3.91, 3.54, 4.47, 4.52, 4.7, 5.55, 4.3, 0.57, 0.54, 0.59, 0.44, 0.31, 0.34, 0.42, 0.25, 0.18, 0.62, 0.71, 0.12, 0.01, 1.62, 4.52, 4.52, 3.97, 3.83]}, "ten": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [11.21, 9.84, 8.92, 7.63, 8.07, 8.13, 7.82, 6.95, 5.42, 4.99, 5.17, 4.85, 4.85, 4.52, 4.83, 4.37, 4.43, 4.92, 4.58, 3.74, 3.74, 3.22, 1.96, 2.47, 2.61, 1.9, 1.3, 1.25, 1.47, 0.89, 0.34, 0.79, 2.42, 4.0, 4.1, 4.62, 4.83]}}, "model": {"kind": "spread", "intercept": 0.6633700086773604, "beta_us": 0.888194664729023, "coef": {"expected_inflation": 1.3567364267965007, "price_insensitive": -0.05616469404750646}, "adjust": {"inflation_uncertainty": 0.8097335047900561, "fiscal": 0.5187413149810634}, "base": {"expected_inflation": -0.2009059999999998, "inflation_uncertainty": 0.16191886519021126, "price_insensitive": 11.05710631335598, "fiscal": -4.242506408287682}}}, "DE": {"y_today": 3.325, "tp_today": 0.962, "drivers": {"expected_inflation": 1.912, "inflation_uncertainty": 1.306, "price_insensitive": 16.136, "debt_gdp": 63.888, "fiscal": 4.057}, "duration": 8.59, "ewma": {"m": 2.6596, "v": 1.704729, "last": 2.415, "asof": "2026-06-01"}, "debt_proj": {"1": 68.3, "2": 68.9, "3": 71.0, "4": 73.4, "5": 73.4, "6": 73.4, "7": 73.4, "8": 73.4, "9": 73.4, "10": 73.4}, "deficit_proj": {"1": 4.06}, "hist": {"core": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [2.53, 3.85, 5.64, 5.49, 2.75, 2.12, 1.64, 1.93, 1.36, 0.48, 0.5, 1.28, 1.57, 0.89, 1.68, 0.73, 0.68, 1.9, 1.36, 1.19, 0.62, 0.9, 1.32, 1.22, 1.31, 1.56, 1.2, 1.21, 1.29, 1.48, 0.29, 2.33, 3.92, 5.06, 2.82, 2.52, 2.39]}, "short": {"years": [1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [3.45, 3.46, 2.84, 4.4, 4.25, 3.28, 2.21, 2.02, 2.13, 2.97, 3.97, 3.59, 0.59, 0.41, 0.6, 0.06, 0.08, 0.07, -0.24, -0.62, -0.78, -0.67, -0.61, -0.66, -0.69, -0.03, 3.19, 3.44, 2.05, 2.18]}, "ten": {"years": [1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [5.75, 4.76, 4.72, 5.37, 4.97, 4.95, 4.29, 4.23, 3.46, 3.85, 4.3, 4.2, 3.61, 3.0, 2.83, 1.69, 1.7, 1.31, 0.55, 0.11, 0.39, 0.48, -0.22, -0.48, -0.34, 1.17, 2.47, 2.37, 2.69, 3.05]}}, "model": {"kind": "spread", "intercept": -0.5998961297522647, "beta_us": 1.2960413526462, "coef": {"inflation_uncertainty": 1.9787562006403991, "price_insensitive": -0.027770865364364017}, "adjust": {"expected_inflation": 1.0086285197521914, "fiscal": 0.5187413149810634}, "base": {"expected_inflation": -0.2999999999999998, "inflation_uncertainty": 0.023004748493810956, "price_insensitive": -10.657636047624528, "fiscal": -1.8101393713410037}}}, "JP": {"y_today": 2.894, "tp_today": 1.364, "drivers": {"expected_inflation": 1.849, "inflation_uncertainty": 1.101, "price_insensitive": 92.597, "debt_gdp": 239.971, "fiscal": 1.9}, "duration": 8.756, "ewma": {"m": 1.2032, "v": 1.212718, "last": 1.226, "asof": "2026-06-01"}, "debt_proj": {"1": 235.4, "2": 234.5, "3": 234.4, "4": 235.0, "5": 235.0, "6": 235.0, "7": 235.0, "8": 235.0, "9": 235.0}, "deficit_proj": {"1": 1.1, "2": 1.1, "3": 1.3, "4": 1.6, "5": 1.9, "6": 2.2, "7": 2.5, "8": 2.7, "9": 2.9, "10": 3.1, "11": 3.3, "12": 3.5, "13": 3.7, "14": 3.8}, "hist": {"core": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [2.6, 2.6, 2.55, 1.48, 0.89, 0.56, 0.45, 1.64, 0.77, -0.11, -0.5, -0.87, -0.7, -0.33, -0.46, -0.37, -0.38, -0.19, 0.12, -0.56, -1.17, -0.86, -0.48, -0.16, 1.89, 1.09, 0.38, -0.03, 0.2, 0.44, 0.11, -0.73, 0.33, 2.72, 1.96, 1.71, 1.36]}, "short": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [7.31, 6.54, 4.03, 2.67, 2.33, 1.04, 0.52, 0.48, 0.42, 0.2, 0.33, 0.09, 0.02, 0.02, 0.02, 0.03, 0.42, 0.69, 0.6, 0.22, 0.13, 0.14, 0.11, 0.09, 0.05, -0.0, -0.24, -0.19, -0.14, -0.19, -0.16, -0.12, -0.1, -0.09, 0.18, 0.65, 1.11]}, "ten": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [6.87, 6.38, 5.35, 4.35, 4.36, 3.46, 3.12, 2.37, 1.53, 1.74, 1.75, 1.33, 1.27, 0.99, 1.5, 1.38, 1.74, 1.68, 1.49, 1.35, 1.18, 1.12, 0.86, 0.71, 0.55, 0.36, -0.05, 0.05, 0.08, -0.09, 0.01, 0.07, 0.24, 0.57, 0.91, 1.54, 2.49]}}, "model": {"kind": "spread", "intercept": 0.5832191392867019, "beta_us": 0.7388281831321487, "coef": {"price_insensitive": -0.01404081654746081}, "adjust": {"expected_inflation": 1.0086285197521914, "inflation_uncertainty": 0.8097335047900561, "fiscal": 0.5187413149810634}, "base": {"expected_inflation": -0.3999999999999999, "inflation_uncertainty": -0.18141318870625778, "price_insensitive": 65.80296023186568, "fiscal": -3.9675793713410035}}}}};
+const D = {"halflife": 30, "tenor": 10.0, "lam": 0.9771599684342459, "asof": "2026-08-19", "markets": {"US": {"y_today": 4.745, "tp_today": 1.632, "drivers": {"expected_inflation": 2.3, "inflation_uncertainty": 1.283, "price_insensitive": 26.794, "debt_gdp": 98.71, "fiscal": 5.868}, "duration": 8.078, "ewma": {"m": 3.3519, "v": 1.645186, "last": 2.787, "asof": "2026-07-01"}, "debt_proj": {"1": 99.9, "2": 100.9, "3": 102.0, "4": 103.2, "5": 103.2, "6": 103.2, "7": 103.2, "8": 103.2, "9": 103.2, "10": 103.2, "11": 103.2, "12": 103.2}, "deficit_proj": {"1": 5.83, "2": 5.65, "3": 5.99, "4": 5.59, "5": 5.87, "6": 5.87, "7": 6.04, "8": 6.63, "9": 6.47, "10": 6.15, "11": 6.64}, "expected_curve": {"0.25": 4.0672, "0.5": 4.0252, "1.0": 3.9451, "2.0": 3.7999, "3.0": 3.6722, "5.0": 3.4613, "7.0": 3.2969, "10.0": 3.1129, "20.0": 2.789, "30.0": 2.6519}, "market_policy_path": [3.945, 3.655, 3.417, 3.25, 3.039, 2.968, 2.804, 2.806, 2.683, 2.561, 2.757, 2.692], "hist": {"core": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [5.03, 4.92, 3.66, 3.32, 2.83, 3.02, 2.69, 2.39, 2.29, 2.07, 2.44, 2.67, 2.32, 1.46, 1.77, 2.15, 2.51, 2.34, 2.3, 1.7, 0.96, 1.66, 2.11, 1.76, 1.75, 1.83, 2.21, 1.84, 2.14, 2.19, 1.71, 3.56, 6.15, 4.79, 3.44, 2.96, 2.84]}, "short": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [7.78, 5.48, 3.38, 3.1, 4.48, 5.69, 5.19, 5.4, 5.13, 4.91, 6.09, 3.56, 1.71, 1.15, 1.51, 3.35, 5.02, 4.7, 1.84, 0.25, 0.24, 0.2, 0.24, 0.19, 0.21, 0.22, 0.55, 1.13, 2.03, 2.2, 0.46, 0.12, 2.3, 5.36, 5.07, 4.14, 3.83]}, "ten": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [8.53, 8.06, 7.42, 6.2, 7.2, 6.63, 6.51, 6.41, 5.42, 5.96, 6.16, 5.34, 5.02, 4.36, 4.53, 4.38, 4.83, 4.73, 4.05, 3.75, 3.48, 2.97, 1.86, 2.46, 2.65, 2.23, 1.9, 2.38, 2.92, 2.15, 0.91, 1.51, 3.0, 3.98, 4.21, 4.34, 4.45]}}, "model": {"kind": "us", "intercept": 0.14562574241235732, "coef": {"expected_inflation": 1.0086285197521914, "inflation_uncertainty": 0.8097335047900561, "price_insensitive": -0.030080542227909346}, "adjust": {"fiscal": 0.5187413149810634}, "base": {"fiscal": 5.867579371341003}}}, "UK": {"y_today": 5.151, "tp_today": 1.389, "drivers": {"expected_inflation": 2.199, "inflation_uncertainty": 1.445, "price_insensitive": 37.851, "debt_gdp": 101.227, "fiscal": 1.625}, "duration": 7.94, "ewma": {"m": 3.688, "v": 2.086774, "last": 2.8, "asof": "2026-06-01"}, "debt_proj": {"1": 103.5, "2": 103.8, "3": 103.8, "4": 103.4, "5": 103.4, "6": 103.4, "7": 103.4, "8": 103.4, "9": 103.4, "10": 103.4}, "deficit_proj": {"1": 2.94, "2": 2.54, "3": 1.81, "4": 1.63}, "expected_curve": {"0.5": 4.1306, "1.0": 4.0926, "2.0": 4.0237, "3.0": 3.9632, "5.0": 3.8633, "7.0": 3.7855, "10.0": 3.698, "20.0": 3.5431}, "market_policy_path": [4.093, 3.955, 3.842, 3.763, 3.664, 3.63, 3.552, 3.552, 3.494, 3.436, 3.528, 3.497], "hist": {"core": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [9.68, 5.85, 4.12, 1.4, 2.52, 3.33, 2.15, 1.88, 1.45, 0.74, 0.08, 1.07, 1.48, 1.28, 1.07, 1.51, 1.73, 1.94, 1.93, 1.63, 1.98, 2.75, 2.13, 1.88, 1.58, 1.28, 1.57, 2.32, 1.95, 1.69, 1.47, 2.31, 5.31, 5.83, 4.38, 4.12, 3.07]}, "short": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [13.58, 10.05, 8.61, 5.48, 5.26, 6.38, 5.76, 6.7, 6.81, 5.1, 5.9, 4.73, 3.91, 3.54, 4.47, 4.52, 4.7, 5.55, 4.3, 0.57, 0.54, 0.59, 0.44, 0.31, 0.34, 0.42, 0.25, 0.18, 0.62, 0.71, 0.12, 0.01, 1.62, 4.52, 4.52, 3.97, 3.83]}, "ten": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [11.21, 9.84, 8.92, 7.63, 8.07, 8.13, 7.82, 6.95, 5.42, 4.99, 5.17, 4.85, 4.85, 4.52, 4.83, 4.37, 4.43, 4.92, 4.58, 3.74, 3.74, 3.22, 1.96, 2.47, 2.61, 1.9, 1.3, 1.25, 1.47, 0.89, 0.34, 0.79, 2.42, 4.0, 4.1, 4.62, 4.83]}}, "model": {"kind": "spread", "intercept": 0.6633700086773604, "beta_us": 0.888194664729023, "coef": {"expected_inflation": 1.3567364267965007, "price_insensitive": -0.05616469404750646}, "adjust": {"inflation_uncertainty": 0.8097335047900561, "fiscal": 0.5187413149810634}, "base": {"expected_inflation": -0.2009059999999998, "inflation_uncertainty": 0.16191886519021126, "price_insensitive": 11.05710631335598, "fiscal": -4.242506408287682}}}, "DE": {"y_today": 3.325, "tp_today": 0.962, "drivers": {"expected_inflation": 1.912, "inflation_uncertainty": 1.306, "price_insensitive": 16.136, "debt_gdp": 63.888, "fiscal": 4.057}, "duration": 8.59, "ewma": {"m": 2.6596, "v": 1.704729, "last": 2.415, "asof": "2026-06-01"}, "debt_proj": {"1": 68.3, "2": 68.9, "3": 71.0, "4": 73.4, "5": 73.4, "6": 73.4, "7": 73.4, "8": 73.4, "9": 73.4, "10": 73.4}, "deficit_proj": {"1": 4.06}, "expected_curve": {"0.25": 2.5922, "0.5": 2.5811, "1.0": 2.5599, "2.0": 2.5225, "3.0": 2.491, "5.0": 2.4413, "7.0": 2.4038, "10.0": 2.3625, "20.0": 2.2909, "30.0": 2.2613}, "market_policy_path": [2.56, 2.485, 2.428, 2.392, 2.342, 2.329, 2.291, 2.294, 2.266, 2.238, 2.284, 2.269], "hist": {"core": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [2.53, 3.85, 5.64, 5.49, 2.75, 2.12, 1.64, 1.93, 1.36, 0.48, 0.5, 1.28, 1.57, 0.89, 1.68, 0.73, 0.68, 1.9, 1.36, 1.19, 0.62, 0.9, 1.32, 1.22, 1.31, 1.56, 1.2, 1.21, 1.29, 1.48, 0.29, 2.33, 3.92, 5.06, 2.82, 2.52, 2.39]}, "short": {"years": [1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [3.45, 3.46, 2.84, 4.4, 4.25, 3.28, 2.21, 2.02, 2.13, 2.97, 3.97, 3.59, 0.59, 0.41, 0.6, 0.06, 0.08, 0.07, -0.24, -0.62, -0.78, -0.67, -0.61, -0.66, -0.69, -0.03, 3.19, 3.44, 2.05, 2.18]}, "ten": {"years": [1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [5.75, 4.76, 4.72, 5.37, 4.97, 4.95, 4.29, 4.23, 3.46, 3.85, 4.3, 4.2, 3.61, 3.0, 2.83, 1.69, 1.7, 1.31, 0.55, 0.11, 0.39, 0.48, -0.22, -0.48, -0.34, 1.17, 2.47, 2.37, 2.69, 3.05]}}, "model": {"kind": "spread", "intercept": -0.5998961297522647, "beta_us": 1.2960413526462, "coef": {"inflation_uncertainty": 1.9787562006403991, "price_insensitive": -0.027770865364364017}, "adjust": {"expected_inflation": 1.0086285197521914, "fiscal": 0.5187413149810634}, "base": {"expected_inflation": -0.2999999999999998, "inflation_uncertainty": 0.023004748493810956, "price_insensitive": -10.657636047624528, "fiscal": -1.8101393713410037}}}, "JP": {"y_today": 2.894, "tp_today": 1.364, "drivers": {"expected_inflation": 1.849, "inflation_uncertainty": 1.101, "price_insensitive": 92.597, "debt_gdp": 239.971, "fiscal": 1.9}, "duration": 8.756, "ewma": {"m": 1.2032, "v": 1.212718, "last": 1.226, "asof": "2026-06-01"}, "debt_proj": {"1": 235.4, "2": 234.5, "3": 234.4, "4": 235.0, "5": 235.0, "6": 235.0, "7": 235.0, "8": 235.0, "9": 235.0}, "deficit_proj": {"1": 1.1, "2": 1.1, "3": 1.3, "4": 1.6, "5": 1.9, "6": 2.2, "7": 2.5, "8": 2.7, "9": 2.9, "10": 3.1, "11": 3.3, "12": 3.5, "13": 3.7, "14": 3.8}, "expected_curve": {"1.0": 1.3899, "2.0": 1.4132, "3.0": 1.4344, "5.0": 1.4692, "7.0": 1.4956, "10.0": 1.5237, "20.0": 1.5691, "30.0": 1.5868}, "market_policy_path": [1.39, 1.437, 1.477, 1.504, 1.539, 1.548, 1.575, 1.571, 1.589, 1.608, 1.574, 1.583], "hist": {"core": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [2.6, 2.6, 2.55, 1.48, 0.89, 0.56, 0.45, 1.64, 0.77, -0.11, -0.5, -0.87, -0.7, -0.33, -0.46, -0.37, -0.38, -0.19, 0.12, -0.56, -1.17, -0.86, -0.48, -0.16, 1.89, 1.09, 0.38, -0.03, 0.2, 0.44, 0.11, -0.73, 0.33, 2.72, 1.96, 1.71, 1.36]}, "short": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [7.31, 6.54, 4.03, 2.67, 2.33, 1.04, 0.52, 0.48, 0.42, 0.2, 0.33, 0.09, 0.02, 0.02, 0.02, 0.03, 0.42, 0.69, 0.6, 0.22, 0.13, 0.14, 0.11, 0.09, 0.05, -0.0, -0.24, -0.19, -0.14, -0.19, -0.16, -0.12, -0.1, -0.09, 0.18, 0.65, 1.11]}, "ten": {"years": [1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026], "v": [6.87, 6.38, 5.35, 4.35, 4.36, 3.46, 3.12, 2.37, 1.53, 1.74, 1.75, 1.33, 1.27, 0.99, 1.5, 1.38, 1.74, 1.68, 1.49, 1.35, 1.18, 1.12, 0.86, 0.71, 0.55, 0.36, -0.05, 0.05, 0.08, -0.09, 0.01, 0.07, 0.24, 0.57, 0.91, 1.54, 2.49]}}, "model": {"kind": "spread", "intercept": 0.5832191392867019, "beta_us": 0.7388281831321487, "coef": {"price_insensitive": -0.01404081654746081}, "adjust": {"expected_inflation": 1.0086285197521914, "inflation_uncertainty": 0.8097335047900561, "fiscal": 0.5187413149810634}, "base": {"expected_inflation": -0.3999999999999999, "inflation_uncertainty": -0.18141318870625778, "price_insensitive": 65.80296023186568, "fiscal": -3.9675793713410035}}}}, "view_convergence": 0.8, "year0": 2026, "year_frac": 2026.638};
 const NAME = {"US": "United States", "UK": "United Kingdom", "DE": "Germany", "JP": "Japan"}, CUR = {"US": "Fed funds", "UK": "Bank Rate", "DE": "ECB deposit rate", "JP": "BoJ policy rate"};
 const MK = ["US","UK","DE","JP"];
-const KINK = 2.0, NYRS = 5, HORIZONS = [3,10];
+const KINK = 2.0, NYRS = 6, HORIZONS = [3,10];
 let RHO = 0.9;   // annual survival of the unexplained premium
+let LAMV = D.view_convergence;   // share of YOUR rate view still unexpressed after a year
+// Columns are calendar YEAR-ENDS. End-2026 is only a few months away, so each column
+// sits at a fractional horizon; the engine keys every path by those horizons.
+const Y0 = D.year0, YEARS = Array.from({length:NYRS}, (_,i) => Y0 + i);
+const hz = Y => (Y + 1) - D.year_frac;          // years from today to that year-end
+let FLAT = {};                                   // per market: hold flat from this year
 const BASE_ROWS = [["policy_rate","Policy rate"],["inflation","Inflation (headline)"],
               ["real_growth","Real growth"]];
 const rowsFor = c => BASE_ROWS.concat([["deficit","Deficit (% GDP)"]]);
@@ -187,19 +214,32 @@ let market = "US", S = {};
    about +0.1 on the volatility driver, seven basis points of premium. The
    expectations channel, which carries fifteen times the weight, is exactly neutral. */
 function defaults(c){
-  const m = D.markets[c];
-  const curve = m.y_today - m.tp_today;   // the market's own expected average policy
+  const m = D.markets[c], mp = m.market_policy_path || [];
   const o = {policy_rate:{}, inflation:{}, real_growth:{}, deficit:{}};
-  for(let y=1;y<=NYRS;y++){
-    o.policy_rate[y] = +curve.toFixed(2);
-    o.inflation[y]   = +m.drivers.expected_inflation.toFixed(2);
-    o.real_growth[y] = 1.5;
-    o.deficit[y] = +((m.deficit_proj || {})[String(y)]
+  YEARS.forEach((Y,i) => {
+    // the MARKET's own expected policy for that year -- so entering nothing reproduces
+    // the market's forward path, and any edit is visibly a departure from it
+    o.policy_rate[Y] = +(mp[i] ?? (m.y_today - m.tp_today)).toFixed(2);
+    o.inflation[Y]   = +m.drivers.expected_inflation.toFixed(2);
+    o.real_growth[Y] = 1.5;
+    o.deficit[Y] = +((m.deficit_proj || {})[String(Y - Y0)]
                      ?? m.drivers.fiscal ?? 0).toFixed(2);
-  }
+  });
   return o;
 }
-MK.forEach(c => S[c] = defaults(c));
+/* Paths reach the engine keyed by HORIZON, and stop at the hold-flat year: everything
+   beyond the last entry is held flat anyway, so "hold flat from 2029" is simply a path
+   that ends there. */
+function asPath(c, key){
+  const sc = S[c], out = {};
+  for(const Y of YEARS){ out[hz(Y)] = sc[key][Y]; if(Y >= FLAT[c]) break; }
+  return out;
+}
+const scenarioFor = c => ({policy_rate: asPath(c,"policy_rate"),
+                           inflation: asPath(c,"inflation"),
+                           real_growth: asPath(c,"real_growth"),
+                           deficit: asPath(c,"deficit")});
+MK.forEach(c => { S[c] = defaults(c); FLAT[c] = YEARS[YEARS.length-1]; });
 
 /* ------------------------------- engine (ports scenarios/engine.py) ------------- */
 const kink = x => Math.max(x - KINK, 0);
@@ -207,7 +247,37 @@ function step(path, year){
   const ys = Object.keys(path).map(Number).sort((a,b)=>a-b);
   if(year <= ys[0]) return path[ys[0]];
   if(year >= ys[ys.length-1]) return path[ys[ys.length-1]];
-  return path[Math.floor(year)];
+  let prev = ys[0];                 // the entry in force: last one dated at or before
+  for(const y of ys){ if(y > year) break; prev = y; }
+  return path[prev];
+}
+/* The MARKET's expected average short rate over [start, start+span], off the published
+   expected-rate curve. C(t) = t*e(t), so interpolate the average and multiply. */
+function mktFwdAvg(curve, start, span=10){
+  // parallel arrays, not numeric re-indexing: the payload keys are strings like
+  // "10.0", so curve[10] would silently miss and poison the whole leg with NaN
+  const pairs = Object.entries(curve||{}).map(([k,v]) => [Number(k), Number(v)])
+                      .sort((a,b) => a[0]-b[0]);
+  if(!pairs.length) return NaN;
+  const ts = pairs.map(p => p[0]), vs = pairs.map(p => p[1]);
+  const cum = t => {
+    if(t <= 0) return 0;
+    if(t <= ts[0]) return t*vs[0];
+    if(t >= ts[ts.length-1]) return t*vs[vs.length-1];
+    let i = 0; while(ts[i+1] < t) i++;
+    const w = (t-ts[i])/(ts[i+1]-ts[i]);
+    return t * (vs[i] + w*(vs[i+1]-vs[i]));
+  };
+  return (cum(start+span) - cum(start)) / span;
+}
+/* The expectations leg: start from the market's forward view, move toward yours by the
+   share of your view expressed by that horizon. At h=0 it IS the market, so
+   y(0)=TP(0)+Pbar(0) reproduces today's yield. */
+function blendedPolicy(c, sc, h){
+  const user = fwdAvg(sc.policy_rate, h);
+  const mkt = mktFwdAvg(D.markets[c].expected_curve, h);
+  if(!isFinite(mkt)) return user;
+  return mkt + (user - mkt) * (1 - Math.pow(LAMV, h));
 }
 const fwdAvg = (path, start, span=10) => {
   let s = 0; for(let k=1;k<=span;k++) s += step(path, start+k); return s/span;
@@ -220,7 +290,7 @@ function ewmaVolAt(m0, v0, monthly, lam){
 function uncertainty(c, sc, h){
   const M = D.markets[c], n = h*12, lam = D.lam;
   const scen = [], base = [];
-  for(let i=0;i<n;i++){ scen.push(step(sc.inflation, 1 + Math.floor(i/12))); base.push(M.ewma.last); }
+  for(let i=0;i<n;i++){ scen.push(step(sc.inflation, (i+1)/12)); base.push(M.ewma.last); }
   const d = ewmaVolAt(M.ewma.m, M.ewma.v, scen, lam) - ewmaVolAt(M.ewma.m, M.ewma.v, base, lam);
   return Math.max(M.drivers.inflation_uncertainty + d, 0);
 }
@@ -277,11 +347,11 @@ function spreadPremium(c, us, own, tpUs){
 }
 const leibowitz = (y0,yH,H,Dur) => y0 + ((yH-y0)/H) * ((H+1)/2 - Dur);
 function realRet(nom, sc, H){
-  let s=0; for(let k=1;k<=H;k++) s += step(sc.inflation,k);
+  let s=0; for(let k=1;k<=H;k++) s += step(sc.inflation, k);
   return ((1+nom/100)/(1+(s/H)/100) - 1) * 100;
 }
 function compute(c){
-  const M = D.markets[c], sc = S[c], usM = D.markets.US, usS = S.US;
+  const M = D.markets[c], sc = scenarioFor(c), usM = D.markets.US, usS = scenarioFor("US");
   const us0 = usM.drivers, usH = {};
   HORIZONS.forEach(h => usH[h] = driversAt("US", usS, h));
   const usResid = usM.tp_today - usPremium(us0);      // what the drivers cannot explain
@@ -301,12 +371,14 @@ function compute(c){
   const curve = M.y_today - M.tp_today;              // what the market prices
   const gap = fwdAvg(sc.policy_rate, 0) - curve;
   return HORIZONS.map(h => {
-    const pbar = fwdAvg(sc.policy_rate, h);
+    const pbar = blendedPolicy(c, sc, h);            // market -> your view, gradually
     const y = tp[h] + pbar;                          // the identity, not a difference
     const nom = leibowitz(M.y_today, y, h, M.duration);
     const resid0 = (c === "US") ? usResid : (M.tp_today - spreadPremium(c, us0, M.drivers, tpUs[0]));
     return {h, tp: tp[h], pbar, y, nom, real: realRet(nom, sc, h), curve, gap,
-            carried: resid0 * Math.pow(RHO, h)};
+            carried: resid0 * Math.pow(RHO, h),
+            mkt: mktFwdAvg(M.expected_curve, h), view: fwdAvg(sc.policy_rate, h),
+            vw: 1 - Math.pow(LAMV, h)};
   });
 }
 
@@ -351,31 +423,39 @@ function renderTabs(){
   document.querySelectorAll(".tab").forEach(b => b.onclick = () => { market = b.dataset.c; render(); });
 }
 function renderInputs(){
-  const sc = S[market];
+  const sc = S[market], flat = FLAT[market];
+  document.getElementById("yhead").innerHTML = "<th>Year end</th>" +
+    YEARS.map(Y => `<th${Y > flat ? ' class="held"' : ''}>${Y}</th>`).join("");
   document.getElementById("inputs").innerHTML = rowsFor(market).map(([k,label]) =>
-    `<tr><td>${label}</td>` + Array.from({length:NYRS}, (_,i) =>
-      `<td><input type="number" step="0.1" data-k="${k}" data-y="${i+1}" value="${sc[k][i+1]}"
-        aria-label="${label}, year ${i+1}"></td>`).join("") + "</tr>").join("");
+    `<tr><td>${label}</td>` + YEARS.map(Y => {
+      const held = Y > flat;
+      return `<td><input type="number" step="0.1" data-k="${k}" data-y="${Y}"
+        value="${(held ? sc[k][flat] : sc[k][Y]).toFixed(2)}" ${held ? "readonly" : ""}
+        class="${held ? "held" : ""}" aria-label="${label}, year end ${Y}"></td>`;
+    }).join("") + "</tr>").join("");
   document.querySelectorAll("#inputs input").forEach(inp => inp.oninput = () => {
     const v = parseFloat(inp.value);
     if(!Number.isFinite(v)) return;
     S[market][inp.dataset.k][+inp.dataset.y] = v;
-    renderCharts(); renderResults();
+    renderInputs(); renderCharts(); renderResults();
   });
+  const sel = document.getElementById("flatFrom");
+  sel.innerHTML = YEARS.map(Y =>
+    `<option value="${Y}" ${Y===flat?"selected":""}>hold flat from year-end ${Y}</option>`).join("");
+  sel.onchange = e => { FLAT[market] = +e.target.value; render(); };
 }
 function renderCharts(){
   const M = D.markets[market], sc = S[market];
-  const fwdYears = y0 => Array.from({length:NYRS}, (_,i)=>y0+i+1);
-  const hy = M.hist.short.years, last = hy[hy.length-1];
+  // the forward points sit on the SAME calendar years as the entry columns
+  const entry = k => YEARS.map(Y => [Y, sc[k][Math.min(Y, FLAT[market])]]);
   document.getElementById("t_short").textContent = CUR[market] + " vs your policy path, %";
-  draw(document.getElementById("c_short"), M.hist.short,
-       fwdYears(last).map((yr,i)=>[yr, sc.policy_rate[i+1]]), {label:"policy rate"});
-  draw(document.getElementById("c_infl"), M.hist.core,
-       fwdYears(M.hist.core.years[M.hist.core.years.length-1]).map((yr,i)=>[yr, sc.inflation[i+1]]),
+  draw(document.getElementById("c_short"), M.hist.short, entry("policy_rate"),
+       {label:"policy rate"});
+  draw(document.getElementById("c_infl"), M.hist.core, entry("inflation"),
        {label:"inflation"});
-  const rows = compute(market), ty = M.hist.ten.years, tlast = ty[ty.length-1];
+  const rows = compute(market);
   draw(document.getElementById("c_ten"), M.hist.ten,
-       rows.map(r=>[tlast+r.h, r.y]), {label:"ten-year yield"});
+       rows.map(r => [Y0 + r.h, r.y]), {label:"ten-year yield"});
 }
 function renderResults(){
   const M = D.markets[market], rows = compute(market);
@@ -389,6 +469,9 @@ function renderResults(){
         <dt>Term premium</dt><dd>${r.tp>=0?"+":""}${r.tp.toFixed(2)}%</dd>
         <dt style="padding-left:11px">of which unexplained</dt><dd style="color:var(--muted)">${r.carried>=0?"+":""}${r.carried.toFixed(2)}%</dd>
         <dt>+ avg policy, next 10y</dt><dd>${r.pbar.toFixed(2)}%</dd>
+        <dt style="padding-left:11px">market prices</dt><dd style="color:var(--muted)">${isFinite(r.mkt)?r.mkt.toFixed(2)+"%":"&mdash;"}</dd>
+        <dt style="padding-left:11px">your path</dt><dd style="color:var(--muted)">${r.view.toFixed(2)}%</dd>
+        <dt style="padding-left:11px">your view priced in</dt><dd style="color:var(--muted)">${(100*r.vw).toFixed(0)}%</dd>
         <dt class="tot">= ten-year yield</dt><dd class="tot">${r.y.toFixed(2)}%</dd>
         <dt>Return, nominal p.a.</dt><dd class="${sign(r.nom)}">${r.nom>=0?"+":""}${r.nom.toFixed(2)}%</dd>
         <dt>Return, real p.a.</dt><dd class="${sign(r.real)}">${r.real>=0?"+":""}${r.real.toFixed(2)}%</dd>
@@ -418,7 +501,9 @@ function render(){
   renderTabs();
   document.getElementById("mktName").textContent = NAME[market] + " — your projections";
   document.getElementById("mktHint").textContent =
-    "Percent, per year ahead. Year 5 is held flat beyond the grid: your last year is your long-run view.";
+    "Percent, at each calendar year end. The grid opens on the market's own expected path, "
+    + "so an untouched column is not a view. Whatever year you hold flat from becomes your "
+    + "long-run assumption, and everything past it follows.";
   const bp = (100*D.markets.US.model.adjust.fiscal).toFixed(0);
   const DEF_SRC = {US:"CBO's baseline", UK:"the OBR forecast",
                    DE:"the European Commission's (two-year horizon, then flat)",
@@ -443,19 +528,31 @@ function render(){
          years and ${(Math.pow(RHO,10)*100).toFixed(0)}% to ten. The US and UK prefer
          some decay out of sample at both horizons; Germany and Japan prefer none, so
          this is a judgement rather than a fitted constant.`);
+  const inThree = 100*(1 - Math.pow(LAMV,3)), inTen = 100*(1 - Math.pow(LAMV,10));
+  document.getElementById("lamnote").innerHTML = LAMV === 0
+    ? "Your policy path is priced in full from the first horizon. That pairs the market's "
+      + "term premium with your entire rate view, which is the inconsistency this control exists to fix."
+    : (LAMV === 1
+      ? "Your policy path is ignored and the projection runs the market's own forward curve. "
+        + "Useful as a reference case: it is what the curve already implies."
+      : `Projections start from the market's own forward expectation and move toward yours:
+         ${inThree.toFixed(0)}% of your view is priced by three years and ${inTen.toFixed(0)}% by ten.
+         Both legs of the yield are then anchored the same way, rather than pairing the
+         market's premium with your whole rate view.`);
   renderInputs(); renderCharts(); renderResults();
 }
 document.getElementById("rho").onchange = e => { RHO = parseFloat(e.target.value); render(); };
-document.getElementById("reset").onclick = () => { S[market] = defaults(market); render(); };
+document.getElementById("lamv").onchange = e => { LAMV = parseFloat(e.target.value); render(); };
+document.getElementById("reset").onclick = () => {
+  S[market] = defaults(market); FLAT[market] = YEARS[YEARS.length-1]; render(); };
 
 /* ---------------------------------------- export ------------------------------- */
 function csv(){
   const sc = S[market];
   const head = "year,policy_rate,inflation,real_growth,deficit";
-  const body = Array.from({length:NYRS}, (_,i) => {
-    const y=i+1;
-    return [y, sc.policy_rate[y], sc.inflation[y], sc.real_growth[y], sc.deficit[y]].join(",");
-  }).join("\n");
+  const body = YEARS.filter(Y => Y <= FLAT[market]).map(Y =>
+    [Y, sc.policy_rate[Y], sc.inflation[Y], sc.real_growth[Y], sc.deficit[Y]].join(",")
+  ).join("\n");
   return head + "\n" + body + "\n";
 }
 document.getElementById("export").onclick = async () => {
@@ -487,8 +584,8 @@ document.getElementById("foot").innerHTML =
    projected deficit (CBO, OBR, European Commission, Cabinet Office) &mdash; relative to the US path
    outside the US.
    Yield = term premium + the ten-year average of your policy path, the identity the results card sets out.
-   Your policy path's LEVEL is taken at face value, so a path above what the curve prices raises every
-   projected yield and costs return. The part of today's premium the four drivers cannot explain is carried
+   Your policy path is blended against the market's own forward expectation for the same window, so a
+   path above what the curve prices raises projected yields progressively rather than all at once. The part of today's premium the four drivers cannot explain is carried
    forward but allowed to fade, at the rate you choose &mdash; the default keeps 73% at three years and 35%
    at ten, which is the aggregate out-of-sample optimum across the four markets and both horizons.
    Return is the Leibowitz constant-maturity approximation on a ${D.markets.US.duration.toFixed(1)}-year-duration

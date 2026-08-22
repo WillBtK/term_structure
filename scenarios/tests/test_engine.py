@@ -10,8 +10,9 @@ import pytest
 from model.tp_drivers import DriverModel
 from model.tp_relative import RelativeModel
 from model.tp_drivers import RESIDUAL_PERSISTENCE
-from scenarios.engine import (HORIZONS, MarketState, Scenario, drivers_at,
-                              forward_average, leibowitz_return, load_scenario,
+from scenarios.engine import (HORIZONS, MarketState, Scenario,
+                              blended_policy_average, drivers_at, forward_average,
+                              leibowitz_return, load_scenario, market_forward_average,
                               propagated_uncertainty, real_return, run, run_market,
                               step)
 
@@ -39,11 +40,24 @@ def test_paths_hold_flat_beyond_the_last_projection():
     assert forward_average(p, 0) == pytest.approx((4.0 + 3.0 + 2.5 * 8) / 10)
 
 
-def test_scenario_years_must_be_contiguous_from_one():
+def test_paths_may_be_keyed_by_fractional_horizons():
+    """Calendar year-ends land at fractional horizons (end-2026 is 0.36y away when
+    today is August 2026), so the path must accept them and step correctly."""
+    p = {0.36: 4.0, 1.36: 3.0, 2.36: 2.5}
+    assert step(p, 0.0) == 4.0                 # before the first entry
+    assert step(p, 1.0) == 4.0                 # still inside the first year-end
+    assert step(p, 2.0) == 3.0
+    assert step(p, 9.0) == 2.5                 # flat beyond the last
+    Scenario("US", policy_rate=p, inflation=p)  # accepted, no exception
+
+
+def test_scenario_years_must_be_positive_and_unique():
     with pytest.raises(ValueError):
-        Scenario("US", policy_rate={2: 3.0}, inflation={2: 2.0})
+        Scenario("US", policy_rate={0: 3.0}, inflation={1: 2.0})
     with pytest.raises(ValueError):
-        Scenario("US", policy_rate={1: 3.0, 3: 2.0}, inflation={1: 2.0, 3: 2.0})
+        Scenario("US", policy_rate={-1: 3.0}, inflation={1: 2.0})
+    with pytest.raises(ValueError):
+        Scenario("US", policy_rate={}, inflation={1: 2.0})
 
 
 # --------------------------------------------------------------------- leibowitz
@@ -309,3 +323,70 @@ def test_a_wider_deficit_path_raises_the_us_premium_at_the_measured_sensitivity(
     got = (m.scenario(st.drivers_today, wide, 1.63, horizon=3, rho=1.0)
            - m.scenario(st.drivers_today, base, 1.63, horizon=3, rho=1.0))
     assert got == pytest.approx(2.0 * 0.52, abs=1e-9)
+
+
+# ------------------------------------------------- the blended expectations leg
+
+EXP_CURVE = {0.25: 4.2, 1.0: 3.95, 2.0: 3.8, 3.0: 3.67, 5.0: 3.45,
+         7.0: 3.3, 10.0: 3.11, 20.0: 2.79, 30.0: 2.65}
+
+
+def _state_with_curve():
+    return MarketState("US", 4.74, 1.63, dict(TODAY), CORE, dict(EXP_CURVE))
+
+
+def test_the_market_forward_average_at_zero_is_the_spot_ten_year_expectation():
+    assert market_forward_average(EXP_CURVE, 0) == pytest.approx(EXP_CURVE[10.0])
+
+
+def test_the_market_forward_average_is_not_flat_across_horizons():
+    """The whole point of anchoring per horizon: this curve expects policy to fall, so
+    the ten years starting in three price lower than the next ten."""
+    assert market_forward_average(EXP_CURVE, 3) < market_forward_average(EXP_CURVE, 0) - 0.2
+    assert market_forward_average(EXP_CURVE, 10) < market_forward_average(EXP_CURVE, 3)
+
+
+def test_at_the_zero_horizon_the_blend_is_the_market_and_the_identity_holds():
+    """No part of a view is expressed yet at h=0, whatever the view is -- so
+    y(0) = TP(0) + Pbar(0) must reproduce today's yield exactly."""
+    st = _state_with_curve()
+    sc = Scenario("US", policy_rate={1: 9.0}, inflation={1: 2.3})   # a wild view
+    pbar = blended_policy_average(st, sc, 0)
+    assert pbar == pytest.approx(st.y_today - st.tp_today, abs=1e-9)
+
+
+def test_the_view_phases_in_monotonically_with_horizon():
+    st = _state_with_curve()
+    sc = Scenario("US", policy_rate={1: 5.0}, inflation={1: 2.3})   # above the market
+    got = [blended_policy_average(st, sc, h) for h in (0, 1, 3, 5, 10, 20)]
+    assert got == sorted(got)                       # rising toward the view
+    assert got[-1] < 5.0                            # but never overshoots it
+
+
+def test_the_convergence_dial_spans_market_only_to_view_only():
+    st = _state_with_curve()
+    sc = Scenario("US", policy_rate={1: 5.0}, inflation={1: 2.3})
+    at_h = 3
+    assert blended_policy_average(st, sc, at_h, view_convergence=0.0) == pytest.approx(
+        forward_average(sc.policy_rate, at_h))          # the view, in full, as before
+    assert blended_policy_average(st, sc, at_h, view_convergence=1.0) == pytest.approx(
+        market_forward_average(EXP_CURVE, at_h))            # the market, view ignored
+
+
+def test_a_market_without_an_expected_curve_falls_back_to_the_view():
+    """Offline or partially-loaded markets must stay runnable, not blow up."""
+    st = MarketState("US", 4.74, 1.63, dict(TODAY), CORE)           # no curve
+    sc = Scenario("US", policy_rate={1: 5.0}, inflation={1: 2.3})
+    assert blended_policy_average(st, sc, 3) == pytest.approx(
+        forward_average(sc.policy_rate, 3))
+
+
+def test_the_blend_damps_a_rate_view_at_three_years():
+    """The reported problem: a three-year projection used to pair the market's term
+    premium with the whole rate view. Half of it should be in, not all."""
+    st = _state_with_curve()
+    sc = Scenario("US", policy_rate={1: 4.0}, inflation={1: 2.3})
+    mkt, view = market_forward_average(EXP_CURVE, 3), 4.0
+    got = blended_policy_average(st, sc, 3)
+    assert mkt < got < view
+    assert (got - mkt) / (view - mkt) == pytest.approx(1 - 0.8 ** 3)

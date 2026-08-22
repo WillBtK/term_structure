@@ -33,26 +33,33 @@ The chain, every link anchored to today:
      overrides it; debt/GDP defaults to the committed WEO/national-source projection
      (``macro.debt_gdp``), also overridable.
 
-  2. YIELD.  y(h) = TP(h) + Pbar(h), where Pbar(t) is the average of the user's
-     policy path over the ten years from t, the path held flat beyond its last
-     projected year (their terminal IS their long-run view). A ten-year-ahead yield
-     needs policy expectations out to year twenty, which the flat extension provides.
+  2. YIELD.  y(h) = TP(h) + Pbar(h), where Pbar(h) is the expected average short rate
+     over the ten years from h -- and it is BLENDED, not taken from the user alone.
 
-     The identity is deliberate and it is NOT anchored the way the premium is. The
-     premium is anchored because the driver model cannot explain today's level and
-     should not pretend to. The expectations leg is different: the user's policy path
-     IS their forecast of the expected average short rate, so taking only its change
-     and discarding its level would throw away the view they came to express. Today's
-     curve prices an expected average of y(0) - TP(0) -- 3.11% for the US against a
-     4.75% yield and a 1.63% premium -- and a user who projects 3.50% is saying the
-     market is 39bp too low. That belongs in the answer, and it shows up as a higher
-     projected yield and a worse return.
+     The reason is a consistency one. The premium leg is anchored on the market and
+     converges to the model's fair value at ``rho``; if the expectations leg took the
+     user's path at face value from day one, a three-year projection would pair the
+     MARKET's term premium with the USER's entire rate view, and the disagreement would
+     land undamped on a yield that is otherwise mostly the market's. So both legs start
+     from the market and move toward the view:
 
-     The consequence, stated because it replaces an earlier property: an unchanged
-     scenario returns today's yield only when the policy path's ten-year average
-     matches what the curve prices. ``policy_gap`` reports that difference on every
-     result so a level disagreement is visible rather than buried, and the scenario
-     sheet shows it as its own line.
+         Pbar(h) = mkt(h) + [user(h) - mkt(h)] * (1 - VIEW_CONVERGENCE ** h)
+
+     ``mkt(h)`` is the market's OWN expected average over the ten years from h, read
+     off the published expected-rate curve (``market_forward_average``). It is not the
+     same number at every horizon and that matters: the US curve prices 3.11% over the
+     next ten years but 2.75% over the ten years starting in three, because it expects
+     policy to fall. Anchoring every horizon on the spot ten-year average would smuggle
+     that decline in as a view nobody expressed -- which is why the sheet's neutral
+     opening is the market's own year-by-year path rather than a flat line.
+
+     At h = 0 no part of the view is in yet, so Pbar(0) is the market's number exactly
+     and y(0) = TP(0) + Pbar(0) reproduces today's yield. ``VIEW_CONVERGENCE = 0.8``
+     puts about half a stated view into the three-year horizon and nine tenths into the
+     ten-year one; 0 restores the old take-it-literally behaviour and 1 ignores the view
+     entirely. Every result carries ``market_policy_avg``, ``view_policy_avg`` and
+     ``view_weight`` so the blend is inspectable rather than buried, and ``policy_gap``
+     still reports the raw disagreement with today's curve.
 
   3. RETURN.  A constant-maturity ten-year position held H years with the yield
      moving linearly from y(0) to y(H) earns, annualised (Leibowitz-Bova-Kogelman),
@@ -85,6 +92,10 @@ logger = logging.getLogger(__name__)
 
 TENOR = 10.0
 HORIZONS = (3, 10)
+# Share of a rate view still UNEXPRESSED after a year -- the expectations-leg twin of
+# RESIDUAL_PERSISTENCE. 0.8 puts about half a stated view into the three-year horizon
+# and nine tenths into the ten-year one. See the module docstring for why it is not 0.
+VIEW_CONVERGENCE = 0.8
 REQUIRED_COLUMNS = ("year", "policy_rate", "inflation", "real_growth")
 
 
@@ -115,9 +126,11 @@ class Scenario:
             if not path:
                 raise ValueError(f"{self.country}: scenario needs a {name} path")
             years = sorted(path)
-            if years[0] != 1 or years != list(range(1, len(years) + 1)):
-                raise ValueError(f"{self.country}: {name} years must run 1..N "
-                                 f"without gaps, got {years}")
+            if years[0] <= 0:
+                raise ValueError(f"{self.country}: {name} years must be positive "
+                                 f"horizons ahead of today, got {years}")
+            if len(set(years)) != len(years):
+                raise ValueError(f"{self.country}: {name} has duplicate years")
 
 
 @dataclass(frozen=True)
@@ -128,6 +141,11 @@ class MarketState:
     tp_today: float                   # estimated 10y term premium, %
     drivers_today: dict               # the four driver values the panel ends on
     core_history: pd.Series           # monthly YoY core inflation, %, for the EWMA
+    # The market's OWN expected average short rate by tenor, {tenor_years: percent}
+    # -- the expectations leg of the published decomposition, y(tau) - TP(tau). It is
+    # what lets a projection start from the market's forward view rather than from a
+    # flat reading of today's ten-year average.
+    expected_curve: dict = field(default_factory=dict)
 
 
 def step(path: dict, year: float) -> float:
@@ -138,13 +156,80 @@ def step(path: dict, year: float) -> float:
         return float(path[years[0]])
     if year >= years[-1]:
         return float(path[years[-1]])
-    return float(path[int(np.floor(year))])
+    # the entry in force at this time: the last one dated at or before it. Written
+    # this way rather than by flooring so the path may be keyed by fractional
+    # horizons -- which is what calendar year-ends become.
+    prev = years[0]
+    for y in years:
+        if y > year:
+            break
+        prev = y
+    return float(path[prev])
 
 
 def forward_average(path: dict, start: int, span: int = int(TENOR)) -> float:
     """Average of the path over ``span`` years beginning after year ``start`` -- the
     expectations leg of a bond bought at horizon ``start``."""
     return float(np.mean([step(path, start + k) for k in range(1, span + 1)]))
+
+
+def market_forward_average(curve: dict, start: float, span: float = TENOR) -> float:
+    """The MARKET's expected average short rate over ``span`` years beginning at
+    ``start``, read off the published expected-rate curve.
+
+    ``curve`` maps tenor to the expected average short rate over that tenor, so
+    ``C(t) = t * curve(t)`` is the cumulative expected short rate and the average over
+    a forward window is ``(C(start+span) - C(start)) / span``. Tenors between grid
+    points are linearly interpolated; beyond the longest tenor the curve is held flat,
+    which is the honest reading of a curve that has run out of data.
+
+    This is the anchor the projection starts from at every horizon, and it is NOT the
+    same number at each one: the US curve prices an average of 3.11% over the next ten
+    years but only 2.82% over the ten years starting in three, because it expects
+    policy to fall. Anchoring every horizon on the spot ten-year average would smuggle
+    that decline in as a view the user never expressed.
+    """
+    if not curve:
+        return float("nan")
+    keys = sorted(curve, key=float)
+    ts = [float(t) for t in keys]
+    vs = [float(curve[k]) for k in keys]
+
+    def cum(t: float) -> float:
+        """Cumulative expected short rate to t. By definition C(t) = t * e(t), so
+        interpolating the AVERAGE curve and multiplying is both exact at the nodes and
+        smooth between them -- interpolating C directly would instead make the implied
+        one-year forwards piecewise-constant, which shows up as repeated values in a
+        projected policy path. Beyond the longest tenor the average is held flat."""
+        if t <= 0.0:
+            return 0.0
+        return t * float(np.interp(t, ts, vs))      # np.interp clamps outside the grid
+
+    return (cum(start + span) - cum(start)) / span
+
+
+def blended_policy_average(state: MarketState, scenario: Scenario, horizon: float,
+                           view_convergence: float = VIEW_CONVERGENCE) -> float:
+    """The expectations leg at a horizon: the market's forward view, moved toward the
+    user's by the share of their view that has been expressed by then.
+
+        Pbar(h) = mkt(h) + [user(h) - mkt(h)] * (1 - lam ** h)
+
+    At the zero horizon nothing of the view is in yet and this returns the market's own
+    number exactly, so ``y(0) = TP(0) + Pbar(0)`` reproduces today's yield. As the
+    horizon lengthens the user's path takes over. ``lam = 0`` restores the old
+    behaviour -- the whole view priced from day one -- and ``lam = 1`` ignores the view
+    entirely and projects the market's own forward curve.
+
+    Falls back to the user's path unblended when no expected-rate curve is available,
+    which keeps an offline or partially-loaded market runnable rather than broken.
+    """
+    user = forward_average(scenario.policy_rate, horizon)
+    mkt = market_forward_average(state.expected_curve, horizon)
+    if not np.isfinite(mkt):
+        return user
+    lam = float(view_convergence)
+    return float(mkt + (user - mkt) * (1.0 - lam ** float(horizon)))
 
 
 def _ewma_vol_at(hist: pd.Series, monthly_path: list, hl: int) -> float:
@@ -247,10 +332,16 @@ class ScenarioResult:
     duration: float
     curve_expected: float             # what today's curve prices: y(0) - TP(0), %
     policy_gap: float                 # your view today minus the curve's, pp
+    # The expectations leg, opened up: where the market's own forward view sits at this
+    # horizon, where the user's path sits, and how much of the difference is priced in.
+    market_policy_avg: float = float("nan")
+    view_policy_avg: float = float("nan")
+    view_weight: float = float("nan")
 
 
 def run_market(state: MarketState, scenario: Scenario, tp_path: dict,
-               debt_default: dict | None = None) -> list:
+               debt_default: dict | None = None,
+               view_convergence: float = VIEW_CONVERGENCE) -> list:
     """Assemble yields and returns from an already-computed premium path.
 
     ``tp_path`` maps horizon (0 included) to the premium in percent -- computed by the
@@ -264,20 +355,25 @@ def run_market(state: MarketState, scenario: Scenario, tp_path: dict,
     gap = forward_average(scenario.policy_rate, 0) - curve
     out = []
     for h in HORIZONS:
-        pbar = forward_average(scenario.policy_rate, h)
+        pbar = blended_policy_average(state, scenario, h, view_convergence)
+        mkt = market_forward_average(state.expected_curve, h)
         y = tp_path[h] + pbar                       # the identity, not a difference
         nom = leibowitz_return(state.y_today, y, h, dur)
         out.append(ScenarioResult(
             country=state.country, horizon=h, tp=tp_path[h], policy_avg=pbar,
             yield_10y=y, nominal_return=nom,
             real_return=real_return(nom, scenario, h), duration=dur,
-            curve_expected=curve, policy_gap=gap))
+            curve_expected=curve, policy_gap=gap,
+            market_policy_avg=mkt,
+            view_policy_avg=forward_average(scenario.policy_rate, h),
+            view_weight=1.0 - float(view_convergence) ** float(h)))
     return out
 
 
 def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dict,
         debt_defaults: dict | None = None, deficit_defaults: dict | None = None,
-        rho: float = RESIDUAL_PERSISTENCE) -> dict:
+        rho: float = RESIDUAL_PERSISTENCE,
+        view_convergence: float = VIEW_CONVERGENCE) -> dict:
     """All markets. The US premium path is computed first; every spread market's
     premium is a beta on it plus its drivers relative to the US, both at the same
     horizon, exactly as fitted.
@@ -299,7 +395,8 @@ def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dic
                                        horizon=h, rho=rho)
                   for h in HORIZONS})
 
-    results = {"US": run_market(us_state, us_scen, us_tp, debt_defaults.get("US"))}
+    results = {"US": run_market(us_state, us_scen, us_tp, debt_defaults.get("US"),
+                                view_convergence)}
     for c, m in spread_models.items():
         if c not in scenarios:
             continue
@@ -309,7 +406,7 @@ def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dic
             own_h = drivers_at(st, sc, h, debt_defaults.get(c), deficit_defaults.get(c))
             tp[h] = m.scenario(us_drv[0], us_drv[h], st.drivers_today, own_h,
                                us_tp[0], us_tp[h], st.tp_today, horizon=h, rho=rho)
-        results[c] = run_market(st, sc, tp, debt_defaults.get(c))
+        results[c] = run_market(st, sc, tp, debt_defaults.get(c), view_convergence)
     return results
 
 
@@ -325,8 +422,18 @@ def load_scenario(path: "Path | str") -> Scenario:
     if missing:
         raise ValueError(f"{path.name}: missing columns {sorted(missing)}")
     df = df.dropna(subset=["year"]).astype({"year": int}).set_index("year")
+    # The sheet exports CALENDAR years, which is what a reader wants to see. Convert
+    # them to horizons ahead of today -- year-end Y is (Y + 1) - today. A file written
+    # in the old years-ahead convention (small integers) is taken as-is.
+    now = pd.Timestamp.today()
+    today_frac = now.year + (now.dayofyear - 1) / 365.25
+    calendar = df.index.min() > 1900
+
+    def key(y: int) -> float:
+        return round((int(y) + 1) - today_frac, 4) if calendar else float(y)
+
     def col(name):
-        return {int(y): float(v) for y, v in df[name].dropna().items()} \
+        return {key(y): float(v) for y, v in df[name].dropna().items()} \
             if name in df else {}
     return Scenario(country=path.stem.upper(),
                     policy_rate=col("policy_rate"), inflation=col("inflation"),
@@ -353,9 +460,10 @@ def latest_states(markets=("US", "UK", "DE", "JP")) -> dict:
     """Today's anchors from the repo's own data."""
     from macro.fetch_core_cpi import core_inflation_yoy
     from model.tp_drivers import build_panel
-    obs = pd.read_parquet(Path(__file__).resolve().parent.parent
-                          / "viz" / "data_daily.parquet")
-    obs = obs[(obs["instrument"] == "nominal") & (obs["tenor"] == TENOR)]
+    allobs = pd.read_parquet(Path(__file__).resolve().parent.parent
+                             / "viz" / "data_daily.parquet")
+    allobs = allobs[allobs["instrument"] == "nominal"]
+    obs = allobs[allobs["tenor"] == TENOR]
     core = core_inflation_yoy()
     out = {}
     for c in markets:
@@ -369,10 +477,14 @@ def latest_states(markets=("US", "UK", "DE", "JP")) -> dict:
                 drivers["fiscal"] = float(five_year_ahead(c))
             except Exception as exc:                            # noqa: BLE001
                 logger.warning("no fiscal projection for %s (%s)", c, exc)
+        mk = allobs[allobs["country"] == c]
+        curve = (mk[mk["date"] == mk["date"].max()]
+                 .dropna(subset=["expected"]).set_index("tenor")["expected"] * 100.0)
         out[c] = MarketState(
             country=c, y_today=float(last["observed"]) * 100.0,
             tp_today=float(p["tp"].iloc[-1]),
-            drivers_today=drivers, core_history=core[c])
+            drivers_today=drivers, core_history=core[c],
+            expected_curve={float(t): float(v) for t, v in curve.sort_index().items()})
     return out
 
 
@@ -431,6 +543,8 @@ def _main() -> None:
             print(f"  {r.horizon:>2}y horizon: TP {r.tp:+.2f}% + avg policy "
                   f"{r.policy_avg:.2f}%  =  10y yield {r.yield_10y:.2f}%   "
                   f"return {r.nominal_return:+.2f}% nom / {r.real_return:+.2f}% real p.a.")
+            print(f"      expectations leg: market {r.market_policy_avg:.2f}% -> "
+                  f"your {r.view_policy_avg:.2f}%, {r.view_weight:.0%} of the view in")
 
 
 if __name__ == "__main__":

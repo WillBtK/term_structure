@@ -204,3 +204,46 @@ CBO trajectory's deterioration). Browser-vs-engine agreement tightened from 0.28
 since the single-year read was amplifying payload rounding. Regression tests cover both
 properties: a one-year 2pp spike now moves the driver by less than 0.25, and a genuinely wider
 path still moves it by the full 2.0.
+
+---
+
+# 2026-08: blending the expectations leg
+
+A consistency defect, reported from use: at the three-year horizon the projected yield
+paired the **market's** term premium (anchored, residual decaying at ρ) with the
+**user's entire** rate view, taken at face value from day one. The two legs of the same
+identity were anchored on different things, and a rate view landed undamped on a yield
+that was otherwise mostly the market's — giving implausibly high ten-year yields at
+short horizons.
+
+Two changes, both in `scenarios/engine.py`.
+
+**The anchor is now the market's forward view, per horizon.** `market_forward_average`
+reads the published expected-rate curve — `expected(τ) = y(τ) − TP(τ)`, already in
+`viz/data_daily.parquet` out to 20–30y in all four markets — and returns the market's
+own expected average short rate over `[h, h+10]` via `C(t) = t·e(t)`. This is not a
+constant across horizons and the difference is material: the US curve prices **3.11%
+over the next ten years but 2.75% over the ten years starting in three**, because it
+expects policy to fall. The old code anchored every horizon on the spot ten-year
+average, which quietly imposed that decline as a view the user never expressed — a flat
+"neutral" entry at the curve-priced 3.11% was already a +36bp view at three years.
+
+**The view phases in.** `Pbar(h) = mkt(h) + [user(h) − mkt(h)]·(1 − λ^h)`, the exact
+twin of the premium leg's `fair(h) + resid·ρ^h`. `VIEW_CONVERGENCE = 0.8` puts 49% of a
+stated view into the three-year horizon and 89% into the ten-year one. At `h = 0`
+nothing is in, so `y(0) = TP(0) + Pbar(0)` still reproduces today's yield exactly,
+whatever the view — the identity is preserved by construction, and a test asserts it
+against a deliberately wild path.
+
+λ is a **judgement, not an estimate**, and is exposed as a control alongside ρ rather
+than buried. The reasoning for 0.8: a user supplies an explicit path over roughly five
+years, and standing at year three, the years they forecast most confidently have largely
+been realised while the bond then spans years 4–13, where their terminal assumption
+meets the market's long-run. Half in at three years is the honest reading of that. There
+is no clean empirical estimate available, because the speed at which a disagreement
+closes depends on who turns out to be right; what can be said is that once the term
+premium is stripped out, `y − TP` is the market's own best estimate of the average short
+rate, so departing from it is an active view rather than an arithmetic correction.
+
+The sheet now **opens on the market's implied year-by-year policy path** rather than a
+flat line, so an untouched column is not a view. Browser and engine agree to 0.18bp.

@@ -39,14 +39,30 @@ def annual(s: pd.Series, start: str = HIST_FROM) -> dict:
             "v": [round(float(v), 2) for v in a]}
 
 
+def _market_policy_path(curve: dict, years: int = 12) -> list:
+    """The market's expected short rate in each of the next ``years`` calendar years,
+    differenced out of the cumulative expected-rate curve. This is what the sheet opens
+    on: entering nothing then reproduces the market's own forward path exactly, so any
+    edit is visibly a departure from it rather than from a flat line."""
+    from scenarios.engine import market_forward_average
+    if not curve:
+        return []
+    out = []
+    for k in range(years):
+        # the average over a one-year window k years out == that year's expected rate
+        out.append(round(market_forward_average(curve, k, span=1.0), 3))
+    return out
+
+
 def build() -> dict:
     warnings.filterwarnings("ignore")
     from macro.fetch_core_cpi import UNCERTAINTY_HALFLIFE as HL, core_inflation_yoy
     from model.bond_math import macaulay_duration
     from model.tp_drivers import build_panel, fit_market
     from model.tp_relative import build_pair, fit_relative
-    from scenarios.engine import (TENOR, debt_projections, deficit_defaults,
-                                  latest_states)
+    from scenarios.engine import (TENOR, VIEW_CONVERGENCE, debt_projections,
+                                  deficit_defaults, latest_states,
+                                  market_forward_average)
 
     panels = {c: build_panel(c) for c in MARKETS}
     us_m = fit_market("US", panels["US"])
@@ -59,8 +75,12 @@ def build() -> dict:
     obs = obs[obs["instrument"] == "nominal"]
     today = pd.Timestamp.today().normalize()
 
+    now = pd.Timestamp.today()
+    year_frac = now.year + (now.dayofyear - 1) / 365.25
     payload = {"halflife": HL, "tenor": TENOR, "lam": 0.5 ** (1.0 / HL),
-               "asof": str(obs["date"].max().date()), "markets": {}}
+               "asof": str(obs["date"].max().date()), "markets": {},
+               "view_convergence": VIEW_CONVERGENCE,
+               "year0": int(now.year), "year_frac": round(float(year_frac), 3)}
     for c in MARKETS:
         st, hist = states[c], core[c].dropna()
         m = hist.ewm(halflife=HL).mean()
@@ -80,6 +100,11 @@ def build() -> dict:
             "debt_proj": {str(k): round(x, 1) for k, x in sorted(debt.get(c, {}).items())},
             "deficit_proj": {str(k): round(float(x), 2)
                              for k, x in sorted(deficits.get(c, {}).items())},
+            # the market's own expected-rate curve, and the year-by-year policy path
+            # implied by it -- the sheet's genuinely neutral opening
+            "expected_curve": {str(t): round(float(v), 4)
+                               for t, v in sorted(st.expected_curve.items())},
+            "market_policy_path": _market_policy_path(st.expected_curve),
             "hist": {
                 "core": annual(core[c]),
                 "short": annual(short.set_index("date")["observed"].sort_index() * 100),
