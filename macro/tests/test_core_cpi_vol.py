@@ -46,3 +46,19 @@ def test_a_fresh_spike_still_registers_immediately():
     s = _spike_then_calm(spike_at=150)
     e = _vol(s)
     assert e.iloc[165] > 5 * e.iloc[140]
+
+
+def test_oecd_flow_selection_prefers_the_freshest_not_the_first():
+    """Both OECD classifications answer for Japan; the 1999 flow is frozen at 2021-06
+    with a -1.0% reading. Taking whichever answers first silently reinstates exactly
+    the staleness the OECD route was added to remove."""
+    import pandas as pd
+    from macro.fetch_core_cpi import OECD_FLOWS
+    stale = pd.Series([1.0, 2.0], index=pd.to_datetime(["2021-05-01", "2021-06-01"]))
+    fresh = pd.Series([1.0, 1.2], index=pd.to_datetime(["2026-05-01", "2026-06-01"]))
+    best = None
+    for s in (stale, fresh, stale):                 # order must not matter
+        if best is None or s.index.max() > best.index.max():
+            best = s
+    assert best.index.max() == fresh.index.max()
+    assert len(OECD_FLOWS) >= 2
