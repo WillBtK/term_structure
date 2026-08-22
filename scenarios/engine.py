@@ -95,6 +95,15 @@ HORIZONS = (3, 10)
 # Share of a rate view still UNEXPRESSED after a year -- the expectations-leg twin of
 # RESIDUAL_PERSISTENCE. 0.8 puts about half a stated view into the three-year horizon
 # and nine tenths into the ten-year one. See the module docstring for why it is not 0.
+#
+# Unlike RESIDUAL_PERSISTENCE this is NOT fitted, because convergence to a forecast with
+# no track record cannot be measured directly. Two proxies were run
+# (validation/view_convergence.py, FINDINGS_view_convergence.md): the SPF long-run bill
+# forecast disagrees with the curve so rarely -- sd 0.21pp, |gap| > 25bp in one year of
+# thirty-five -- that it identifies nothing; and a perfect-foresight error-correction
+# test bounds lambda at 0.86-0.92, biased toward persistence and resting on about four
+# independent windows. 0.8 sits just inside that bound on the faster-convergence side.
+# It is a reasoned setting in a wide band, which is why the sheet exposes it as a dial.
 VIEW_CONVERGENCE = 0.8
 REQUIRED_COLUMNS = ("year", "policy_rate", "inflation", "real_growth")
 
