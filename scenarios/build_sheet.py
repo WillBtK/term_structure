@@ -33,6 +33,22 @@ OUT = HERE / "data" / "sheet_payload.json"
 MARKETS = ("US", "UK", "DE", "JP")
 HIST_FROM = "1990"
 
+# --- Putting UK breakevens on a CPI footing ------------------------------------
+# Index-linked gilts pay RPI, which has run above CPI for two reasons: the Carli
+# formula in RPI's elementary aggregates, and coverage/weight differences. The gap
+# has averaged roughly a point; 0.9pp is the middle of the usual 0.7-1.0 range and
+# close to what inflation swaps traded as the "wedge".
+#
+# It is NOT a flat adjustment. In November 2020 the UK Statistics Authority and the
+# Chancellor confirmed RPI will be aligned to CPIH from FEBRUARY 2030, with no
+# compensation for linker holders. Beyond that date RPI is CPIH, so no wedge is due
+# -- and CPIH differs from CPI only marginally (owner-occupier housing costs).
+# Subtracting a flat point would therefore understate long-dated UK expectations by
+# most of a point. The wedge is applied only to the share of each forward year that
+# falls before the reform.
+UK_RPI_WEDGE = 0.9          # percentage points of RPI over CPI, pre-reform
+RPI_REFORM = 2030.083       # February 2030
+
 
 def annual(s: pd.Series, start: str = HIST_FROM) -> dict:
     a = s.dropna().loc[start:].resample("YS").mean().dropna()
@@ -51,6 +67,21 @@ def monthly(s: pd.Series, start: str = HIST_FROM) -> dict:
     t0 = a.index[0]
     return {"t0": round(t0.year + (t0.month - 1) / 12.0, 4),
             "v": [None if pd.isna(v) else round(float(v), 2) for v in a]}
+
+
+def _cpi_adjust(country: str, path: list, t0: float) -> tuple:
+    """Return (path on a CPI footing, footnote). ``path[k]`` is the forward inflation
+    rate for the year running from ``t0 + k``."""
+    if country != "UK" or not path:
+        return path, ""
+    out = []
+    for k, v in enumerate(path):
+        a, b = t0 + k, t0 + k + 1
+        pre = max(0.0, min(b, RPI_REFORM) - a) / (b - a)     # share still on RPI rules
+        out.append(round(v - UK_RPI_WEDGE * pre, 3))
+    return out, (f"Index-linked gilts pay RPI, so {UK_RPI_WEDGE:.1f}pp is deducted for "
+                 "the portion of each forward year before RPI is aligned to CPIH in "
+                 "February 2030; no wedge is applied beyond that date.")
 
 
 def _curve_path(curve: dict, years: int = 12) -> list:
@@ -145,6 +176,9 @@ def build() -> dict:
                 be[float(t)] = float(np.interp(float(t), nom.index.values.astype(float),
                                                nom.values) - rl.loc[t])
         dh = _deficit_history(c)
+        be_path, be_note = _cpi_adjust(c, _curve_path(be) if be else [], year_frac)
+        if be_path and not be_note:
+            be_note = "Breakevens are CPI-linked; no index adjustment is applied."
         payload["markets"][c] = {
             "y_today": round(st.y_today, 3), "tp_today": round(st.tp_today, 3),
             "drivers": {k: round(float(x), 3) for k, x in st.drivers_today.items()},
@@ -165,7 +199,7 @@ def build() -> dict:
             # the market's own forward ten-year yield -- the benchmark for our path
             "fwd10": _forward_tens({float(t): float(v) for t, v in nom.items()}),
             # market-implied inflation from breakevens, where a real curve exists
-            "be_path": _curve_path(be) if be else [],
+            "be_path": be_path, "be_note": be_note,
             "deficit_hist": dh,
             "hist": {"core": annual(core[c]), "short": annual(shortm),
                      "ten": annual(ten)},

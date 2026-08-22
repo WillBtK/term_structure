@@ -67,8 +67,9 @@ def test_the_committed_payload_carries_everything_the_page_reads():
         for k in ("core", "short", "ten", "tp"):
             mh = m["mhist"][k]
             assert mh["t0"] is not None and len(mh["v"]) > 100
-        # breakevens exist exactly where a real curve does
+        # breakevens exist exactly where a real curve does, each with its footnote
         assert bool(m["be_path"]) is (c in ("US", "UK"))
+        assert bool(m["be_note"]) is (c in ("US", "UK"))
         assert 4.0 < m["duration"] < 10.0                # a 10y par bond
         assert m["ewma"]["v"] >= 0.0
         for k in ("core", "short", "ten"):
@@ -97,3 +98,30 @@ def test_the_committed_payload_carries_everything_the_page_reads():
 @pytest.mark.skipif(not Path(OUT).is_file(), reason="payload not built")
 def test_payload_stays_small_enough_to_inline():
     assert len(Path(OUT).read_text()) < 200_000
+
+
+# ------------------------------------------------- putting UK linkers on CPI terms
+
+def test_the_rpi_wedge_stops_at_the_2030_reform():
+    """RPI is aligned to CPIH from February 2030, so a flat deduction would understate
+    long-dated UK expectations by most of a point. Only the pre-reform share of each
+    forward year is adjusted, and the straddling year is pro-rated."""
+    from scenarios.build_sheet import RPI_REFORM, UK_RPI_WEDGE, _cpi_adjust
+    t0 = 2026.638
+    raw = [4.0] * 12
+    adj, note = _cpi_adjust("UK", raw, t0)
+    assert adj[0] == pytest.approx(4.0 - UK_RPI_WEDGE)          # wholly pre-reform
+    assert adj[-1] == pytest.approx(4.0)                        # wholly post-reform
+    straddle = int(RPI_REFORM - t0)                             # the year spanning it
+    share = RPI_REFORM - (t0 + straddle)
+    assert adj[straddle] == pytest.approx(4.0 - UK_RPI_WEDGE * share, abs=1e-3)
+    assert adj == sorted(adj)                                   # rises to the raw rate
+    assert "February 2030" in note and f"{UK_RPI_WEDGE:.1f}pp" in note
+
+
+def test_other_markets_are_left_alone():
+    from scenarios.build_sheet import _cpi_adjust
+    raw = [2.3, 2.4, 2.5]
+    for c in ("US", "DE", "JP"):
+        adj, note = _cpi_adjust(c, raw, 2026.638)
+        assert adj == raw and note == ""

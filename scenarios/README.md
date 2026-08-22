@@ -97,9 +97,20 @@ ten-year yield** (`fwd10`, from `C(t)=t·y(t)` on the nominal curve) — the ben
 view has to beat — with the result cards beside it. Below that, a calendar-year entry
 grid whose top row is the **derived ten-year yield** (hover a cell for the term-premium
 split), a hold-flat-from selector, and four half-width charts: policy rate against the
-market's implied path, inflation against the market breakeven (US CPI-linked and UK
-**RPI**-linked, so the UK line sits ~1pp above CPI by construction), term premium, and
-deficit. All history is monthly with hover readouts. It computes entirely in
+market's implied path, inflation against the market breakeven, term premium, and
+deficit. All history is monthly with hover readouts.
+
+**UK breakevens are put on a CPI footing before display.** Index-linked gilts pay RPI,
+which has run roughly a point above CPI (the Carli formula effect plus coverage and
+weight differences); `UK_RPI_WEDGE = 0.9pp` is the middle of the usual 0.7–1.0 range.
+The deduction is *not* flat: the 2020 UK Statistics Authority reform aligns RPI to CPIH
+from **February 2030**, so only the pre-reform share of each forward year is adjusted
+and the straddling year is pro-rated. A flat point would understate long-dated UK
+expectations by most of a point — and the correction matters for reading the curve: the
+raw RPI forwards fall from 3.9% to 3.1%, which looks like expected disinflation, but on
+a CPI footing the path is a roughly flat 3%. The apparent decline was mostly the reform.
+The footnote under the chart states the adjustment; breakevens still carry an inflation
+risk premium, which is not adjusted away. It computes entirely in
 the browser from `scenarios/data/sheet_payload.json` (built by `build_sheet.py`), and
 agrees with `scenarios.engine` to about **0.2 basis points**; the gap is payload
 rounding, nothing else. Export writes a CSV in exactly the format `load_scenario` reads.
