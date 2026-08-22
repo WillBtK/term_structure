@@ -36,11 +36,15 @@ divergence in amplitude. A committee should be told the US sets the direction an
 market's own QE and fiscal path decide how far it travels -- not that the four markets
 have become one.
 
-Two things this structure repairs on its own. Germany's fiscal coefficient, unidentified
-in isolation and pinned at zero by the sign constraint, comes back at +1.8bp per point of
-RELATIVE debt/GDP with t=+18.2; the UK's at +3.3bp with t=+3.4. Only Japan still needs
-the calibrated Laubach term. And the price-insensitive driver becomes relative QE scale,
-which is the comparison an investor actually makes.
+The fiscal channel is the same object in every market: the FIVE-YEAR-AHEAD OFFICIAL
+projected deficit (CBO for the US, OBR / AMECO / Cabinet Office for the spreads --
+``macro.fiscal_projections``), entering the spread as the relative (own minus US)
+projection. No spread market has the vintage archive that identified the US coefficient,
+so all three borrow it -- +0.52pp of premium per point of projected deficit -- as an
+adjustment measured from today's relative reading: worth nothing at the base case, alive
+in any scenario that moves one side's deficit path against the other's. Relative debt
+stock, which used to fill this slot, is gone: the flow-vs-stock evidence says the
+projected balance is the priced object, and running both would double-count one story.
 """
 from __future__ import annotations
 
@@ -51,7 +55,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import lsq_linear
 
-from model.tp_drivers import (DEBT_COEF, DRIVERS, MARKETS, RESIDUAL_PERSISTENCE, SIGNS,
+from model.tp_drivers import (CORE, DRIVERS, MARKETS, RESIDUAL_PERSISTENCE, SIGNS,
                               build_panel, design, fit_market)
 
 logger = logging.getLogger(__name__)
@@ -77,8 +81,7 @@ class RelativeModel:
     # the historical fit stays honest -- and still responds when a scenario moves it.
     adjust: dict = field(default_factory=dict)
     base: dict = field(default_factory=dict)
-    borrowed: tuple = ()             # inflation channels taken from the US
-    debt_calibrated: bool = False
+    borrowed: tuple = ()             # channels whose coefficient is taken from the US
     r2: float = float("nan")
     r2_recent: float = float("nan")
     rmse: float = float("nan")
@@ -87,6 +90,10 @@ class RelativeModel:
     def premium(self, us: dict, own: dict, tp_us: float) -> float:
         """This market's modelled premium, given the US premium and both driver sets."""
         rel = _relative(own, us)
+        for k in self.adjust:                       # e.g. fiscal, outside DRIVERS
+            if k not in rel:                        # missing on either side -> at base,
+                rel[k] = (float(own[k]) - float(us[k])   # contributing nothing
+                          if k in own and k in us else self.base[k])
         return (self.intercept + self.beta_us * float(tp_us)
                 + sum(self.coef.get(k, 0.0) * rel[k] for k in DRIVERS)
                 + sum(g * (rel[k] - self.base[k]) for k, g in self.adjust.items()))
@@ -142,47 +149,64 @@ def fit_relative(country: str, pair: pd.DataFrame | None = None,
     """Sign-constrained fit of one market's spread to the US.
 
     A channel is FITTED only where this market's own history identifies it. Where the
-    sign constraint pins it at zero -- Germany's relative inflation, Japan's relative
-    debt -- forcing a number into the historical fit is what wrecked the earlier attempt:
-    2.5bp against Japan's hundred-point climb in relative debt demands 2.5pp of premium
-    that never appeared, and the fit goes negative. So those channels are carried as
-    ADJUSTMENTS measured from today's relative driver. They are worth nothing at the base
-    case, which leaves the fit reporting what the data actually supports, and they still
-    respond when a scenario moves them, which is the whole point of having them.
+    sign constraint pins a core channel at zero -- Germany's relative inflation, say --
+    forcing a number into the historical fit is what wrecked the earlier attempt, so
+    those channels are carried as ADJUSTMENTS measured from today's relative driver:
+    worth nothing at the base case, which leaves the fit reporting what the data
+    actually supports, and still alive when a scenario moves them. The borrowed
+    coefficient is the US's own, because a relative driver's coefficient IS the
+    response to a move in this market's driver with the US held still.
 
-    The inflation fallback is the US's own coefficient, because a relative driver's
-    coefficient IS the response to a move in this market's driver with the US held still.
-    The fiscal fallback is the Laubach mid-point.
+    The fiscal channel is ALWAYS an adjustment, never fitted: the driver is the
+    five-year-ahead official projected deficit relative to the US, no spread market
+    has the vintage archive that would let its own history identify a coefficient,
+    and the borrowed US sensitivity (+0.52 per point) is applied from today's
+    relative reading. Relative debt stock no longer enters anywhere -- the projected
+    balance is the priced fiscal object, and carrying both would double-count.
     """
     p = build_pair(country) if pair is None else pair
     us_model = us_model or fit_market("US")
     y = p["tp"].values
-    base = {k: float(p[f"rel_{k}"].iloc[-1]) for k in DRIVERS}
+    base = {k: float(p[f"rel_{k}"].iloc[-1]) for k in CORE}
 
-    coef, tstat, b_us, a = _solve(p, list(DRIVERS), y)
-    dead = [k for k in DRIVERS if abs(coef[k]) < 1e-9 or tstat[k] < MIN_T]
+    coef, tstat, b_us, a = _solve(p, list(CORE), y)
+    dead = [k for k in CORE if abs(coef[k]) < 1e-9 or tstat[k] < MIN_T]
     if dead:                                    # refit on what is left, cleanly
-        live = [k for k in DRIVERS if k not in dead]
+        live = [k for k in CORE if k not in dead]
         coef, tstat, b_us, a = _solve(p, live, y)
 
     adjust, borrowed = {}, []
     for k in dead:
-        if k == "debt_gdp":
-            adjust[k] = DEBT_COEF
-        else:
-            adjust[k] = us_model.coef[k]
-            borrowed.append(k)
+        adjust[k] = us_model.coef[k]
+        borrowed.append(k)
+    fiscal = _relative_fiscal_base(country)
+    if fiscal is not None and "fiscal" in us_model.adjust:
+        adjust["fiscal"] = us_model.adjust["fiscal"]
+        base["fiscal"] = fiscal
+        borrowed.append("fiscal")
 
     r = y - _hat(p, coef, b_us, a)
     recent = np.asarray(p.index >= "2010-01-01")
     return RelativeModel(
         country=country, intercept=a, beta_us=b_us, coef=coef, tstat=tstat,
         adjust=adjust, base=base, borrowed=tuple(borrowed),
-        debt_calibrated="debt_gdp" in adjust,
         r2=float(1 - (r @ r) / ((y - y.mean()) ** 2).sum()),
         r2_recent=float(1 - (r[recent] ** 2).sum()
                         / ((y[recent] - y[recent].mean()) ** 2).sum()),
         rmse=float(np.sqrt((r ** 2).mean())), n=len(p))
+
+
+def _relative_fiscal_base(country: str) -> float | None:
+    """Today's relative (own minus US) five-year-ahead projected deficit, from the
+    committed official projections. None -- and no fiscal channel -- when a side is
+    unavailable, so an offline fit degrades rather than fails."""
+    try:
+        from macro.fiscal_projections import five_year_ahead
+        return float(five_year_ahead(country) - five_year_ahead("US"))
+    except Exception as exc:                                    # noqa: BLE001
+        logger.warning("%s: no fiscal projection (%s); spread runs without the "
+                       "fiscal channel", country, exc)
+        return None
 
 
 def _solve(p: pd.DataFrame, keys: list, y: np.ndarray) -> tuple:
@@ -232,12 +256,11 @@ def _main() -> None:
               f"{p.index[0].date()}..{p.index[-1].date()}")
         print(f"  R2 {m.r2:.3f}   2010+ {m.r2_recent:+.3f}   RMSE {m.rmse:.2f}pp")
         print(f"  {'US term premium':24} {m.beta_us:+.3f}")
-        for k in DRIVERS:
-            if k in m.coef:
-                print(f"  {'rel ' + k:24} {m.coef[k]:+.4f}  (t={m.tstat[k]:5.1f})")
-            else:
-                tag = "calibrated, from today" if k == "debt_gdp" else "from US, from today"
-                print(f"  {'rel ' + k:24} {m.adjust[k]:+.4f}  {tag}")
+        for k in m.coef:
+            print(f"  {'rel ' + k:24} {m.coef[k]:+.4f}  (t={m.tstat[k]:5.1f})")
+        for k, g in m.adjust.items():
+            print(f"  {'rel ' + k:24} {g:+.4f}  from US, applied from today"
+                  + (f"  (base {m.base[k]:+.2f})" if k == "fiscal" else ""))
         print()
 
 

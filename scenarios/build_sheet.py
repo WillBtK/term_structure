@@ -45,23 +45,22 @@ def build() -> dict:
     from model.bond_math import macaulay_duration
     from model.tp_drivers import build_panel, fit_market
     from model.tp_relative import build_pair, fit_relative
-    from scenarios.engine import TENOR, debt_projections, latest_states
+    from scenarios.engine import (TENOR, debt_projections, deficit_defaults,
+                                  latest_states)
 
     panels = {c: build_panel(c) for c in MARKETS}
     us_m = fit_market("US", panels["US"])
     spread = {c: fit_relative(c, build_pair(c, panels), us_m)
               for c in MARKETS if c != "US"}
     states, debt = latest_states(MARKETS), debt_projections(MARKETS)
+    deficits = deficit_defaults(MARKETS)
     core = core_inflation_yoy()
     obs = pd.read_parquet(HERE.parent / "viz" / "data_daily.parquet")
     obs = obs[obs["instrument"] == "nominal"]
     today = pd.Timestamp.today().normalize()
 
-    from macro.fetch_cbo import projected_deficit_path
     payload = {"halflife": HL, "tenor": TENOR, "lam": 0.5 ** (1.0 / HL),
-               "asof": str(obs["date"].max().date()), "markets": {},
-               "us_deficit_path": {str(k): round(v, 2)
-                                   for k, v in projected_deficit_path().items()}}
+               "asof": str(obs["date"].max().date()), "markets": {}}
     for c in MARKETS:
         st, hist = states[c], core[c].dropna()
         m = hist.ewm(halflife=HL).mean()
@@ -79,6 +78,8 @@ def build() -> dict:
                      "last": round(float(hist.iloc[-1]), 3),
                      "asof": str(hist.index[-1].date())},
             "debt_proj": {str(k): round(x, 1) for k, x in sorted(debt.get(c, {}).items())},
+            "deficit_proj": {str(k): round(float(x), 2)
+                             for k, x in sorted(deficits.get(c, {}).items())},
             "hist": {
                 "core": annual(core[c]),
                 "short": annual(short.set_index("date")["observed"].sort_index() * 100),

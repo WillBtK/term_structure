@@ -1,0 +1,207 @@
+"""Official projected fiscal balances for all four markets, one concept everywhere.
+
+The US fiscal driver is the CBO five-year-ahead projected total balance. Extending that
+concept means finding each market's own official projection -- the body whose baseline
+the market actually trades on -- rather than one convenient multilateral source:
+
+    US   CBO baseline                        (macro.fetch_cbo; 11 years)
+    UK   OBR, public sector net borrowing    (public finances databank; 5 years)
+    DE   European Commission AMECO, general government net lending, EDP basis
+         (the Commission's horizon is two years -- beyond it the last value is
+          held flat, which is stated rather than hidden)
+    JP   Cabinet Office medium-to-long-term projections, central+local fiscal
+         balance, BASELINE case ("current projection"), to FY2040
+
+All returned DEFICIT-POSITIVE in percent of GDP, keyed by years ahead (1 = first full
+year). Committed CSV caches under ``macro/data`` keep everything runnable offline; a
+failed fetch keeps the committed file.
+
+Vintage archives -- the real-time panels that would let each market MEASURE its own
+fiscal sensitivity the way the US does -- are the recorded upgrade path, not part of
+this module: OBR publishes a historical official forecasts database back to 1970, and
+AMECO vintages exist twice a year. Until those are built, the spread markets borrow the
+US-measured sensitivity, on the same reasoning as the borrowed inflation coefficients:
+a relative driver's coefficient is the response to this market's driver moving with the
+US held still, and the US sample is the only one with a measured post-break response.
+"""
+from __future__ import annotations
+
+import io
+import logging
+import subprocess
+import zipfile
+from pathlib import Path
+
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+HERE = Path(__file__).resolve().parent
+DATA = HERE / "data"
+FILES = {"UK": DATA / "obr_balance_uk.csv",
+         "DE": DATA / "ameco_balance_de.csv",
+         "JP": DATA / "cao_balance_jp.csv"}
+
+AMECO_ZIP = "https://ec.europa.eu/economy_finance/db_indicators/ameco/documents/ameco0.zip"
+AMECO_CODE = "DEU.1.0.319.0.UBLG"        # net lending, % of GDP, EDP basis
+OBR_DATA_PAGE = "https://obr.uk/data/"
+CAO_XLSX = "https://www5.cao.go.jp/keizai2/keizai-syakai/shisan/keisuuhyo.xlsx"
+CAO_SHEET = "財政の詳細計数表（現状投影・長期）"     # the baseline ("current projection") case
+
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+_TIMEOUT = 180
+
+
+def _get(url: str, referer: str = "", retries: int = 3) -> bytes:
+    hdr = ["-H", f"Referer: {referer}"] if referer else []
+    last = None
+    for attempt in range(retries):
+        try:
+            out = subprocess.run(
+                ["curl", "-sSL", "--fail", "--max-time", str(_TIMEOUT),
+                 "-A", _UA, *hdr, url], capture_output=True, timeout=_TIMEOUT + 30)
+            if out.returncode != 0:
+                raise RuntimeError(f"curl {out.returncode}: {out.stderr[:150]!r}")
+            return out.stdout
+        except Exception as exc:                                    # noqa: BLE001
+            last = exc
+            logger.warning("fetch %s attempt %d: %s", url, attempt + 1, exc)
+    raise RuntimeError(f"failed to fetch {url}: {last}")
+
+
+# ------------------------------------------------------------------------- fetchers
+# Each returns a Series of the BALANCE in percent of GDP (surplus-positive, as the
+# sources publish it), indexed by the calendar year the fiscal year starts in.
+
+def fetch_de() -> pd.Series:
+    blob = _get(AMECO_ZIP)
+    z = zipfile.ZipFile(io.BytesIO(blob))
+    import csv
+    for name in z.namelist():
+        for line in io.TextIOWrapper(z.open(name), encoding="utf-8", errors="replace"):
+            if not line.startswith(AMECO_CODE + ";"):
+                continue
+            row = next(csv.reader([line], delimiter=";"))
+            hdr = next(csv.reader([_header(z, name)], delimiter=";"))
+            vals = {}
+            for h, v in zip(hdr[5:], row[5:]):
+                try:
+                    vals[int(h)] = float(v)
+                except (TypeError, ValueError):
+                    continue
+            return pd.Series(vals).sort_index()
+    raise RuntimeError(f"{AMECO_CODE} not found in AMECO bulk file")
+
+
+def _header(z: zipfile.ZipFile, name: str) -> str:
+    with z.open(name) as f:
+        return io.TextIOWrapper(f, encoding="utf-8", errors="replace").readline()
+
+
+def fetch_uk() -> pd.Series:
+    """OBR public finances databank: PSNB, % of GDP, history + the current forecast."""
+    import re
+    page = _get(OBR_DATA_PAGE).decode("utf-8", "replace")
+    m = re.search(r'href="(https://obr\.uk/download/public-finances-databank[^"]+)"',
+                  page)
+    if not m:
+        raise RuntimeError("no public-finances-databank link on obr.uk/data")
+    blob = _get(m.group(1), referer=OBR_DATA_PAGE)
+    d = pd.read_excel(io.BytesIO(blob), sheet_name="Aggregates (per cent of GDP)",
+                      header=None)
+    hdr = d.iloc[3].astype(str)
+    col = next(j for j in range(d.shape[1])
+               if hdr[j].strip().lower() == "public sector net borrowing")
+    vals = pd.to_numeric(d.iloc[4:, col], errors="coerce")
+    years = d.iloc[4:, 1].astype(str).str.extract(r"^(\d{4})-")[0]
+    s = pd.Series(vals.values, index=pd.to_numeric(years, errors="coerce").values)
+    s = s.dropna()
+    s.index = s.index.astype(int)
+    return (-s).sort_index()          # PSNB is borrowing-positive -> balance
+
+
+def fetch_jp() -> pd.Series:
+    """Cabinet Office baseline: central+local fiscal balance, % of nominal GDP."""
+    blob = _get(CAO_XLSX)
+    d = pd.read_excel(io.BytesIO(blob), sheet_name=CAO_SHEET, header=None)
+    # The percent-of-GDP block: a year row, then 財政収支 with a （対名目GDP比） row
+    # directly beneath it. Labels move between releases, so locate by text.
+    def _label(i: int) -> str:
+        return "".join(str(x) for x in d.iloc[i, :3] if pd.notna(x))
+    year_rows = [i for i in range(len(d))
+                 if "年" in _label(i) and "度" in _label(i)]
+    for i in range(len(d) - 1):
+        if _label(i).strip() == "財政収支" and "対名目GDP比" in _label(i + 1):
+            yr_row = max(r for r in year_rows if r < i)
+            years = pd.to_numeric(d.iloc[yr_row], errors="coerce")
+            vals = pd.to_numeric(d.iloc[i + 1], errors="coerce")
+            s = pd.Series(vals.values, index=years.values).dropna()
+            s = s[[isinstance(ix, float) and 1990 < ix < 2100 for ix in s.index]]
+            s.index = s.index.astype(int)
+            if len(s) > 5:
+                return s.sort_index()
+    raise RuntimeError("CAO fiscal-balance (% GDP) row not found")
+
+
+FETCHERS = {"DE": fetch_de, "UK": fetch_uk, "JP": fetch_jp}
+
+
+# ------------------------------------------------------------------------- interface
+
+def refresh(markets=("DE", "UK", "JP")) -> None:
+    for c in markets:
+        try:
+            s = FETCHERS[c]()
+            FILES[c].parent.mkdir(parents=True, exist_ok=True)
+            s.to_frame("balance_pct_gdp").rename_axis("year").to_csv(FILES[c])
+            logger.info("%s: %d years %d..%d, latest balance %+.2f%% of GDP",
+                        c, len(s), s.index.min(), s.index.max(), s.iloc[-1])
+        except Exception as exc:                                    # noqa: BLE001
+            logger.warning("%s refresh failed (%s) -- keeping committed file", c, exc)
+
+
+def path(country: str) -> dict:
+    """Projected DEFICIT path, % of GDP, keyed by years ahead (1 = first full year).
+
+    Only projection years are returned -- history is not a path. The last projected
+    year extends flat downstream, which for Germany means the Commission's two-year
+    horizon carries the long run and is the stated weakness of that source.
+    """
+    if country == "US":
+        from macro.fetch_cbo import projected_deficit_path
+        return {int(k): float(v) for k, v in projected_deficit_path().items()}
+    f = FILES[country]
+    if not f.is_file():
+        raise FileNotFoundError(f"no committed balance projection for {country}; "
+                                "run python -m macro.fiscal_projections")
+    d = pd.read_csv(f)
+    now = pd.Timestamp.today().year
+    out = {int(r["year"]) - now: -float(r["balance_pct_gdp"])
+           for _, r in d.iterrows() if int(r["year"]) > now}
+    return {k: v for k, v in sorted(out.items()) if 1 <= k <= 15}
+
+
+def five_year_ahead(country: str) -> float:
+    """Today's five-year-ahead projected deficit -- the driver's base reading."""
+    p = path(country)
+    if not p:
+        raise RuntimeError(f"{country}: empty projection path")
+    ys = sorted(p)
+    return float(p[min(5, ys[-1])] if 5 not in p else p[5])
+
+
+def _main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    refresh()
+    for c in ("US", "UK", "DE", "JP"):
+        try:
+            p = path(c)
+            print(f"{c}: 5y-ahead deficit {five_year_ahead(c):+.2f}% of GDP   path "
+                  + "  ".join(f"{k}:{v:.1f}" for k, v in sorted(p.items())[:8]))
+        except Exception as exc:                                    # noqa: BLE001
+            print(f"{c}: {exc}")
+
+
+if __name__ == "__main__":
+    _main()

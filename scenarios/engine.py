@@ -94,12 +94,13 @@ class Scenario:
     (1 = the first full year ahead). ``real_growth`` is carried but never used in the
     arithmetic -- it is the story behind the policy path, not a second input to it.
 
-    ``deficit`` (deficit-positive, % of GDP) drives the US fiscal channel; for the
-    other markets it is currently ignored -- their fiscal channel still runs on the
-    relative debt stock, pending projected-balance sources for them. One constraint
-    worth restating from the evidence: the fiscal effect is a REAL-rate effect --
-    the inflation-risk premium does not respond -- so widening the deficit is not by
-    itself a reason to also raise the inflation path."""
+    ``deficit`` (deficit-positive, % of GDP) drives the fiscal channel in every
+    market: the US directly, the spread markets through the RELATIVE (own minus US)
+    five-year-ahead projected deficit. Entering nothing runs each market's official
+    projection (CBO / OBR / AMECO / Cabinet Office, ``macro.fiscal_projections``).
+    One constraint worth restating from the evidence: the fiscal effect is a
+    REAL-rate effect -- the inflation-risk premium does not respond -- so widening
+    the deficit is not by itself a reason to also raise the inflation path."""
     country: str
     policy_rate: dict
     inflation: dict
@@ -294,7 +295,7 @@ def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dic
         st, sc = states[c], scenarios[c]
         tp = {0: st.tp_today}
         for h in HORIZONS:
-            own_h = drivers_at(st, sc, h, debt_defaults.get(c))
+            own_h = drivers_at(st, sc, h, debt_defaults.get(c), deficit_defaults.get(c))
             tp[h] = m.scenario(us_drv[0], us_drv[h], st.drivers_today, own_h,
                                us_tp[0], us_tp[h], st.tp_today, horizon=h, rho=rho)
         results[c] = run_market(st, sc, tp, debt_defaults.get(c))
@@ -305,7 +306,8 @@ def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dic
 
 def load_scenario(path: "Path | str") -> Scenario:
     """A scenario CSV: columns ``year, policy_rate, inflation, real_growth`` (percent,
-    year 1 = first full year ahead), optional ``price_insensitive`` / ``debt_gdp``."""
+    year 1 = first full year ahead), optional ``price_insensitive`` / ``debt_gdp`` /
+    ``deficit``."""
     path = Path(path)
     df = pd.read_csv(path)
     missing = set(REQUIRED_COLUMNS) - set(df.columns)
@@ -319,18 +321,21 @@ def load_scenario(path: "Path | str") -> Scenario:
                     policy_rate=col("policy_rate"), inflation=col("inflation"),
                     real_growth=col("real_growth"),
                     price_insensitive=col("price_insensitive"),
-                    debt_gdp=col("debt_gdp"))
+                    debt_gdp=col("debt_gdp"), deficit=col("deficit"))
 
 
-def deficit_defaults() -> dict:
-    """The CBO baseline as the default US fiscal path -- entering nothing runs the
-    official projection, visible in the sheet's grid rather than hidden."""
-    try:
-        from macro.fetch_cbo import projected_deficit_path
-        return {"US": projected_deficit_path()}
-    except Exception as exc:                                    # noqa: BLE001
-        logger.warning("no CBO deficit path (%s); US fiscal holds at today", exc)
-        return {}
+def deficit_defaults(markets=("US", "UK", "DE", "JP")) -> dict:
+    """Each market's official projected-deficit path as its fiscal default -- CBO,
+    OBR, AMECO, Cabinet Office -- so entering nothing runs the official projection,
+    visible in the sheet's grid rather than hidden."""
+    from macro.fiscal_projections import path
+    out = {}
+    for c in markets:
+        try:
+            out[c] = path(c)
+        except Exception as exc:                                # noqa: BLE001
+            logger.warning("no deficit path for %s (%s); fiscal holds at today", c, exc)
+    return out
 
 
 def latest_states(markets=("US", "UK", "DE", "JP")) -> dict:
@@ -346,11 +351,17 @@ def latest_states(markets=("US", "UK", "DE", "JP")) -> dict:
         p = build_panel(c)
         last = obs[obs["country"] == c].sort_values("date").iloc[-1]
         keys = [k for k in (*DRIVERS, "fiscal") if k in p]
+        drivers = {k: float(p[k].dropna().iloc[-1]) for k in keys}
+        if "fiscal" not in drivers:      # spread markets: today's official 5y-ahead
+            try:
+                from macro.fiscal_projections import five_year_ahead
+                drivers["fiscal"] = float(five_year_ahead(c))
+            except Exception as exc:                            # noqa: BLE001
+                logger.warning("no fiscal projection for %s (%s)", c, exc)
         out[c] = MarketState(
             country=c, y_today=float(last["observed"]) * 100.0,
             tp_today=float(p["tp"].iloc[-1]),
-            drivers_today={k: float(p[k].dropna().iloc[-1]) for k in keys},
-            core_history=core[c])
+            drivers_today=drivers, core_history=core[c])
     return out
 
 

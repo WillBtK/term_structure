@@ -53,12 +53,12 @@ def test_the_committed_payload_carries_everything_the_page_reads():
     for c in MARKETS:
         m = p["markets"][c]
         assert set(m) >= {"y_today", "tp_today", "drivers", "duration", "ewma",
-                          "debt_proj", "hist", "model"}
+                          "debt_proj", "deficit_proj", "hist", "model"}
+        # every market carries its official 5y-ahead projected deficit
         want = {"expected_inflation", "inflation_uncertainty",
-                "price_insensitive", "debt_gdp"}
-        if c == "US":
-            want |= {"fiscal"}          # the CBO 5y-ahead projected deficit
+                "price_insensitive", "debt_gdp", "fiscal"}
         assert set(m["drivers"]) == want
+        assert m["deficit_proj"]            # CBO / OBR / AMECO / CAO default path
         assert 4.0 < m["duration"] < 10.0                # a 10y par bond
         assert m["ewma"]["v"] >= 0.0
         for k in ("core", "short", "ten"):
@@ -71,11 +71,17 @@ def test_the_committed_payload_carries_everything_the_page_reads():
                                         "price_insensitive"}
             assert set(mod["adjust"]) == set(mod["base"]) == {"fiscal"}
             assert 0.35 <= mod["adjust"]["fiscal"] <= 0.66   # the measured window
-            assert p["us_deficit_path"]                       # CBO default path present
         else:
             assert mod["kind"] == "spread" and 0.0 <= mod["beta_us"] <= 1.5
             assert not set(mod["coef"]) & set(mod["adjust"])   # fitted xor adjusted
-            assert set(mod["coef"]) | set(mod["adjust"]) == set(m["drivers"])
+            # the three core channels are fitted or borrowed; fiscal is always the
+            # borrowed US sensitivity on the relative projected deficit, and the
+            # debt stock enters nowhere
+            core = {"expected_inflation", "inflation_uncertainty", "price_insensitive"}
+            assert set(mod["coef"]) | set(mod["adjust"]) == core | {"fiscal"}
+            assert "fiscal" in mod["adjust"] and "fiscal" in mod["base"]
+            assert mod["adjust"]["fiscal"] == p["markets"]["US"]["model"]["adjust"]["fiscal"]
+            assert "debt_gdp" not in mod["coef"] and "debt_gdp" not in mod["adjust"]
 
 
 @pytest.mark.skipif(not Path(OUT).is_file(), reason="payload not built")

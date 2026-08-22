@@ -20,8 +20,13 @@ year,policy_rate,inflation,real_growth
 3,3.1,2.3,1.7
 ```
 
-Optional `price_insensitive` and `debt_gdp` columns override the defaults (ownership
-holds at today; debt follows the committed WEO/national projection).
+Optional `price_insensitive`, `debt_gdp` and `deficit` columns override the defaults
+(ownership holds at today; the deficit follows each market's committed official
+projection — CBO, OBR, European Commission AMECO, Cabinet Office, all deficit-positive
+% of GDP via `macro.fiscal_projections`). The fiscal channel prices the five-year-ahead
+projected deficit: directly for the US, and relative to the US path for the spread
+markets, at the US-measured sensitivity. It is a real-rate effect — widening the
+deficit is not by itself a reason to also raise the inflation path.
 
 ## Running it
 

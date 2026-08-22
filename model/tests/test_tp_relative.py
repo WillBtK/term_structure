@@ -4,24 +4,27 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from model.tp_drivers import DEBT_COEF, DRIVERS, TARGET_KINK, DriverModel
+from model.tp_drivers import DriverModel
 from model.tp_relative import RelativeModel, _relative, fit_relative
 
+US_FISCAL_COEF = 0.52                 # the borrowed US projected-balance sensitivity
+
 US = dict(expected_inflation=2.3, inflation_uncertainty=1.3,
-          price_insensitive=27.0, debt_gdp=99.0)
+          price_insensitive=27.0, debt_gdp=99.0, fiscal=5.9)
 OWN = dict(expected_inflation=2.0, inflation_uncertainty=1.7,
-           price_insensitive=38.0, debt_gdp=101.0)
-BASE = _relative(OWN, US)
+           price_insensitive=38.0, debt_gdp=101.0, fiscal=1.9)
+BASE = {**_relative(OWN, US), "fiscal": OWN["fiscal"] - US["fiscal"]}
 M = RelativeModel(country="XX", intercept=0.2, beta_us=0.9,
-                  coef={"expected_inflation": 0.9, "price_insensitive": -0.05,
-                        "debt_gdp": 0.06},
-                  adjust={"inflation_uncertainty": 0.39}, base=dict(BASE),
-                  borrowed=("inflation_uncertainty",))
+                  coef={"expected_inflation": 0.9, "price_insensitive": -0.05},
+                  adjust={"inflation_uncertainty": 0.39, "fiscal": US_FISCAL_COEF},
+                  base=dict(BASE),
+                  borrowed=("inflation_uncertainty", "fiscal"))
 CAL = RelativeModel(country="YY", intercept=0.2, beta_us=0.7,
                     coef={"price_insensitive": -0.014},
                     adjust={"expected_inflation": 1.25, "inflation_uncertainty": 0.39,
-                            "debt_gdp": DEBT_COEF},
-                    base=dict(BASE), debt_calibrated=True)
+                            "fiscal": US_FISCAL_COEF},
+                    base=dict(BASE),
+                    borrowed=("expected_inflation", "inflation_uncertainty", "fiscal"))
 
 
 def test_relative_drivers_kink_each_side_before_differencing():
@@ -55,13 +58,27 @@ def test_the_us_premium_carries_through_at_the_estimated_beta():
     assert abs(got - (1.39 + M.beta_us)) < 1e-12
 
 
-def test_a_calibrated_fiscal_channel_still_responds_to_the_scenario():
-    """Japan's case: unidentified in its own history, but a widening deficit against the
-    US must still raise the premium."""
-    wider = {**OWN, "debt_gdp": OWN["debt_gdp"] + 20.0}
+def test_the_borrowed_fiscal_channel_responds_to_the_relative_deficit():
+    """A deficit widening 2 points against the US must raise the premium by the
+    borrowed US sensitivity times two -- and a matched widening on both sides,
+    with the US premium held, must move nothing."""
+    wider = {**OWN, "fiscal": OWN["fiscal"] + 2.0}
     got = CAL.scenario(US, US, OWN, wider, tp_us_today=1.36, tp_us_scenario=1.36,
                        tp_today=1.36)
-    assert abs(got - (1.36 + 20.0 * DEBT_COEF)) < 1e-12
+    assert abs(got - (1.36 + 2.0 * US_FISCAL_COEF)) < 1e-12
+    us_wider = {**US, "fiscal": US["fiscal"] + 2.0}
+    both = CAL.scenario(US, us_wider, OWN, wider, tp_us_today=1.36,
+                        tp_us_scenario=1.36, tp_today=1.36)
+    assert abs(both - 1.36) < 1e-12
+
+
+def test_a_missing_fiscal_reading_falls_back_to_the_base():
+    """A state without a fiscal projection must contribute nothing, not raise."""
+    us, own = {k: v for k, v in US.items() if k != "fiscal"}, \
+              {k: v for k, v in OWN.items() if k != "fiscal"}
+    got = M.scenario(us, us, own, own, tp_us_today=1.63, tp_us_scenario=1.63,
+                     tp_today=1.39)
+    assert abs(got - 1.39) < 1e-12
 
 
 def test_a_borrowed_inflation_channel_responds_to_own_inflation_only():
@@ -75,7 +92,7 @@ def test_a_borrowed_inflation_channel_responds_to_own_inflation_only():
     assert abs(both - 1.36) < 1e-12               # relative move is nil, US TP held
 
 
-def _pair(n=260, seed=1, perverse_debt=False):
+def _pair(n=260, seed=1):
     rng = np.random.default_rng(seed)
     idx = pd.date_range("2004-10-01", periods=n, freq="MS")
     p = pd.DataFrame(index=idx)
@@ -83,38 +100,35 @@ def _pair(n=260, seed=1, perverse_debt=False):
     p["rel_expected_inflation"] = rng.normal(0.1, 0.3, n)
     p["rel_inflation_uncertainty"] = rng.normal(0.2, 0.3, n)
     p["rel_price_insensitive"] = rng.normal(10.0, 6.0, n)
-    p["rel_debt_gdp"] = np.linspace(-20.0, 20.0, n)
     p["tp"] = (0.2 + 0.9 * p["us_tp"] + 0.9 * p["rel_expected_inflation"]
                + 0.4 * p["rel_inflation_uncertainty"]
                - 0.05 * p["rel_price_insensitive"]
-               + (-0.06 if perverse_debt else 0.06) * p["rel_debt_gdp"]
                + rng.normal(0, 0.05, n))
     return p
 
 
 REF = DriverModel(intercept=0.5,
                   coef={"expected_inflation": 1.25, "inflation_uncertainty": 0.39,
-                        "price_insensitive": -0.065, "debt_gdp": 0.014})
+                        "price_insensitive": -0.065},
+                  adjust={"fiscal": US_FISCAL_COEF}, base={"fiscal": 5.9})
 
 
 def test_fit_recovers_the_us_beta_and_the_relative_slopes():
     m = fit_relative("SYN", _pair(), REF)
     assert abs(m.beta_us - 0.9) < 0.08
     assert abs(m.coef["price_insensitive"] + 0.05) < 0.02
-    assert not m.debt_calibrated
     assert m.r2 > 0.9
 
 
-def test_a_perverse_relative_debt_sample_is_calibrated_not_fitted():
-    m = fit_relative("SYN", _pair(perverse_debt=True), REF)
-    assert m.debt_calibrated
-    assert m.adjust["debt_gdp"] == DEBT_COEF
-    assert "debt_gdp" not in m.coef
+def test_debt_stock_never_enters_the_spread_model():
+    """The fiscal object is the projected balance; relative debt stock is gone."""
+    m = fit_relative("SYN", _pair(), REF)
+    assert "debt_gdp" not in m.coef and "debt_gdp" not in m.adjust
 
 
 def test_the_fit_never_contains_an_adjustment_channel():
     """Adjustments are measured from today, so including them in the historical fit
     would impose swings that never happened. They must stay out of coef."""
-    m = fit_relative("SYN", _pair(perverse_debt=True), REF)
+    m = fit_relative("SYN", _pair(), REF)
     assert not set(m.coef) & set(m.adjust)
     assert m.r2 > 0.5

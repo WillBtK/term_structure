@@ -5,22 +5,32 @@ realized drivers for a decade; and expanding-window annual refits projecting 36 
 ahead, scored against the random walk. Reproduce with
 `python -m validation.tp_scenario_oos`.
 
+Current specification (US fiscal block + projected-balance fiscal channel in every
+market, relative debt stock removed from the spreads — see the dated section at the
+end):
+
 |        | frozen-2015 RMSE | end-point error | 3y model RMSE | 3y RW RMSE | ratio |
 |--------|-----------------|-----------------|---------------|------------|-------|
-| **US** | 0.72pp          | −0.25pp         | 0.95pp        | 0.97pp     | 0.98  |
-| **UK** | 0.58pp          | −0.33pp         | 0.95pp        | 1.00pp     | 0.95  |
-| **DE** | 1.44pp          | −1.17pp         | 1.25pp        | 1.00pp     | 1.24  |
-| **JP** | 1.69pp          | −2.56pp         | 0.95pp        | 0.50pp     | 1.88  |
+| **US** | 0.52pp          | −0.86pp         | 0.93pp        | 0.97pp     | 0.96  |
+| **UK** | 0.67pp          | +0.50pp         | 1.17pp        | 1.00pp     | 1.17  |
+| **DE** | 1.02pp          | −0.57pp         | 1.31pp        | 1.00pp     | 1.30  |
+| **JP** | 1.48pp          | −2.00pp         | 0.96pp        | 0.50pp     | 1.91  |
+
+For reference, the same gates before the fiscal work (debt-stock channels in the
+spreads, no US fiscal block): US 0.72 / −0.25 / 0.98; UK 0.58 / −0.33 / 0.95;
+DE 1.44 / −1.17 / 1.24; JP 1.69 / −2.56 / 1.88.
 
 ## Verdict
 
 **Credible as a conditional scenario mapping; not an unconditional forecaster — and it
 must never be presented as one.** The user supplies the macro scenario; the model
-prices it. Matching the random walk at three years (US 0.98, UK 0.95) is the expected
+prices it. Matching the random walk at three years (US 0.96) is the expected
 result: nothing in this literature beats no-change unconditionally at that horizon
 (Thornton–Valente 2012). Anchoring is what makes that safe — an unchanged scenario
 returns today's premium exactly, so the model adds no drift of its own, only the
-translation of deliberate scenario deviations.
+translation of deliberate scenario deviations. The UK's ratio moved above one when
+its debt channel was retired (see the dated section at the end) — the cost of
+consistency, stated there.
 
 ## Why DE and JP fail the frozen test
 
@@ -40,8 +50,10 @@ either market's coefficient moves materially on new data.
 - Fed and foreign-official coefficients land within a whisker of each other
   (−0.069 / −0.064) with no constraint forcing it — consistent with one mechanism:
   price-insensitive duration absorption.
-- Fiscal at +1.4bp (US, fitted) to +2.5bp (calibrated) per debt point vs Laubach
-  (2009) 3–4bp and the CBO review's 2–3bp.
+- Fiscal at +51.9bp per point of the five-year-ahead projected deficit/GDP vs the
+  Laubach (2009) 20–29bp and the deficit-based literature's 18–28bp per point —
+  above the classic range, measured post-2008 only, and consistent with the
+  reworked handoff analysis (FINDINGS_fiscal_handoff_v2.md).
 - US-level-plus-spread structure per the spillover literature (Rey;
   Miranda-Agrippino–Rey; Diebold–Li–Yue; Bauer–Neely — US shocks move foreign yields
   mostly through term premia).
@@ -71,32 +83,38 @@ the residual is the one a user would actually have seen. RMSE in pp:
 
 | horizon | market | n | ρ=1.0 | ρ=0.9 | ρ=0.8 | ρ=0.7 | ρ=0.5 | ρ=0.0 |
 |---|---|---|---|---|---|---|---|---|
-| 3y | US | 19 | 0.95 | 0.86 | 0.80 | 0.76 | 0.72 | **0.71** |
-| | UK | 10 | 0.84 | 0.80 | 0.78 | **0.77** | 0.77 | 0.77 |
-| | DE | 14 | 1.10 | 1.06 | **1.05** | 1.05 | 1.06 | 1.08 |
+| 3y | US | 19 | 0.93 | 0.84 | 0.77 | 0.73 | 0.69 | **0.67** |
+| | UK | 10 | 1.04 | 0.98 | 0.93 | 0.90 | 0.87 | **0.86** |
+| | DE | 14 | 1.12 | **1.11** | 1.11 | 1.13 | 1.17 | 1.20 |
 | | JP | 14 | 0.75 | 0.71 | 0.69 | **0.68** | 0.69 | 0.71 |
-| 10y | US | 12 | 0.94 | 0.79 | **0.78** | 0.78 | 0.78 | 0.78 |
-| | UK | 3 | 0.77 | 0.66 | 0.64 | 0.64 | 0.64 | **0.64** |
+| 10y | US | 12 | 0.94 | 0.76 | **0.73** | 0.73 | 0.73 | 0.73 |
+| | UK | 3 | **1.02** | 1.09 | 1.12 | 1.13 | 1.14 | 1.14 |
 | | DE | 7 | **1.10** | 1.43 | 1.57 | 1.62 | 1.63 | 1.64 |
 | | JP | 7 | **1.11** | 1.17 | 1.22 | 1.24 | 1.25 | 1.25 |
-| | *mean* | | 0.944 | **0.935** | 0.941 | 0.943 | 0.943 | 0.945 |
-| | *worst cell* | | **1.11** | 1.43 | 1.57 | 1.62 | 1.64 | 1.64 |
+| | *mean* | | **1.001** | 1.009 | 1.019 | 1.021 | 1.021 | 1.023 |
+| | *worst cell* | | **1.12** | 1.43 | 1.57 | 1.62 | 1.64 | 1.64 |
+
+(Numbers refreshed after the fiscal rework; the pattern is the one first measured,
+with the UK's ten-year cell — n = 3 — flipping to prefer full anchoring.)
 
 ## What it says
 
-**The two markets whose fair value is well identified want reversion; the two that lean
-on borrowed and calibrated coefficients want none.** The US and UK improve at both
-horizons, materially (US 3y 0.95 → 0.71). Germany and Japan are indifferent at three
+**The market whose fair value is best identified wants reversion; the ones leaning on
+borrowed coefficients mostly want none.** The US improves at both horizons, materially
+(3y 0.93 → 0.67). The UK now wants reversion at three years but full anchoring at ten
+(on three windows — too few to lean on). Germany and Japan are indifferent at three
 years and clearly prefer full anchoring at ten — reverting *to* an unreliable level is
 worse than staying at the observed one. Averaged over all eight cells the choice is
-close to a wash, while the worst cell degrades from 1.11 to 1.64 as reversion increases.
+within one percent between full anchoring and ρ = 0.9, while the worst cell degrades
+from 1.12 to 1.64 as reversion increases.
 
 So the honest verdict is that the evidence does not license a strong default in either
-direction. **ρ = 0.9 a year** is the aggregate optimum: a half-life near six and a half
-years, keeping 73% of the residual at three years and 35% at ten. It concedes the
+direction. **ρ = 0.9 a year** stays the shipped default: a half-life near six and a
+half years, keeping 73% of the residual at three years and 35% at ten. It concedes the
 conceptual point — no shock is treated as permanent — without asserting a large
-mispricing, and it is exposed as a control on the scenario sheet rather than buried.
-A user who judges a particular shock temporary should turn it down.
+mispricing, costs at most a percent of aggregate RMSE against full anchoring, and it
+is exposed as a control on the scenario sheet rather than buried. A user who judges a
+particular shock temporary should turn it down.
 
 ## A trap worth recording
 
@@ -106,3 +124,53 @@ the premium falling over the next three years with t = −15.5. That is largely 
 artefact — the regression forces the residual orthogonal to the drivers over the whole
 span, including the future. The real-time numbers above are three to ten times less
 enthusiastic about reversion, and they are the ones to quote.
+
+---
+
+# 2026-08: the projected-balance fiscal channel reaches every market
+
+The US fiscal driver — the five-year-ahead OFFICIAL projected total balance, measured
+post-2008 at vintage frequency with the common trend purged (+51.9bp per point of GDP,
+t +6.7; see FINDINGS_fiscal_handoff_v2.md) — was extended to the spread markets. Each
+market now carries its own official projection as the driver, entering the spread as
+the deficit RELATIVE to the US path:
+
+| market | source | horizon shipped |
+|---|---|---|
+| US | CBO baseline (GitHub mirrors of cbo.gov) | 11 years |
+| UK | OBR public finances databank, PSNB % GDP | to 2030-31 (year 4), then flat |
+| DE | European Commission AMECO, net lending % GDP (EDP) | 2 years, then flat |
+| JP | Cabinet Office medium/long-term projection, baseline case, central+local balance | to FY2040 |
+
+`macro/fiscal_projections.py`, committed CSV caches under `macro/data/`. No spread
+market has the vintage archive that identified the US coefficient (OBR's historical
+forecasts database and AMECO's twice-yearly vintages are the recorded upgrade path),
+so all three borrow the US +0.519 as an adjustment measured from today's relative
+reading: worth nothing at the base case, alive when a scenario moves one side's path
+against the other's. **Relative debt stock was removed from the spread models
+entirely** — UK's fitted +6.2bp (t 6.6), DE's fitted +1.8bp (t 18.2), JP's calibrated
++2.5bp — on the flow-vs-stock evidence: the projected balance is the priced object,
+and running both channels would double-count one story.
+
+## What it cost and bought, honestly
+
+In-sample fit gives up what the debt trends were absorbing: UK R² 0.809 → 0.777,
+DE 0.845 → 0.795 with the 2010+ sub-window going negative (−0.25), JP unchanged.
+Out of sample the trade is asymmetric. **DE and JP improve substantially on the
+frozen-2015 decade** (DE 1.44 → 1.02pp, JP 1.69 → 1.48pp; endpoint errors shrink by
+roughly half and a fifth)
+— their debt channels were exactly the sort of trend-fitted coefficient that
+extrapolates badly. **The UK pays**: frozen RMSE 0.58 → 0.67pp and the rolling 3y
+ratio 0.95 → 1.17, now behind the random walk. Its relative-debt term evidently
+carried real out-of-sample signal, most plausibly as a proxy for the fiscal-trajectory
+news the projected-balance channel now carries only from today forward (a backtest
+cannot feed the channel, since no historical projection panel exists for the UK yet —
+building the OBR vintage panel is the fix that would let the UK re-earn that signal
+honestly, and is the strongest single argument for the upgrade path above).
+
+Net: two markets clearly better, one clearly worse, one unchanged, and the model now
+says one consistent thing about fiscal policy everywhere instead of three different
+things. The residual-persistence grid moved only at the margin (aggregate optimum now
+statistically indistinguishable between ρ = 0.9 and 1.0; DE at ten years now prefers
+full anchoring more strongly); ρ = 0.9 remains the shipped default on the same
+reasoning as before.

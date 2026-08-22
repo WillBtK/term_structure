@@ -66,7 +66,11 @@ def _spread_fitted(m, pair: pd.DataFrame, i: int) -> float:
     for k, g in m.coef.items():
         out += g * pair[f"rel_{k}"].iloc[i]
     for k, g in m.adjust.items():
-        out += g * (pair[f"rel_{k}"].iloc[i] - m.base[k])
+        # no realised history exists for the fiscal projection driver, so that
+        # channel sits at its base in a backtest and contributes nothing -- which
+        # is also what it does at the base case of a live scenario
+        if f"rel_{k}" in pair.columns:
+            out += g * (pair[f"rel_{k}"].iloc[i] - m.base[k])
     return out
 
 
