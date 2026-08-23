@@ -90,11 +90,16 @@ which approximates the CAO's ≈0 without a second parameter.
   *fiscal* view: it is entered in the deficit row directly, which turns the rule off.
   The sheet's footnote says exactly this.
 
-## The growth baseline is the deficit source's own
+## Two growth objects: the WEO opening and the source reference
 
-Growth deviations are measured against **the growth path the deficit projection was
+The grid **opens** on the WEO macro baseline — growth and inflation, one vintage,
+one methodology, all four markets: the house starting point. The rule's gap is
+measured against a different object: **the growth path the deficit projection was
 conditioned on** — each institution's own forecast, fetched from the same source
-family as the balance:
+family as the balance. The untouched sheet therefore shows the official balance
+**re-aligned to WEO growth** through the sensitivities, and typing the source's own
+growth numbers recovers the official path exactly (verified per cell in all four
+markets). The source references:
 
 | | growth baseline | route |
 |---|---|---|
@@ -105,13 +110,18 @@ family as the balance:
 
 Measuring against any *other* source's growth silently converts that source's
 disagreement with the deficit institution into "no view." The differences are not
-small: the CAO's long-run growth is 0.4% against the WEO's 0.6% — under the
-WEO-baseline design, *agreeing with the Cabinet Office* registered as ~0.2pp/yr of
-growth pessimism, a spurious ~0.3pp of deficit at the steady-state gap; Germany's
-AMECO near years run 0.2–0.3pp below WEO's. Equivalently: the sheet's untouched
-grid must show the official deficit, and that is only consistent if the growth row
-opens on the numbers the deficit was built on. The baseline is rounded to 2dp at
-the source so the displayed grid default IS the baseline exactly.
+small: the CAO's long-run growth is 0.4% against the WEO's 0.6%, so Japan's
+untouched balance runs ~0.1–0.2pp narrower than the CAO's own path at the long end;
+Germany's AMECO near years run 0.2–0.3pp below WEO's, so its untouched balance runs
+narrower near term; the UK's runs wider (WEO 0.8% vs the OBR's 1.29% in 2026). The
+reference baseline is rounded to 2dp at the source so a typed value can hit it
+exactly.
+
+A side effect of the WEO opening exposed a latent browser bug: the EWMA
+inflation-uncertainty propagation indexed scenario months fractionally, switching
+projection years ~4 months later than the engine's `1 + m//12` convention — 
+invisible while the default inflation path was flat, worth ~2bp once it varied.
+Fixed to the engine convention; agreement back at 0.24bp.
 
 ## WEO's remaining role
 

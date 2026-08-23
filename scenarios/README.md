@@ -20,8 +20,10 @@ year,policy_rate,inflation,real_growth,fiscal_balance
 2028,3.1,2.3,1.7,-5.99
 ```
 
-The grid **opens on the market's own expected policy path**, derived from the published
-expected-rate curve, so an untouched column is not a view. `load_scenario` converts
+The grid **opens on the market's own expected policy path** (derived from the
+published expected-rate curve) **and on the WEO macro baseline for growth and
+inflation** — the house starting point, one vintage across all four markets.
+`load_scenario` converts
 calendar years to horizons ahead of today (year-end *Y* is `(Y+1) − today`); a file
 written in the older years-ahead convention still loads unchanged.
 
@@ -48,8 +50,10 @@ from the growth deviations and closing at 30%/yr, so a one-off miss washes out a
 only a sustained view leaves a mark. The baseline the deviation is measured against
 is the **deficit source's own growth projection** (CBO / OBR / AMECO+WEO / Cabinet
 Office, `macro.fiscal_projections.growth_baseline`) — the assumptions the official
-deficit was conditioned on — so the untouched grid stays exactly on the official
-numbers and a view that merely agrees with the deficit institution moves nothing. The rule assumes growth deviations are
+deficit was conditioned on. Because the grid opens on WEO growth, the untouched
+balance row shows the official projection **re-aligned to WEO growth** through the
+sensitivities; typing the source's own growth numbers recovers the official path
+exactly. The rule assumes growth deviations are
 economy-driven; deficit-financed stimulus is a fiscal view and is entered in the
 balance row (or `fiscal_balance` column) directly, which switches the rule off — the
 override is the whole fiscal path, never rule-plus-override. Inflation is deliberately excluded (its budget
@@ -124,8 +128,8 @@ grid whose top row is the **derived ten-year yield** (hover a cell for the term-
 split), a hold-flat-from selector, and four half-width charts: policy rate against the
 market's implied path, inflation against the market breakeven, term premium, and the
 fiscal balance (deficit negative). All history is monthly with hover readouts. The
-growth row opens on the deficit source's own growth baseline and the balance row is
-**derived** from it
+growth and inflation rows open on the WEO baseline and the balance row is
+**derived** from the growth row
 (italic, ⚙) until you type over it (✎ — click the row label to restore the rule);
 while derived, the exported CSV omits the fiscal column so the engine re-derives the
 identical full path.

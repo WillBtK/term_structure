@@ -161,14 +161,29 @@ def build() -> dict:
 
     now = pd.Timestamp.today()
     year_frac = now.year + (now.dayofyear - 1) / 365.25
+    from macro import weo
     from macro.fiscal_projections import growth_baseline
     from macro.fiscal_rules import GAP_CLOSURE, SEMI_ELASTICITY
-    growth_base = {}
+    # Two growth objects per market, doing different jobs. The GRID OPENS on the WEO
+    # macro baseline (growth and inflation) -- one vintage, one methodology, all four
+    # markets: the house starting point. The RULE still differences against the
+    # DEFICIT source's own growth baseline (growth_base: CBO / OBR / AMECO+WEO /
+    # CAO), the assumptions the official deficit was conditioned on -- so the
+    # untouched sheet shows the official projection RE-ALIGNED to WEO growth via the
+    # sensitivities, and typing the source's own numbers recovers the official path.
+    growth_base, weo_default = {}, {}
+    now_year = pd.Timestamp.today().year
     for c in MARKETS:
-        try:        # keyed by CALENDAR YEAR; the page maps years to horizons itself.
-            # The DEFICIT source's own growth projection (CBO / OBR / AMECO+WEO /
-            # CAO) -- the assumptions the official deficit was conditioned on.
+        try:        # keyed by CALENDAR YEAR; the page maps years to horizons itself
             growth_base[c] = growth_baseline(c)
+        except Exception:                                           # noqa: BLE001
+            pass
+        try:
+            weo_default[c] = {
+                "growth": {y: round(v, 2) for y, v in weo.growth(c).items()
+                           if y >= now_year},
+                "inflation": {y: round(v, 2) for y, v in weo.inflation(c).items()
+                              if y >= now_year}}
         except Exception:                                           # noqa: BLE001
             pass
     payload = {"halflife": HL, "tenor": TENOR, "lam": 0.5 ** (1.0 / HL),
@@ -220,10 +235,13 @@ def build() -> dict:
                      "asof": str(hist.index[-1].date())},
             "deficit_proj": {str(k): round(float(x), 2)
                              for k, x in sorted(deficits.get(c, {}).items())},
-            # WEO baseline real growth, {years ahead: %} -- the reference the
-            # endogenous-deficit rule differences the growth row against
-            "growth_base": {str(k): round(float(v), 3)
+            # the deficit source's own growth baseline, {calendar year: %} -- the
+            # reference the endogenous-deficit rule differences the growth row against
+            "growth_base": {str(k): round(float(v), 2)
                             for k, v in sorted(growth_base.get(c, {}).items())},
+            # the WEO macro baseline the grid OPENS on, {calendar year: %}
+            "weo": {kind: {str(y): v for y, v in sorted(d.items())}
+                    for kind, d in weo_default.get(c, {}).items()},
             # the market's own expected-rate curve, and the year-by-year policy path
             # implied by it -- the sheet's genuinely neutral opening
             "expected_curve": {str(t): round(float(v), 4)

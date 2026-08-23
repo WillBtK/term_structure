@@ -65,6 +65,10 @@ def test_the_committed_payload_carries_everything_the_page_reads():
         # keyed by calendar year, reaching at least four years out
         gb = {int(k): v for k, v in m["growth_base"].items()}
         assert len(gb) >= 4 and max(gb) >= p["year0"] + 4
+        # the WEO macro baseline the grid opens on, distinct from the rule's reference
+        for kind in ("growth", "inflation"):
+            w = {int(k): v for k, v in m["weo"][kind].items()}
+            assert len(w) >= 4 and max(w) >= p["year0"] + 4
         assert all(-3.0 < v < 6.0 for v in gb.values())
         assert set(p["fiscal_rule"]["eps"]) == set(MARKETS)
         assert 0.0 < p["fiscal_rule"]["closure"] < 1.0
