@@ -39,13 +39,17 @@ path.
 
 **The fiscal path is derived unless you state it.** A scenario with a growth view and
 no fiscal column gets its deficit endogenously (`macro.fiscal_rules`): growth entered
-below the WEO baseline widens the official path via each market's own institution's
+below the baseline widens the official path via each market's own institution's
 rule of thumb — CBO's rules-of-thumb workbook for the US (ε = 0.36), the OBR's
 cyclical-adjustment coefficient for the UK (0.70), the European Commission's
 semi-elasticity for Germany (0.504, recovered exactly from AMECO's own
 decomposition), the OECD's for Japan (0.45) — applied to an output gap cumulated
 from the growth deviations and closing at 30%/yr, so a one-off miss washes out and
-only a sustained view leaves a mark. The rule assumes growth deviations are
+only a sustained view leaves a mark. The baseline the deviation is measured against
+is the **deficit source's own growth projection** (CBO / OBR / AMECO+WEO / Cabinet
+Office, `macro.fiscal_projections.growth_baseline`) — the assumptions the official
+deficit was conditioned on — so the untouched grid stays exactly on the official
+numbers and a view that merely agrees with the deficit institution moves nothing. The rule assumes growth deviations are
 economy-driven; deficit-financed stimulus is a fiscal view and is entered in the
 balance row (or `fiscal_balance` column) directly, which switches the rule off — the
 override is the whole fiscal path, never rule-plus-override. Inflation is deliberately excluded (its budget
@@ -120,7 +124,8 @@ grid whose top row is the **derived ten-year yield** (hover a cell for the term-
 split), a hold-flat-from selector, and four half-width charts: policy rate against the
 market's implied path, inflation against the market breakeven, term premium, and the
 fiscal balance (deficit negative). All history is monthly with hover readouts. The
-growth row opens on the WEO baseline and the balance row is **derived** from it
+growth row opens on the deficit source's own growth baseline and the balance row is
+**derived** from it
 (italic, ⚙) until you type over it (✎ — click the row label to restore the rule);
 while derived, the exported CSV omits the fiscal column so the engine re-derives the
 identical full path.

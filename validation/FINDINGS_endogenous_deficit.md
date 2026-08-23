@@ -10,7 +10,7 @@ and no fiscal view,
 
 ```
 deficit(t) = official(t) − ε · gap(t)
-gap(t)     = 0.7 · gap(t−1) + [your growth(t) − WEO baseline growth(t)]
+gap(t)     = 0.7 · gap(t−1) + [your growth(t) − source baseline growth(t)]
 ```
 
 An explicit deficit path switches the rule off entirely — a stated fiscal view is the
@@ -90,10 +90,34 @@ which approximates the CAO's ≈0 without a second parameter.
   *fiscal* view: it is entered in the deficit row directly, which turns the rule off.
   The sheet's footnote says exactly this.
 
-## The same-vintage baseline, and the WEO route
+## The growth baseline is the deficit source's own
 
-Growth deviations are measured against the **IMF WEO** baseline — the one source
-with growth, inflation and the balance together for all four markets to t+5. The
+Growth deviations are measured against **the growth path the deficit projection was
+conditioned on** — each institution's own forecast, fetched from the same source
+family as the balance:
+
+| | growth baseline | route |
+|---|---|---|
+| US | CBO economic projections, Feb 2026 (`real_gdp_pct_change`) | us-cbo/cbo-data GitHub mirror, same vintage pin as the deficit |
+| UK | OBR long-term economic determinants, March 2026 EFO | obr.uk/data, real GDP growth by fiscal year to 2075 |
+| DE | AMECO (growth from the `OVGD` level series) + WEO beyond | same splice discipline as the deficit path |
+| JP | Cabinet Office baseline case, same workbook as the balance | 計数表（長期）, to FY2040 |
+
+Measuring against any *other* source's growth silently converts that source's
+disagreement with the deficit institution into "no view." The differences are not
+small: the CAO's long-run growth is 0.4% against the WEO's 0.6% — under the
+WEO-baseline design, *agreeing with the Cabinet Office* registered as ~0.2pp/yr of
+growth pessimism, a spurious ~0.3pp of deficit at the steady-state gap; Germany's
+AMECO near years run 0.2–0.3pp below WEO's. Equivalently: the sheet's untouched
+grid must show the official deficit, and that is only consistent if the growth row
+opens on the numbers the deficit was built on. The baseline is rounded to 2dp at
+the source so the displayed grid default IS the baseline exactly.
+
+## WEO's remaining role
+
+WEO (`macro.weo`) extends Germany (deficit and growth) beyond AMECO's two-year
+horizon and is the fallback when a committed baseline is missing. It was the one
+source with growth, inflation and the balance together for all four markets. The
 working route is the SDMX 2.1 API on `api.imf.org` (dataflow `IMF.RES,WEO`, key
 `COUNTRY.INDICATOR.A`, indicators `NGDP_RPCH` / `PCPIPCH` / `GGXCNL_NGDP`); the
 Datamapper front door on `www.imf.org` sits behind Akamai bot protection and is not

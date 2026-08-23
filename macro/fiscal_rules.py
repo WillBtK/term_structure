@@ -36,8 +36,13 @@ multilateral number:
               deviation that closes is cyclical and prices at 0.45; a permanent
               trend view decays out of the gap rather than compounding forever.
 
-Growth deviations are measured against the IMF WEO baseline (``macro.weo``) -- one
-vintage, one methodology, all four markets.
+Growth deviations are measured against the DEFICIT SOURCE's own growth baseline
+(``macro.fiscal_projections.growth_baseline``: CBO, OBR, AMECO extended with WEO,
+Cabinet Office) -- the growth path each official deficit projection was conditioned
+on. Measuring against any other source's growth silently converts that source's
+disagreement with the deficit institution into "no view" (the CAO's 0.4% long-run
+growth vs the WEO's 0.6% is ~0.3pp of spurious gap under the OECD elasticity). WEO
+(``macro.weo``) is the fallback when no committed baseline exists.
 
 What the rule deliberately does NOT do:
 
@@ -94,21 +99,24 @@ def adjusted_deficit(country: str, growth: dict, growth_baseline: dict,
 
 
 def growth_defaults(markets=("US", "UK", "DE", "JP")) -> dict:
-    """Each market's WEO growth baseline, keyed exactly like scenario paths after
-    ``load_scenario`` conversion: calendar year y sits at horizon ``(y+1) - today``.
-    Keying both sides the same way is what keeps the deviation aligned year by year
-    -- an integer-keyed baseline against fractional-keyed scenarios compared each
-    year's entry against the NEXT year's baseline."""
+    """Each market's growth baseline -- the DEFICIT source's own growth projection
+    (``macro.fiscal_projections.growth_baseline``: CBO, OBR, AMECO+WEO, Cabinet
+    Office), so the gap is measured against the assumptions the official deficit was
+    conditioned on. Keyed exactly like scenario paths after ``load_scenario``
+    conversion: calendar year y sits at horizon ``(y+1) - today``. Keying both sides
+    the same way is what keeps the deviation aligned year by year -- an integer-keyed
+    baseline against fractional-keyed scenarios compared each year's entry against
+    the NEXT year's baseline."""
     import pandas as pd
 
-    from macro import weo
+    from macro.fiscal_projections import growth_baseline
     now = pd.Timestamp.today()
     frac = now.year + (now.dayofyear - 1) / 365.25
     out = {}
     for c in markets:
         try:
             out[c] = {round((y + 1) - frac, 3): v
-                      for y, v in weo.growth(c).items() if y >= now.year}
+                      for y, v in growth_baseline(c).items()}
         except Exception:                                           # noqa: BLE001
             pass
     return out

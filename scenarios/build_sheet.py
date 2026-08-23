@@ -161,13 +161,14 @@ def build() -> dict:
 
     now = pd.Timestamp.today()
     year_frac = now.year + (now.dayofyear - 1) / 365.25
-    from macro import weo
+    from macro.fiscal_projections import growth_baseline
     from macro.fiscal_rules import GAP_CLOSURE, SEMI_ELASTICITY
     growth_base = {}
     for c in MARKETS:
-        try:        # keyed by CALENDAR YEAR; the page maps years to horizons itself
-            growth_base[c] = {y: v for y, v in weo.growth(c).items()
-                              if y >= pd.Timestamp.today().year}
+        try:        # keyed by CALENDAR YEAR; the page maps years to horizons itself.
+            # The DEFICIT source's own growth projection (CBO / OBR / AMECO+WEO /
+            # CAO) -- the assumptions the official deficit was conditioned on.
+            growth_base[c] = growth_baseline(c)
         except Exception:                                           # noqa: BLE001
             pass
     payload = {"halflife": HL, "tenor": TENOR, "lam": 0.5 ** (1.0 / HL),

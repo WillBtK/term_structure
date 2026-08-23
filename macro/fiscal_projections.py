@@ -148,6 +148,144 @@ def fetch_jp() -> pd.Series:
 FETCHERS = {"DE": fetch_de, "UK": fetch_uk, "JP": fetch_jp}
 
 
+# ------------------------------------------------- the sources' own growth baselines
+# The endogenous-deficit rule differences a stated growth view against a baseline,
+# and the honest baseline is the growth path the DEFICIT projection was conditioned
+# on -- each institution's own forecast, not a third party's. Measuring against a
+# different source's growth silently converts that source's disagreement with the
+# deficit institution into "no view": the Cabinet Office runs 0.4% long-run growth
+# against the WEO's 0.6%, so agreeing with the CAO would have registered as growth
+# pessimism. WEO (macro.weo) remains the fallback, and extends Germany beyond
+# AMECO's horizon exactly as the deficit path is extended.
+
+GROWTH_FILES = {c: DATA / f"growth_{c.lower()}.csv" for c in ("US", "UK", "DE", "JP")}
+OBR_LTD_RE = r'href="(https://obr\.uk/download/long-term-economic-determinants[^"]+)"'
+
+
+def fetch_growth_us() -> pd.Series:
+    """CBO economic projections (calendar year), the vintage the deficit is on."""
+    from macro.fetch_cbo import DATA as CBO_DATA, GDP_VINTAGE, _csv
+    d = _csv(CBO_DATA + f"economic/economic_projections/calendar_{GDP_VINTAGE}.csv")
+    d = d[d["variable"] == "real_gdp_pct_change"]
+    return pd.Series({int(r["date"]): float(r["value"]) for _, r in d.iterrows()}
+                     ).sort_index()
+
+
+def fetch_growth_uk() -> pd.Series:
+    """OBR long-term economic determinants: real GDP growth by fiscal year, keyed by
+    the calendar year the fiscal year starts in (matching fetch_uk's convention)."""
+    import re
+    page = _get(OBR_DATA_PAGE).decode("utf-8", "replace")
+    m = re.search(OBR_LTD_RE, page)
+    if not m:
+        raise RuntimeError("no long-term-economic-determinants link on obr.uk/data")
+    blob = _get(m.group(1), referer=OBR_DATA_PAGE)
+    d = pd.read_excel(io.BytesIO(blob), sheet_name=0, header=None)
+    def _lab(i: int) -> str:      # labels drift between columns across releases
+        return " ".join(str(x) for x in d.iloc[i, :3] if pd.notna(x))
+    yr_row = next(i for i in range(len(d))
+                  if d.iloc[i].astype(str).str.match(r"^\d{4}-\d{2}$").sum() > 5)
+    g_row = next(i for i in range(len(d)) if _lab(i).strip().startswith("Real GDP growth"))
+    out = {}
+    for y, v in zip(d.iloc[yr_row], d.iloc[g_row]):
+        my = pd.to_numeric(str(y).split("-")[0], errors="coerce")
+        v = pd.to_numeric(v, errors="coerce")
+        if pd.notna(my) and pd.notna(v):
+            out[int(my)] = float(v)
+    if len(out) < 5:
+        raise RuntimeError("OBR determinants: real GDP growth row not parsed")
+    return pd.Series(out).sort_index()
+
+
+def fetch_growth_de() -> pd.Series:
+    """AMECO real GDP growth (from the OVGD level series), extended with the WEO
+    shape beyond the Commission's horizon -- the same splice as the deficit path."""
+    import csv
+    blob = _get(AMECO_ZIP)
+    z = zipfile.ZipFile(io.BytesIO(blob))
+    levels = None
+    for name in z.namelist():
+        for line in io.TextIOWrapper(z.open(name), encoding="utf-8", errors="replace"):
+            if line.startswith("DEU.1.1.0.0.OVGD;"):
+                row = next(csv.reader([line], delimiter=";"))
+                hdr = next(csv.reader([_header(z, name)], delimiter=";"))
+                levels = {}
+                for h, v in zip(hdr[5:], row[5:]):
+                    try:
+                        levels[int(h)] = float(v)
+                    except (TypeError, ValueError):
+                        continue
+                break
+        if levels:
+            break
+    if not levels:
+        raise RuntimeError("DEU.1.1.0.0.OVGD not found in AMECO bulk file")
+    g = {y: (levels[y] / levels[y - 1] - 1) * 100.0
+         for y in sorted(levels) if y - 1 in levels}
+    try:
+        from macro import weo
+        for y, v in weo.growth("DE").items():
+            if y > max(g):
+                g[y] = v
+    except Exception as exc:                                        # noqa: BLE001
+        logger.warning("DE growth WEO extension unavailable (%s)", exc)
+    return pd.Series(g).sort_index()
+
+
+def fetch_growth_jp() -> pd.Series:
+    """Cabinet Office baseline real GDP growth, from the same workbook (and the same
+    'current projection' case) as the fiscal balance."""
+    blob = _get(CAO_XLSX)
+    d = pd.read_excel(io.BytesIO(blob), sheet_name="計数表 (長期)", header=None)
+    def _lab(i: int) -> str:
+        return "".join(str(x) for x in d.iloc[i, :4] if pd.notna(x))
+    base_row = next(i for i in range(len(d)) if "現状投影" in _lab(i))
+    yr_row = next(i for i in range(base_row, len(d)) if "年" in _lab(i) and "度" in _lab(i))
+    g_row = next(i for i in range(base_row, len(d)) if "実質GDP成長率" in _lab(i))
+    years = pd.to_numeric(d.iloc[yr_row], errors="coerce")
+    vals = pd.to_numeric(d.iloc[g_row], errors="coerce")
+    s = pd.Series(vals.values, index=years.values).dropna()
+    s = s[[isinstance(ix, float) and 1990 < ix < 2100 for ix in s.index]]
+    s.index = s.index.astype(int)
+    if len(s) < 5:
+        raise RuntimeError("CAO baseline real-growth row not parsed")
+    return s.sort_index()
+
+
+GROWTH_FETCHERS = {"US": fetch_growth_us, "UK": fetch_growth_uk,
+                   "DE": fetch_growth_de, "JP": fetch_growth_jp}
+
+
+def refresh_growth(markets=("US", "UK", "DE", "JP")) -> None:
+    for c in markets:
+        try:
+            s = GROWTH_FETCHERS[c]()
+            GROWTH_FILES[c].parent.mkdir(parents=True, exist_ok=True)
+            s.to_frame("real_growth_pct").rename_axis("year").to_csv(GROWTH_FILES[c])
+            logger.info("%s growth: %d years %d..%d", c, len(s),
+                        s.index.min(), s.index.max())
+        except Exception as exc:                                    # noqa: BLE001
+            logger.warning("%s growth refresh failed (%s) -- keeping committed file",
+                           c, exc)
+
+
+def growth_baseline(country: str) -> dict:
+    """{calendar year: real growth, %} -- the deficit source's own projection, current
+    year onward. Falls back to WEO when no committed file exists. Rounded to 2dp so
+    the sheet's grid default (which displays 2dp) IS the baseline exactly -- an
+    untouched growth row must produce a deviation of precisely zero."""
+    f = GROWTH_FILES[country]
+    now = pd.Timestamp.today().year
+    if f.is_file():
+        d = pd.read_csv(f)
+        out = {int(r["year"]): round(float(r["real_growth_pct"]), 2)
+               for _, r in d.iterrows() if int(r["year"]) >= now}
+        if out:
+            return out
+    from macro import weo
+    return {y: round(v, 2) for y, v in weo.growth(country).items() if y >= now}
+
+
 # ------------------------------------------------------------------------- interface
 
 def refresh(markets=("DE", "UK", "JP")) -> None:
@@ -216,6 +354,7 @@ def five_year_ahead(country: str) -> float:
 def _main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     refresh()
+    refresh_growth()
     for c in ("US", "UK", "DE", "JP"):
         try:
             p = path(c)
