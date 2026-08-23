@@ -241,6 +241,8 @@ def maybe_upload_atlas() -> str | None:
 SHEET_HTML = ROOT / "scenarios" / "sheet" / "index.html"
 SHEET_BUCKET = os.environ.get("SUPABASE_SHEET_BUCKET") or "sheet"
 SHEET_OBJECT = "index.html"
+DECK_HTML = ROOT / "presentation" / "index.html"
+DECK_OBJECT = "deck.html"          # served by the worker at /deck
 
 
 def _fresh_sheet_html() -> str:
@@ -281,16 +283,23 @@ def maybe_upload_sheet() -> bool:
     if not SHEET_HTML.exists():
         logger.warning("sheet %s missing; skipping publish.", SHEET_HTML)
         return False
+    ok = _upload_page(url, key, SHEET_OBJECT, _fresh_sheet_html(), "sheet")
+    if DECK_HTML.exists():
+        _upload_page(url, key, DECK_OBJECT,
+                     DECK_HTML.read_text(encoding="utf-8"), "deck")
+    return ok
+
+
+def _upload_page(url: str, key: str, object_name: str, raw: str, label: str) -> bool:
     import urllib.request
-    raw = _fresh_sheet_html()
-    marker = (f"<!-- sheet build {os.environ.get('GITHUB_SHA', 'local')[:8]}"
+    marker = (f"<!-- {label} build {os.environ.get('GITHUB_SHA', 'local')[:8]}"
               f" run {os.environ.get('GITHUB_RUN_ID', '0')} -->\n")
     doc = ('<!doctype html>\n<html lang="en">\n<meta charset="utf-8">\n'
            '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
            + raw + '\n</html>\n' + marker)
     data = doc.encode("utf-8")
     base = url.rstrip("/")
-    endpoint = f"{base}/storage/v1/object/{SHEET_BUCKET}/{SHEET_OBJECT}"
+    endpoint = f"{base}/storage/v1/object/{SHEET_BUCKET}/{object_name}"
     auth = {"Authorization": f"Bearer {key}", "apikey": key}
     # Same delete-then-create dance as the Atlas: Supabase keeps an object's stored
     # mimetype across upsert-updates, and serving reads metadata.mimetype.
@@ -298,24 +307,23 @@ def maybe_upload_sheet() -> bool:
         with urllib.request.urlopen(
                 urllib.request.Request(endpoint, method="DELETE", headers=auth),
                 timeout=30) as r:
-            logger.info("pre-delete of %s -> HTTP %s", SHEET_OBJECT, r.status)
+            logger.info("pre-delete of %s -> HTTP %s", object_name, r.status)
     except Exception as exc:                                        # noqa: BLE001
         logger.info("pre-delete of %s skipped (%s) — will create fresh",
-                    SHEET_OBJECT, exc)
+                    object_name, exc)
     try:
         from supabase import create_client
         client = create_client(url, key)
         client.storage.from_(SHEET_BUCKET).upload(
-            path=SHEET_OBJECT, file=data,
+            path=object_name, file=data,
             file_options={"content-type": "text/html", "cache-control": "300",
                           "upsert": "true"})
     except Exception as exc:                                        # noqa: BLE001
-        logger.error("sheet upload to bucket %r failed (does the PRIVATE bucket "
-                     "exist?): %s", SHEET_BUCKET, exc)
+        logger.error("%s upload to bucket %r failed (does the PRIVATE bucket "
+                     "exist?): %s", label, SHEET_BUCKET, exc)
         return False
-    logger.info("published sheet (%d KB) -> private bucket %s/%s (serve it through "
-                "the Cloudflare Worker, web/worker.js)",
-                len(data) // 1024, SHEET_BUCKET, SHEET_OBJECT)
+    logger.info("published %s (%d KB) -> private bucket %s/%s",
+                label, len(data) // 1024, SHEET_BUCKET, object_name)
     return True
 
 

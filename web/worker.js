@@ -43,7 +43,11 @@ async function serve(request, env) {
         { status: 500 });
 
     const bucket = env.SHEET_BUCKET || "sheet";
-    const object = env.SHEET_OBJECT || "index.html";
+    // /deck serves the presentation from the same private bucket; anything else
+    // serves the scenario sheet
+    const path = new URL(request.url).pathname;
+    const object = path.startsWith("/deck") ? "deck.html"
+                 : (env.SHEET_OBJECT || "index.html");
     // tolerate a URL pasted without the scheme
     let base = env.SUPABASE_URL.trim().replace(/\/+$/, "");
     if (!/^https?:\/\//.test(base)) base = "https://" + base;
