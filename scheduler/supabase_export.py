@@ -238,12 +238,94 @@ def maybe_upload_atlas() -> str | None:
     return public_url
 
 
+SHEET_HTML = ROOT / "scenarios" / "sheet" / "index.html"
+SHEET_BUCKET = os.environ.get("SUPABASE_SHEET_BUCKET") or "sheet"
+SHEET_OBJECT = "index.html"
+
+
+def _fresh_sheet_html() -> str:
+    """The scenario sheet with TODAY'S payload spliced in. Falls back to the
+    committed page (whose inlined payload may be days old) if the rebuild fails --
+    a stale sheet beats no sheet."""
+    import re
+    raw = SHEET_HTML.read_text(encoding="utf-8")
+    anchor = re.compile(r"const D = \{.*?\};\n", flags=re.S)
+    if not anchor.search(raw):
+        logger.warning("sheet payload anchor not found; uploading committed page")
+        return raw
+    try:
+        from scenarios.build_sheet import build
+        payload = json.dumps(build())
+        # lambda replacement: the payload may contain backslash escapes that re.sub
+        # would otherwise interpret. An unchanged result just means the committed
+        # page already carries today's payload.
+        spliced = anchor.sub(lambda _: "const D = " + payload + ";\n", raw, count=1)
+        logger.info("sheet payload respliced (%d KB%s)", len(payload) // 1024,
+                    ", unchanged from committed" if spliced == raw else "")
+        return spliced
+    except Exception as exc:                                        # noqa: BLE001
+        logger.warning("sheet payload rebuild failed (%s); uploading committed page",
+                       exc)
+    return raw
+
+
+def maybe_upload_sheet() -> bool:
+    """Publish the scenario sheet to a PRIVATE Supabase Storage bucket (default
+    ``sheet``). Unlike the Atlas bucket this one must NOT be public: the page is
+    served through a Cloudflare Worker behind Cloudflare Access (see web/README.md),
+    and a private bucket makes Access the only door. Inert without creds."""
+    url, key = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY")
+    if not (url and key):
+        logger.info("SUPABASE_URL/KEY unset — sheet not published to Storage.")
+        return False
+    if not SHEET_HTML.exists():
+        logger.warning("sheet %s missing; skipping publish.", SHEET_HTML)
+        return False
+    import urllib.request
+    raw = _fresh_sheet_html()
+    marker = (f"<!-- sheet build {os.environ.get('GITHUB_SHA', 'local')[:8]}"
+              f" run {os.environ.get('GITHUB_RUN_ID', '0')} -->\n")
+    doc = ('<!doctype html>\n<html lang="en">\n<meta charset="utf-8">\n'
+           '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+           + raw + '\n</html>\n' + marker)
+    data = doc.encode("utf-8")
+    base = url.rstrip("/")
+    endpoint = f"{base}/storage/v1/object/{SHEET_BUCKET}/{SHEET_OBJECT}"
+    auth = {"Authorization": f"Bearer {key}", "apikey": key}
+    # Same delete-then-create dance as the Atlas: Supabase keeps an object's stored
+    # mimetype across upsert-updates, and serving reads metadata.mimetype.
+    try:
+        with urllib.request.urlopen(
+                urllib.request.Request(endpoint, method="DELETE", headers=auth),
+                timeout=30) as r:
+            logger.info("pre-delete of %s -> HTTP %s", SHEET_OBJECT, r.status)
+    except Exception as exc:                                        # noqa: BLE001
+        logger.info("pre-delete of %s skipped (%s) — will create fresh",
+                    SHEET_OBJECT, exc)
+    try:
+        from supabase import create_client
+        client = create_client(url, key)
+        client.storage.from_(SHEET_BUCKET).upload(
+            path=SHEET_OBJECT, file=data,
+            file_options={"content-type": "text/html", "cache-control": "300",
+                          "upsert": "true"})
+    except Exception as exc:                                        # noqa: BLE001
+        logger.error("sheet upload to bucket %r failed (does the PRIVATE bucket "
+                     "exist?): %s", SHEET_BUCKET, exc)
+        return False
+    logger.info("published sheet (%d KB) -> private bucket %s/%s (serve it through "
+                "the Cloudflare Worker, web/worker.js)",
+                len(data) // 1024, SHEET_BUCKET, SHEET_OBJECT)
+    return True
+
+
 def run() -> dict:
     exports = build_exports()
     uploaded = maybe_upload(exports)
     atlas_url = maybe_upload_atlas()
+    sheet_ok = maybe_upload_sheet()
     return {"tables": {t: {"path": str(p), "rows": n} for t, (p, n) in exports.items()},
-            "uploaded": uploaded, "atlas_url": atlas_url}
+            "uploaded": uploaded, "atlas_url": atlas_url, "sheet_uploaded": sheet_ok}
 
 
 def _main() -> None:

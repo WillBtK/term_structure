@@ -1,0 +1,14 @@
+# Cloudflare Worker serving the scenario sheet from private Supabase Storage.
+# Deploy:   cd web && npx wrangler deploy
+# Secrets:  npx wrangler secret put SUPABASE_URL
+#           npx wrangler secret put SUPABASE_KEY
+name = "term-premium-sheet"
+main = "worker.js"
+compatibility_date = "2026-08-01"
+
+[vars]
+SHEET_BUCKET = "sheet"
+SHEET_OBJECT = "index.html"
+
+# Attach your own hostname once the zone is on Cloudflare, e.g.:
+# routes = [{ pattern = "sheet.example.com", custom_domain = true }]

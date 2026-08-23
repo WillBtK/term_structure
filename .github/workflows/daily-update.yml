@@ -68,6 +68,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           SUPABASE_ATLAS_BUCKET: ${{ secrets.SUPABASE_ATLAS_BUCKET }}
+          SUPABASE_SHEET_BUCKET: ${{ secrets.SUPABASE_SHEET_BUCKET }}
         run: python -m scheduler.supabase_export
       - name: Commit the accumulating Bund per-ISIN store (if it grew)
         # The Bundesbank index publishes only the most recent ~5 monthly workbooks and

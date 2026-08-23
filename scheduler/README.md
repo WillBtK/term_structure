@@ -77,3 +77,11 @@ python -m scheduler.supabase_export         # stage (+ upload if creds set)
 - FRED egress through the environment proxy is intermittent (HTTP/2 stream resets);
   the Kim-Wright benchmark cache fills in on a later daily run and its Atlas trace
   appears automatically once present.
+
+## The scenario sheet behind Cloudflare Access
+
+`supabase_export.maybe_upload_sheet()` republishes `scenarios/sheet/index.html`
+each run — with a freshly rebuilt payload — to a PRIVATE Storage bucket
+(`SUPABASE_SHEET_BUCKET`, default `sheet`). A Cloudflare Worker serves it on a
+first-party hostname behind Cloudflare Access; setup runbook in `web/README.md`.
+Inert without `SUPABASE_URL`/`SUPABASE_KEY`, like everything else here.
