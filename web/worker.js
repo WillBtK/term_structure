@@ -16,6 +16,21 @@
  */
 export default {
   async fetch(request, env) {
+    // Nothing in here is allowed to crash into Cloudflare's opaque "Error 1101"
+    // page: every failure comes back as readable text naming the fix.
+    try {
+      return await serve(request, env);
+    } catch (err) {
+      return new Response(
+        "Worker error: " + (err && err.message ? err.message : String(err)) +
+        "\nCheck the SUPABASE_URL secret is the full URL including https:// " +
+        "(e.g. https://abcdefgh.supabase.co), then press Deploy.",
+        { status: 500 });
+    }
+  },
+};
+
+async function serve(request, env) {
     if (request.method !== "GET" && request.method !== "HEAD")
       return new Response("method not allowed", { status: 405 });
 
@@ -29,7 +44,10 @@ export default {
 
     const bucket = env.SHEET_BUCKET || "sheet";
     const object = env.SHEET_OBJECT || "index.html";
-    const origin = `${env.SUPABASE_URL.replace(/\/$/, "")}/storage/v1/object/${bucket}/${object}`;
+    // tolerate a URL pasted without the scheme
+    let base = env.SUPABASE_URL.trim().replace(/\/+$/, "");
+    if (!/^https?:\/\//.test(base)) base = "https://" + base;
+    const origin = `${base}/storage/v1/object/${bucket}/${object}`;
 
     const upstream = await fetch(origin, {
       headers: { Authorization: `Bearer ${env.SUPABASE_KEY}`, apikey: env.SUPABASE_KEY },
@@ -67,5 +85,4 @@ export default {
         "referrer-policy": "no-referrer",
       },
     });
-  },
-};
+}
