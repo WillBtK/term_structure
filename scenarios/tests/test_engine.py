@@ -448,3 +448,12 @@ def test_without_growth_defaults_behaviour_is_unchanged():
                     deficit_defaults={"US": official}, rho=1.0)["US"]
     for a, b in zip(r_off, r_on_base):
         assert a.tp == pytest.approx(b.tp, abs=1e-12)
+
+
+def test_a_fiscal_balance_column_loads_negated_to_the_internal_convention(tmp_path):
+    from scenarios.engine import load_scenario
+    f = tmp_path / "us.csv"
+    f.write_text("year,policy_rate,inflation,real_growth,fiscal_balance\n"
+                 "1,3.5,2.3,1.8,-5.87\n2,3.2,2.2,1.7,-6.1\n")
+    sc = load_scenario(f)
+    assert sc.deficit == {1.0: 5.87, 2.0: 6.1}

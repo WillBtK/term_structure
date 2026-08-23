@@ -443,7 +443,8 @@ def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dic
 def load_scenario(path: "Path | str") -> Scenario:
     """A scenario CSV: columns ``year, policy_rate, inflation, real_growth`` (percent,
     year 1 = first full year ahead), optional ``price_insensitive`` / ``debt_gdp`` /
-    ``deficit``."""
+    ``fiscal_balance`` (deficit negative, as the sheet displays and exports) or the
+    older deficit-positive ``deficit``."""
     path = Path(path)
     df = pd.read_csv(path)
     missing = set(REQUIRED_COLUMNS) - set(df.columns)
@@ -463,11 +464,16 @@ def load_scenario(path: "Path | str") -> Scenario:
     def col(name):
         return {key(y): float(v) for y, v in df[name].dropna().items()} \
             if name in df else {}
+    # Fiscal comes in on either sign convention: ``fiscal_balance`` (deficit
+    # negative, what the sheet shows and exports) is negated to the internal
+    # deficit-positive convention the coefficient was measured on.
+    deficit = ({k: -v for k, v in col("fiscal_balance").items()}
+               if "fiscal_balance" in df else col("deficit"))
     return Scenario(country=path.stem.upper(),
                     policy_rate=col("policy_rate"), inflation=col("inflation"),
                     real_growth=col("real_growth"),
                     price_insensitive=col("price_insensitive"),
-                    debt_gdp=col("debt_gdp"), deficit=col("deficit"))
+                    debt_gdp=col("debt_gdp"), deficit=deficit)
 
 
 def deficit_defaults(markets=("US", "UK", "DE", "JP")) -> dict:

@@ -149,7 +149,7 @@ footer{border-top:1px solid var(--rule);padding-top:18px;color:var(--muted);font
 </header>
 
 <div class="hero">
-  <div class="herotext"><p class="lede">Enter a macro path per market &mdash; policy rate, headline inflation, deficit,
+  <div class="herotext"><p class="lede">Enter a macro path per market &mdash; policy rate, headline inflation, fiscal balance,
   at each calendar year end &mdash; and read the ten&#8209;year yield and constant&#8209;maturity return
   it implies, in three years and in ten. <strong>Both legs of the yield start from the market</strong>:
   the term premium moves toward the model's fair value, your rate view phases in. The grid opens on
@@ -200,7 +200,7 @@ footer{border-top:1px solid var(--rule);padding-top:18px;color:var(--muted);font
       <div class="chartbox" id="c_tp"><div class="tip"></div></div>
     </div>
     <div class="card">
-      <div class="ctitle">Deficit, % of GDP &mdash; and your path</div>
+      <div class="ctitle">Fiscal balance, % of GDP &mdash; and your path (deficit negative)</div>
       <div class="chartbox" id="c_def"><div class="tip"></div></div>
     </div>
   </div>
@@ -249,7 +249,7 @@ const hz = Y => (Y + 1) - D.year_frac;          // years from today to that year
 let FLAT = {};                                   // per market: hold flat from this year
 const BASE_ROWS = [["policy_rate","Policy rate"],["inflation","Inflation (headline)"],
               ["real_growth","Real growth"]];
-const rowsFor = c => BASE_ROWS.concat([["deficit","Deficit (% GDP)"]]);
+const rowsFor = c => BASE_ROWS.concat([["deficit","Fiscal balance (% GDP)"]]);
 let market = "US", S = {};
 
 /* ---- The neutral opening: policy flat at the average the CURVE already prices
@@ -278,8 +278,10 @@ function defaults(c){
     const gkeys = Object.keys(gb).map(Number);
     o.real_growth[Y] = +((gb[String(Y)] ??
                           (gkeys.length ? gb[String(Math.max(...gkeys))] : 1.5))).toFixed(2);
-    o.deficit[Y] = +((m.deficit_proj || {})[String(Y - Y0)]
-                     ?? m.drivers.fiscal ?? 0).toFixed(2);
+    // shown as the fiscal BALANCE (deficit negative); the engine's internal
+    // convention stays deficit-positive -- the basis the coefficient was measured on
+    o.deficit[Y] = +(-((m.deficit_proj || {})[String(Y - Y0)]
+                       ?? m.drivers.fiscal ?? 0)).toFixed(2);
   });
   return o;
 }
@@ -328,7 +330,7 @@ function ruleDeficit(c){
 function syncDeficit(c){
   if(DEFEDIT[c]) return;
   const d = ruleDeficit(c);
-  YEARS.forEach(Y => S[c].deficit[Y] = +d[Y].toFixed(2));
+  YEARS.forEach(Y => S[c].deficit[Y] = +(-d[Y]).toFixed(2));
 }
 /* Paths reach the engine keyed by HORIZON, and stop at the hold-flat year: everything
    beyond the last entry is held flat anyway, so "hold flat from 2029" is simply a path
@@ -344,8 +346,11 @@ const scenarioFor = c => ({policy_rate: asPath(c,"policy_rate"),
                            // rule-derived: the driver sees the FULL derived path,
                            // exactly as the engine's rule produces it; manual: the
                            // stated rows, held flat like every other path
+                           // the grid shows the BALANCE; the engine's paths stay
+                           // deficit-positive, so manual rows negate on the way in
                            deficit: (!DEFEDIT[c] && ruleDeficitFull(c))
-                                    || asPath(c,"deficit")});
+                                    || Object.fromEntries(Object.entries(
+                                         asPath(c,"deficit")).map(([k,v]) => [k,-v]))});
 MK.forEach(c => { S[c] = defaults(c); FLAT[c] = YEARS[YEARS.length-1];
                   DEFEDIT[c] = false; syncDeficit(c); });
 
@@ -671,12 +676,15 @@ function renderCharts(){
       {name:"History", pts:monthsOf(mh.tp), color:HIST},
       {name:"Your path", pts:rows.map(r => [yrOf(r.h), r.tp]), color:SCEN, dash:"4 3", w:2, dots:true}]});
 
+  // everything on this chart is the fiscal BALANCE (deficit negative); the payload's
+  // series stay deficit-positive (the coefficient's basis) and are negated here
   const official = Object.entries(M.deficit_proj || {})
-    .map(([k,v]) => [Y0 + (+k) + 1 - (D.year_frac - Y0), v])
+    .map(([k,v]) => [Y0 + (+k) + 1 - (D.year_frac - Y0), -v])
     .sort((a,b) => a[0] - b[0]);
-  chart(document.getElementById("c_def"), {label:"Deficit", split:now, x0:1995,
+  chart(document.getElementById("c_def"), {label:"Fiscal balance", split:now, x0:1995,
     series:[
-      {name:market === "US" ? "CBO 5y-ahead (vintages)" : "Realised", pts:M.deficit_hist||[], color:HIST},
+      {name:market === "US" ? "CBO 5y-ahead (vintages)" : "Realised",
+       pts:(M.deficit_hist||[]).map(p => [p[0], -p[1]]), color:HIST},
       {name:"Official projection", pts:official, color:MKT, dash:"2 3", w:1.5},
       {name:DEFEDIT[market] ? "Your path" : "Your path (derived)",
        pts:entry("deficit"), color:SCEN, dash:"4 3", w:2, dots:true}]});
@@ -738,17 +746,18 @@ function render(){
                     JP:"the OECD semi-elasticity (0.45)"};
   const eps = ((D.fiscal_rule||{}).eps||{})[market];
   document.getElementById("note").innerHTML = (market === "US"
-    ? `The deficit row opens on ${DEF_SRC.US}; a ten-year holder prices your long-run deficit
-       at ${bp}bp of premium per point of GDP, measured post-2008 only. `
-    : `The deficit row opens on ${DEF_SRC[market]}; what matters is your deficit RELATIVE to
-       the US path, at the US-measured ${bp}bp per point of GDP — moving both together moves nothing. `)
+    ? `The fiscal balance row opens on ${DEF_SRC.US} (deficit shown negative); a ten-year holder
+       prices your long-run deficit at ${bp}bp of premium per point of GDP, measured post-2008 only. `
+    : `The fiscal balance row opens on ${DEF_SRC[market]} (deficit shown negative); what matters is
+       your balance RELATIVE to the US path, at the US-measured ${bp}bp per point of GDP — moving
+       both together moves nothing. `)
     + (eps !== undefined
-      ? `While untouched, the row is <em>derived</em>: growth entered below the WEO baseline widens
-         it via ${RULE_SRC[market]}, cumulated into an output gap that closes at 30%/yr — so a
-         one-off miss washes out and only a sustained view leaves a mark. This assumes growth
-         deviations are economy-driven; deficit-financed stimulus is a fiscal view — type it into
-         the deficit row directly, which takes the whole row manual (click the row label to restore
-         the rule). Inflation is deliberately excluded: its budget effect flips sign with the rate
+      ? `While untouched, the row is <em>derived</em>: growth entered below the WEO baseline pushes the
+         balance further negative via ${RULE_SRC[market]}, cumulated into an output gap that closes
+         at 30%/yr — so a one-off miss washes out and only a sustained view leaves a mark. This
+         assumes growth deviations are economy-driven; deficit-financed stimulus is a fiscal view —
+         type it into the balance row directly, which takes the whole row manual (click the row
+         label to restore the rule). Inflation is deliberately excluded: its budget effect flips sign with the rate
          response, and it already enters the premium twice. `
       : "")
     + `Debt/GDP no longer enters any market's premium: the projected balance is the priced fiscal
@@ -785,11 +794,12 @@ document.getElementById("reset").onclick = () => {
 /* ---------------------------------------- export ------------------------------- */
 function csv(){
   const sc = S[market];
-  // a rule-derived deficit row is NOT exported: the engine re-derives the identical
+  // a rule-derived balance row is NOT exported: the engine re-derives the identical
   // full path from the growth column, while exporting the grid's six visible years
-  // would freeze a truncation of it. A manual row is a stated fiscal view and exports.
+  // would freeze a truncation of it. A manual row is a stated fiscal view and exports
+  // as fiscal_balance (deficit negative), which load_scenario reads directly.
   const manual = DEFEDIT[market];
-  const head = "year,policy_rate,inflation,real_growth" + (manual ? ",deficit" : "");
+  const head = "year,policy_rate,inflation,real_growth" + (manual ? ",fiscal_balance" : "");
   const body = YEARS.filter(Y => Y <= FLAT[market]).map(Y =>
     [Y, sc.policy_rate[Y], sc.inflation[Y], sc.real_growth[Y]]
       .concat(manual ? [sc.deficit[Y]] : []).join(",")
