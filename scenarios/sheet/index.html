@@ -72,7 +72,7 @@ input[type=number].held{background:transparent;color:var(--muted);
   border-style:dashed;border-color:var(--rule-soft);cursor:not-allowed}
 .card{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:16px 18px}
 .card h2{font-family:Newsreader,Georgia,serif;font-size:19px;font-weight:500;margin:0 0 3px}
-.hint{font-size:12.5px;color:var(--muted);margin:0 0 12px;max-width:52ch}
+.hint{font-size:12.5px;color:var(--muted);margin:0 0 12px}
 table.grid{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
 table.grid th{font:500 10.5px/1.4 "IBM Plex Mono",monospace;letter-spacing:.06em;text-transform:uppercase;
   color:var(--muted);text-align:right;padding:0 6px 7px;font-weight:500}
@@ -86,6 +86,13 @@ input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-
 input[type=number]:hover{border-color:var(--rule)}
 input[type=number]:focus{outline:none;border-color:var(--focus);background:var(--card)}
 .gridnote{font-size:12px;color:var(--muted);margin:11px 0 0;padding-top:10px;border-top:1px solid var(--rule-soft)}
+details.gridnote summary{cursor:pointer;list-style:none;font:500 11px/1.4 "IBM Plex Mono",monospace;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+details.gridnote summary::-webkit-details-marker{display:none}
+details.gridnote summary::before{content:"▸ "}
+details.gridnote[open] summary::before{content:"▾ "}
+details.gridnote summary:hover{color:var(--ink-2)}
+details.gridnote p{margin:8px 0 0}
 .actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}
 button.act{font:500 12.5px/1 "IBM Plex Sans",sans-serif;padding:9px 14px;border-radius:2px;cursor:pointer;
   border:1px solid var(--rule);background:var(--card);color:var(--ink-2);transition:.12s}
@@ -97,12 +104,23 @@ button.act:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .chart h3{font:500 11px/1 "IBM Plex Mono",monospace;letter-spacing:.09em;text-transform:uppercase;
   color:var(--muted);margin:0 0 6px}
 svg{display:block;width:100%;height:auto;overflow:visible}
-.results{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
-.res{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:15px 17px}
-.res .h{font:500 10.5px/1 "IBM Plex Mono",monospace;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
-.res .big{font-family:Newsreader,Georgia,serif;font-size:34px;font-weight:500;line-height:1.1;margin:8px 0 2px;
+.herotext{display:flex;flex-direction:column;gap:18px}
+.results{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:900px){.results{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}}
+.res{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:11px 13px}
+.res summary{cursor:pointer;list-style:none}
+.res summary::-webkit-details-marker{display:none}
+.res summary .more{font:500 10px/1 "IBM Plex Mono",monospace;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--muted);margin-top:8px;display:block}
+.res summary .more::before{content:"▸ "}
+.res[open] summary .more::before{content:"▾ "}
+.res summary:hover .more{color:var(--ink-2)}
+.res .h{font:500 10px/1.3 "IBM Plex Mono",monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.res .big{font-family:Newsreader,Georgia,serif;font-size:26px;font-weight:500;line-height:1.1;margin:6px 0 4px;
   font-variant-numeric:tabular-nums}
-.res .sub{font-size:12.5px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.res .kv{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--ink-2);
+  font-variant-numeric:tabular-nums;margin-top:2px}
+.res .kv b{font-family:"IBM Plex Mono",monospace;font-weight:500;color:var(--ink)}
 .res dl{display:grid;grid-template-columns:auto auto;gap:3px 12px;margin:11px 0 0;padding-top:10px;
   border-top:1px solid var(--rule-soft);font-size:12.5px;font-variant-numeric:tabular-nums}
 .res dt{color:var(--muted)}
@@ -154,7 +172,8 @@ footer{border-top:1px solid var(--rule);padding-top:18px;color:var(--muted);font
   it implies, in three years and in ten. <strong>Both legs of the yield start from the market</strong>:
   the term premium moves toward the model's fair value, your rate view phases in. The grid opens on
   the market's own expected path, so an untouched column is not a view. The dashed purple line is what
-  the curve already prices for the same bond &mdash; the benchmark your path has to beat.</p></div>
+  the curve already prices for the same bond &mdash; the benchmark your path has to beat.</p>
+  <div class="results" id="results"></div></div>
   <div class="card">
     <div class="ctitle">Ten-year yield, % &mdash; history, your path, and what the curve prices</div>
     <div class="chartbox" id="c_ten"><div class="tip"></div></div>
@@ -165,8 +184,6 @@ footer{border-top:1px solid var(--rule);padding-top:18px;color:var(--muted);font
     </div>
   </div>
 </div>
-
-<div class="results" id="results"></div>
 
 <div class="stack">
   <div class="card">
@@ -181,7 +198,8 @@ footer{border-top:1px solid var(--rule);padding-top:18px;color:var(--muted);font
       <button class="act" id="reset" type="button">Reset to the market's path</button>
       <button class="act primary" id="export" type="button">Export scenario CSV</button>
     </div>
-    <p class="gridnote" id="note"></p>
+    <details class="gridnote"><summary>About the fiscal balance row, the defaults and the growth rule</summary>
+      <p id="note"></p></details>
     <p class="status" id="status"></p>
   </div>
 
@@ -581,18 +599,38 @@ function renderTabs(){
   document.querySelectorAll(".tab").forEach(b => b.onclick = () => { market = b.dataset.c; render(); });
 }
 
+function derivedRowCells(){
+  return project(market, YEARS.map(hz)).map(r => ({
+    text: r.y.toFixed(2),
+    tip: `Term premium ${r.tp>=0?"+":""}${r.tp.toFixed(2)}%
+      (of which unexplained ${r.carried>=0?"+":""}${r.carried.toFixed(2)}%)
+
++ expected policy ${r.pbar.toFixed(2)}%  =  ${r.y.toFixed(2)}%`}));
+}
+
+/* Mid-edit refresh: update the derived yield row and every input EXCEPT the one
+   being typed in, without touching the DOM structure -- so focus and caret survive. */
+function refreshCells(except){
+  const dvs = document.querySelectorAll("#inputs tr.derived .dv");
+  derivedRowCells().forEach((c, i) => {
+    if(dvs[i]){ dvs[i].textContent = c.text; dvs[i].dataset.tip = c.tip; }
+  });
+  const sc = S[market], flat = FLAT[market];
+  document.querySelectorAll("#inputs input").forEach(inp => {
+    if(inp === except) return;
+    const k = inp.dataset.k, Y = +inp.dataset.y;
+    inp.value = (Y > flat ? sc[k][flat] : sc[k][Y]).toFixed(2);
+  });
+}
+
 function renderInputs(){
   const sc = S[market], flat = FLAT[market];
-  const yrows = project(market, YEARS.map(hz));          // the derived ten-year yield row
   document.getElementById("yhead").innerHTML = "<th>Year end</th>" +
     YEARS.map(Y => `<th${Y > flat ? ' class="held"' : ''}>${Y}</th>`).join("");
 
-  const derived = `<tr class="derived"><td>Ten-year yield</td>` + YEARS.map((Y,i) => {
-    const r = yrows[i];
-    return `<td><span class="dv" data-tip="Term premium ${r.tp>=0?"+":""}${r.tp.toFixed(2)}%
-      (of which unexplained ${r.carried>=0?"+":""}${r.carried.toFixed(2)}%)
-      &#10;+ expected policy ${r.pbar.toFixed(2)}%  =  ${r.y.toFixed(2)}%">${r.y.toFixed(2)}</span></td>`;
-  }).join("") + "</tr>";
+  const derived = `<tr class="derived"><td>Ten-year yield</td>` + derivedRowCells()
+    .map(c => `<td><span class="dv" data-tip="${c.tip}">${c.text}</span></td>`)
+    .join("") + "</tr>";
 
   document.getElementById("inputs").innerHTML = derived + rowsFor(market).map(([k,label]) => {
     const ruled = k === "deficit" && !DEFEDIT[market];
@@ -611,14 +649,23 @@ function renderInputs(){
     }).join("") + "</tr>";
   }).join("");
 
-  document.querySelectorAll("#inputs input").forEach(inp => inp.oninput = () => {
-    const v = parseFloat(inp.value);
-    if(!Number.isFinite(v)) return;
-    const k = inp.dataset.k;
-    S[market][k][+inp.dataset.y] = v;
-    if(k === "deficit") DEFEDIT[market] = true;          // a stated fiscal view
-    if(k === "real_growth") syncDeficit(market);         // rule follows the growth row
-    renderInputs(); renderCharts(); renderResults();
+  /* Editing must not rebuild the grid: a full re-render on every keystroke replaces
+     the input mid-edit, losing the caret and re-formatting "5.8" back to "5.80"
+     before the next digit lands. So: keystrokes update state and refresh every cell
+     EXCEPT the one being typed in; the full rebuild (which normalises formatting and
+     updates the row label) waits for blur/enter. Mid-edit states like "" or "-" are
+     not finite and simply leave state untouched until the number completes. */
+  document.querySelectorAll("#inputs input").forEach(inp => {
+    inp.oninput = () => {
+      const v = parseFloat(inp.value);
+      if(!Number.isFinite(v)) return;
+      const k = inp.dataset.k;
+      S[market][k][+inp.dataset.y] = v;
+      if(k === "deficit") DEFEDIT[market] = true;        // a stated fiscal view
+      if(k === "real_growth") syncDeficit(market);       // rule follows the growth row
+      refreshCells(inp); renderCharts(); renderResults();
+    };
+    inp.onchange = () => { renderInputs(); };
   });
   const dl = document.getElementById("deflabel");
   if(dl) dl.onclick = () => { DEFEDIT[market] = false; syncDeficit(market);
@@ -690,43 +737,54 @@ function renderCharts(){
        pts:entry("deficit"), color:SCEN, dash:"4 3", w:2, dots:true}]});
 }
 
+/* Compact result cards: the headline number with two raw lines under it, the full
+   decomposition behind a click. Open/closed survives re-renders. */
+let RESOPEN = {today:false, h3:false, h10:false};
 function renderResults(){
   const M = D.markets[market], rows = compute(market);
   const sign = v => v>=0 ? "pos" : "neg";
-  document.getElementById("results").innerHTML = rows.map(r => `
-    <div class="res">
-      <div class="h">In ${r.h} years</div>
-      <div class="big">${r.y.toFixed(2)}%</div>
-      <div class="sub">ten-year yield &middot; ${(r.y-M.y_today>=0?"+":"")}${(r.y-M.y_today).toFixed(2)}pp vs today</div>
+  const fmt = (v,u="%") => `${v>=0?"+":""}${v.toFixed(2)}${u}`;
+  const horizon = r => `
+    <details class="res" data-k="h${r.h}" ${RESOPEN["h"+r.h] ? "open" : ""}>
+      <summary>
+        <div class="h">In ${r.h} years</div>
+        <div class="big">${r.y.toFixed(2)}%</div>
+        <div class="kv"><span>vs today</span><b>${fmt(r.y-M.y_today,"pp")}</b></div>
+        <div class="kv"><span>nominal p.a.</span><b class="${sign(r.nom)}">${fmt(r.nom)}</b></div>
+        <div class="kv"><span>real p.a.</span><b class="${sign(r.real)}">${fmt(r.real)}</b></div>
+        <span class="more">details</span>
+      </summary>
       <dl>
-        <dt>Term premium</dt><dd>${r.tp>=0?"+":""}${r.tp.toFixed(2)}%</dd>
-        <dt style="padding-left:11px">of which unexplained</dt><dd style="color:var(--muted)">${r.carried>=0?"+":""}${r.carried.toFixed(2)}%</dd>
+        <dt>Term premium</dt><dd>${fmt(r.tp)}</dd>
+        <dt style="padding-left:11px">of which unexplained</dt><dd style="color:var(--muted)">${fmt(r.carried)}</dd>
         <dt>+ avg policy, next 10y</dt><dd>${r.pbar.toFixed(2)}%</dd>
         <dt style="padding-left:11px">market prices</dt><dd style="color:var(--muted)">${isFinite(r.mkt)?r.mkt.toFixed(2)+"%":"&mdash;"}</dd>
         <dt style="padding-left:11px">your path</dt><dd style="color:var(--muted)">${r.view.toFixed(2)}%</dd>
         <dt style="padding-left:11px">your view priced in</dt><dd style="color:var(--muted)">${(100*r.vw).toFixed(0)}%</dd>
         <dt class="tot">= ten-year yield</dt><dd class="tot">${r.y.toFixed(2)}%</dd>
-        <dt>vs curve's own forward</dt><dd class="${r.y - (M.fwd10[r.h]??NaN) <= 0 ? "pos":"neg"}">${(M.fwd10[r.h]!=null)?((r.y-M.fwd10[r.h]>=0?"+":"")+(r.y-M.fwd10[r.h]).toFixed(2)+"pp"):"&mdash;"}</dd>
-        <dt>Return, nominal p.a.</dt><dd class="${sign(r.nom)}">${r.nom>=0?"+":""}${r.nom.toFixed(2)}%</dd>
-        <dt>Return, real p.a.</dt><dd class="${sign(r.real)}">${r.real>=0?"+":""}${r.real.toFixed(2)}%</dd>
+        <dt>vs curve's own forward</dt><dd class="${r.y - (M.fwd10[r.h]??NaN) <= 0 ? "pos":"neg"}">${(M.fwd10[r.h]!=null)?fmt(r.y-M.fwd10[r.h],"pp"):"&mdash;"}</dd>
       </dl>
-    </div>`).join("") + `
-    <div class="res">
-      <div class="h">Today, ${D.asof}</div>
-      <div class="big">${M.y_today.toFixed(2)}%</div>
-      <div class="sub">ten-year yield &middot; the anchor for both projections</div>
+    </details>`;
+  document.getElementById("results").innerHTML = `
+    <details class="res" data-k="today" ${RESOPEN.today ? "open" : ""}>
+      <summary>
+        <div class="h">Today &middot; ${D.asof}</div>
+        <div class="big">${M.y_today.toFixed(2)}%</div>
+        <div class="kv"><span>policy priced</span><b>${rows[0].curve.toFixed(2)}%</b></div>
+        <div class="kv"><span>term premium</span><b>${fmt(M.tp_today)}</b></div>
+        <div class="kv"><span>duration</span><b>${M.duration.toFixed(1)}y</b></div>
+        <span class="more">details</span>
+      </summary>
       <dl>
-        <dt>Term premium</dt><dd>${M.tp_today>=0?"+":""}${M.tp_today.toFixed(2)}%</dd>
-        <dt>+ avg policy priced</dt><dd>${rows[0].curve.toFixed(2)}%</dd>
-        <dt class="tot">= ten-year yield</dt><dd class="tot">${M.y_today.toFixed(2)}%</dd>
-        <dt>Your path vs priced</dt><dd class="${rows[0].gap>=0?"neg":"pos"}">${rows[0].gap>=0?"+":""}${rows[0].gap.toFixed(2)}pp</dd>
-        <dt>Macaulay duration</dt><dd>${M.duration.toFixed(1)}y</dd>
+        <dt>Your path vs priced</dt><dd class="${rows[0].gap>=0?"neg":"pos"}">${fmt(rows[0].gap,"pp")}</dd>
       </dl>
       <p class="gapnote">${Math.abs(rows[0].gap) < 0.05
         ? "Your policy path matches what the curve prices, so the projections start from today's yield."
         : "Your policy path averages " + Math.abs(rows[0].gap).toFixed(2) + "pp "
           + (rows[0].gap > 0 ? "above" : "below") + " what the curve prices, phasing in at the rate set below."}</p>
-    </div>`;
+    </details>` + rows.map(horizon).join("");
+  document.querySelectorAll("#results details").forEach(d =>
+    d.ontoggle = () => RESOPEN[d.dataset.k] = d.open);
 }
 
 function render(){
@@ -734,9 +792,9 @@ function render(){
   renderTabs();
   document.getElementById("mktName").textContent = NAME[market] + " — your projections";
   document.getElementById("mktHint").textContent =
-    "Percent, at each calendar year end. The grid opens on the market's own expected path, "
-    + "so an untouched column is not a view. The ten-year yield row on top is derived — hover it "
-    + "for the term-premium split. Whatever year you hold flat from becomes your long-run view.";
+    "Percent, at each calendar year end. The grid opens on the market's own expected path — an "
+    + "untouched column is not a view; hover the derived yield row for the term-premium split; "
+    + "whatever year you hold flat from becomes your long-run view.";
   const bp = (100*D.markets.US.model.adjust.fiscal).toFixed(0);
   const DEF_SRC = {US:"CBO's baseline", UK:"the OBR forecast",
                    DE:"the European Commission's, extended to t+5 with the IMF WEO shape",
@@ -789,7 +847,8 @@ function render(){
 document.getElementById("rho").onchange = e => { RHO = parseFloat(e.target.value); render(); };
 document.getElementById("lamv").onchange = e => { LAMV = parseFloat(e.target.value); render(); };
 document.getElementById("reset").onclick = () => {
-  S[market] = defaults(market); FLAT[market] = YEARS[YEARS.length-1]; render(); };
+  S[market] = defaults(market); FLAT[market] = YEARS[YEARS.length-1];
+  DEFEDIT[market] = false; syncDeficit(market); render(); };
 
 /* ---------------------------------------- export ------------------------------- */
 function csv(){
