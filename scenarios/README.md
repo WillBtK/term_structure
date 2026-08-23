@@ -27,11 +27,29 @@ written in the older years-ahead convention still loads unchanged.
 
 Optional `price_insensitive`, `debt_gdp` and `deficit` columns override the defaults
 (ownership holds at today; the deficit follows each market's committed official
-projection — CBO, OBR, European Commission AMECO, Cabinet Office, all deficit-positive
-% of GDP via `macro.fiscal_projections`). The fiscal channel prices the five-year-ahead
-projected deficit: directly for the US, and relative to the US path for the spread
-markets, at the US-measured sensitivity. It is a real-rate effect — widening the
-deficit is not by itself a reason to also raise the inflation path.
+projection — CBO, OBR, European Commission AMECO extended with the IMF WEO shape,
+Cabinet Office, all deficit-positive % of GDP via `macro.fiscal_projections`). The
+fiscal channel prices the five-year-ahead projected deficit: directly for the US, and
+relative to the US path for the spread markets, at the US-measured sensitivity. It is
+a real-rate effect — widening the deficit is not by itself a reason to also raise the
+inflation path.
+
+**The deficit is derived unless you state it.** A scenario with a growth view and no
+`deficit` column gets its deficit endogenously (`macro.fiscal_rules`): growth entered
+below the WEO baseline widens the official path via each market's own institution's
+rule of thumb — CBO's rules-of-thumb workbook for the US (ε = 0.36), the OBR's
+cyclical-adjustment coefficient for the UK (0.70), the European Commission's
+semi-elasticity for Germany (0.504, recovered exactly from AMECO's own
+decomposition), the OECD's for Japan (0.45) — applied to an output gap cumulated
+from the growth deviations and closing at 30%/yr, so a one-off miss washes out and
+only a sustained view leaves a mark. The rule assumes growth deviations are
+economy-driven; deficit-financed stimulus is a fiscal view and is entered in the
+`deficit` column directly, which switches the rule off — the override is the whole
+fiscal path, never rule-plus-override. Inflation is deliberately excluded (its budget
+effect flips sign with the rate response, and it already enters the premium twice),
+and so is the interest-cost feedback of our own yields onto the deficit (loop gain
+~0.45 — documented, not wired). Evidence and provenance:
+`validation/FINDINGS_endogenous_deficit.md`.
 
 ## Running it
 
@@ -98,7 +116,10 @@ view has to beat — with the result cards beside it. Below that, a calendar-yea
 grid whose top row is the **derived ten-year yield** (hover a cell for the term-premium
 split), a hold-flat-from selector, and four half-width charts: policy rate against the
 market's implied path, inflation against the market breakeven, term premium, and
-deficit. All history is monthly with hover readouts.
+deficit. All history is monthly with hover readouts. The growth row opens on the WEO
+baseline and the deficit row is **derived** from it (italic, ⚙) until you type over it
+(✎ — click the row label to restore the rule); while derived, the exported CSV omits
+the deficit column so the engine re-derives the identical full path.
 
 It computes entirely in the browser from `scenarios/data/sheet_payload.json` (built by
 `build_sheet.py`) and agrees with `scenarios.engine` to about **0.2 basis points**; the

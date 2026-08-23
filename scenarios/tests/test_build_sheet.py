@@ -54,13 +54,20 @@ def test_the_committed_payload_carries_everything_the_page_reads():
         m = p["markets"][c]
         assert set(m) >= {"y_today", "tp_today", "drivers", "duration", "ewma",
                           "deficit_proj", "hist", "mhist", "model", "expected_curve",
-                          "market_policy_path", "fwd10", "deficit_hist"}
+                          "market_policy_path", "fwd10", "deficit_hist", "growth_base"}
         # the debt STOCK enters no model any more, so it is not shipped either
         assert "debt_proj" not in m
         want = {"expected_inflation", "inflation_uncertainty",
                 "price_insensitive", "debt_gdp", "fiscal"}
         assert set(m["drivers"]) == want
-        assert m["deficit_proj"]            # CBO / OBR / AMECO / CAO default path
+        assert m["deficit_proj"]            # CBO / OBR / AMECO+WEO / CAO default path
+        # the WEO growth baseline the endogenous-deficit rule differences against,
+        # keyed by calendar year, reaching at least four years out
+        gb = {int(k): v for k, v in m["growth_base"].items()}
+        assert len(gb) >= 4 and max(gb) >= p["year0"] + 4
+        assert all(-3.0 < v < 6.0 for v in gb.values())
+        assert set(p["fiscal_rule"]["eps"]) == set(MARKETS)
+        assert 0.0 < p["fiscal_rule"]["closure"] < 1.0
         # the market's own forward ten-year yield, one per projection horizon
         assert len(m["fwd10"]) == 11 and all(isinstance(v, (int, float)) for v in m["fwd10"])
         # monthly history: a start date plus values, long enough to be a real series

@@ -390,3 +390,61 @@ def test_the_blend_damps_a_rate_view_at_three_years():
     got = blended_policy_average(st, sc, 3)
     assert mkt < got < view
     assert (got - mkt) / (view - mkt) == pytest.approx(1 - 0.8 ** 3)
+
+
+# ------------------------------------------------- the endogenous deficit in run()
+
+def _one_market_setup():
+    m = DriverModel(intercept=0.5,
+                    coef={"expected_inflation": 1.0, "inflation_uncertainty": 0.8,
+                          "price_insensitive": -0.03},
+                    drivers=("expected_inflation", "inflation_uncertainty",
+                             "price_insensitive"),
+                    adjust={"fiscal": 0.52}, base={"fiscal": 5.87})
+    st = MarketState("US", 4.74, 1.63, {**TODAY, "fiscal": 5.87}, CORE)
+    official = {k: 5.87 for k in range(1, 16)}
+    baseline = {k: 1.8 for k in range(1, 7)}
+    return m, st, official, baseline
+
+
+def test_a_growth_view_alone_now_moves_the_fiscal_driver():
+    from scenarios.engine import run
+    m, st, official, baseline = _one_market_setup()
+    on_base = Scenario("US", policy_rate={1: 3.5}, inflation={1: 2.3},
+                       real_growth={1: 1.8})
+    slower = replace(on_base, real_growth={1: 0.8})
+    kw = dict(deficit_defaults={"US": official}, rho=1.0,
+              growth_defaults={"US": baseline})
+    r_base = run(m, {}, {"US": st}, {"US": on_base}, **kw)["US"]
+    r_slow = run(m, {}, {"US": st}, {"US": slower}, **kw)["US"]
+    tp = {r.horizon: r.tp for r in r_slow}
+    tp0 = {r.horizon: r.tp for r in r_base}
+    assert tp[3] > tp0[3]                          # slower growth -> wider deficit
+    assert tp[10] > tp[3]                          # gap still accumulating
+
+
+def test_an_explicit_deficit_override_switches_the_rule_off():
+    from scenarios.engine import run
+    m, st, official, baseline = _one_market_setup()
+    sc = Scenario("US", policy_rate={1: 3.5}, inflation={1: 2.3},
+                  real_growth={1: 0.8}, deficit=dict(official))
+    kw = dict(deficit_defaults={"US": official}, rho=1.0,
+              growth_defaults={"US": baseline})
+    r = run(m, {}, {"US": st}, {"US": sc}, **kw)["US"]
+    r0 = run(m, {}, {"US": st},
+             {"US": replace(sc, real_growth={1: 1.8})}, **kw)["US"]
+    for a, b in zip(r, r0):                        # growth ignored: override rules
+        assert a.tp == pytest.approx(b.tp, abs=1e-12)
+
+
+def test_without_growth_defaults_behaviour_is_unchanged():
+    from scenarios.engine import run
+    m, st, official, _ = _one_market_setup()
+    sc = Scenario("US", policy_rate={1: 3.5}, inflation={1: 2.3},
+                  real_growth={1: 0.8})
+    r_off = run(m, {}, {"US": st}, {"US": sc},
+                deficit_defaults={"US": official}, rho=1.0)["US"]
+    r_on_base = run(m, {}, {"US": st}, {"US": replace(sc, real_growth={1: 1.8})},
+                    deficit_defaults={"US": official}, rho=1.0)["US"]
+    for a, b in zip(r_off, r_on_base):
+        assert a.tp == pytest.approx(b.tp, abs=1e-12)

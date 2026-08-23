@@ -161,10 +161,23 @@ def build() -> dict:
 
     now = pd.Timestamp.today()
     year_frac = now.year + (now.dayofyear - 1) / 365.25
+    from macro import weo
+    from macro.fiscal_rules import GAP_CLOSURE, SEMI_ELASTICITY
+    growth_base = {}
+    for c in MARKETS:
+        try:        # keyed by CALENDAR YEAR; the page maps years to horizons itself
+            growth_base[c] = {y: v for y, v in weo.growth(c).items()
+                              if y >= pd.Timestamp.today().year}
+        except Exception:                                           # noqa: BLE001
+            pass
     payload = {"halflife": HL, "tenor": TENOR, "lam": 0.5 ** (1.0 / HL),
                "asof": str(obs["date"].max().date()), "markets": {},
                "view_convergence": VIEW_CONVERGENCE,
-               "year0": int(now.year), "year_frac": round(float(year_frac), 3)}
+               "year0": int(now.year), "year_frac": round(float(year_frac), 3),
+               # the endogenous-deficit rule: deficit(t) = official(t) - eps*gap(t),
+               # the gap cumulating growth deviations vs the WEO baseline and closing
+               # at GAP_CLOSURE per year (macro.fiscal_rules has the provenance)
+               "fiscal_rule": {"eps": SEMI_ELASTICITY, "closure": GAP_CLOSURE}}
     for c in MARKETS:
         st, hist = states[c], core[c].dropna()
         m = hist.ewm(halflife=HL).mean()
@@ -206,6 +219,10 @@ def build() -> dict:
                      "asof": str(hist.index[-1].date())},
             "deficit_proj": {str(k): round(float(x), 2)
                              for k, x in sorted(deficits.get(c, {}).items())},
+            # WEO baseline real growth, {years ahead: %} -- the reference the
+            # endogenous-deficit rule differences the growth row against
+            "growth_base": {str(k): round(float(v), 3)
+                            for k, v in sorted(growth_base.get(c, {}).items())},
             # the market's own expected-rate curve, and the year-by-year policy path
             # implied by it -- the sheet's genuinely neutral opening
             "expected_curve": {str(t): round(float(v), 4)

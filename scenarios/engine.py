@@ -382,7 +382,8 @@ def run_market(state: MarketState, scenario: Scenario, tp_path: dict,
 def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dict,
         debt_defaults: dict | None = None, deficit_defaults: dict | None = None,
         rho: float = RESIDUAL_PERSISTENCE,
-        view_convergence: float = VIEW_CONVERGENCE) -> dict:
+        view_convergence: float = VIEW_CONVERGENCE,
+        growth_defaults: dict | None = None) -> dict:
     """All markets. The US premium path is computed first; every spread market's
     premium is a beta on it plus its drivers relative to the US, both at the same
     horizon, exactly as fitted.
@@ -391,9 +392,27 @@ def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dic
     explain. It applies to both legs -- the US residual reaches the spread markets
     twice, once through their own residual and once through the US premium their beta
     multiplies.
+
+    ``growth_defaults`` ({market: {years ahead: baseline real growth}}) switches on
+    the endogenous deficit (``macro.fiscal_rules``): a scenario that states a growth
+    view but no fiscal view gets its deficit path derived from the official
+    projection via each market's semi-elasticity. An explicit ``deficit`` on the
+    scenario switches the rule off for that market -- a stated fiscal view is the
+    whole fiscal path (policy-driven growth is entered that way, never rule-plus-
+    override). The premium reference stays the OFFICIAL path either way.
     """
     debt_defaults = debt_defaults or {}
     deficit_defaults = deficit_defaults or {}
+    if growth_defaults:
+        from dataclasses import replace as _replace
+
+        from macro.fiscal_rules import adjusted_deficit
+        scenarios = dict(scenarios)
+        for c, sc in scenarios.items():
+            if (not sc.deficit and sc.real_growth
+                    and growth_defaults.get(c) and deficit_defaults.get(c)):
+                scenarios[c] = _replace(sc, deficit=adjusted_deficit(
+                    c, sc.real_growth, growth_defaults[c], deficit_defaults[c]))
     us_state, us_scen = states["US"], scenarios["US"]
     us_drv = {0: us_state.drivers_today}
     us_drv.update({h: drivers_at(us_state, us_scen, h, debt_defaults.get("US"),
@@ -463,6 +482,13 @@ def deficit_defaults(markets=("US", "UK", "DE", "JP")) -> dict:
         except Exception as exc:                                # noqa: BLE001
             logger.warning("no deficit path for %s (%s); fiscal holds at today", c, exc)
     return out
+
+
+def growth_defaults(markets=("US", "UK", "DE", "JP")) -> dict:
+    """Each market's WEO baseline real-growth path ({years ahead: percent}) -- the
+    reference the endogenous-deficit rule differences a stated growth view against."""
+    from macro.fiscal_rules import growth_defaults as _gd
+    return _gd(markets)
 
 
 def latest_states(markets=("US", "UK", "DE", "JP")) -> dict:
@@ -540,7 +566,8 @@ def _main() -> None:
                      RESIDUAL_PERSISTENCE))
     print(f"residual persistence rho = {rho}/yr "
           f"({rho ** 3:.0%} of today's residual survives to 3y, {rho ** 10:.0%} to 10y)")
-    res = run(us_model, spread, states, demo, debt, deficit_defaults(), rho=rho)
+    res = run(us_model, spread, states, demo, debt, deficit_defaults(), rho=rho,
+              growth_defaults=growth_defaults())
     for c, rows in res.items():
         st = states[c]
         print(f"\n{c}: 10y today {st.y_today:.2f}%  (TP {st.tp_today:+.2f}%),  "

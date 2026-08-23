@@ -7,8 +7,9 @@ the market actually trades on -- rather than one convenient multilateral source:
     US   CBO baseline                        (macro.fetch_cbo; 11 years)
     UK   OBR, public sector net borrowing    (public finances databank; 5 years)
     DE   European Commission AMECO, general government net lending, EDP basis
-         (the Commission's horizon is two years -- beyond it the last value is
-          held flat, which is stated rather than hidden)
+         (the Commission's horizon is two years -- beyond it the path is extended
+          with the IMF WEO shape, level-matched at the last common year, taking
+          the horizon to t+5; the two agree to ~0.1-0.2pp where they overlap)
     JP   Cabinet Office medium-to-long-term projections, central+local fiscal
          balance, BASELINE case ("current projection"), to FY2040
 
@@ -184,6 +185,22 @@ def path(country: str) -> dict:
     # averages sample whole years from 1 onward, so year 0 never enters them.
     out = {int(r["year"]) - now: -float(r["balance_pct_gdp"])
            for _, r in d.iterrows() if int(r["year"]) >= now}
+    if country == "DE" and out:
+        # Extend the Commission's two-year horizon with the WEO shape, level-matched
+        # at the last AMECO year so the seam introduces no step. The near end stays
+        # AMECO's (the source that revises fastest); WEO carries the profile to t+5.
+        try:
+            from macro import weo
+            w = {y - now: v for y, v in weo.deficit("DE").items()}
+            last = max(out)
+            if last in w:
+                offset = out[last] - w[last]
+                for k in sorted(w):
+                    if k > last:
+                        out[k] = w[k] + offset
+        except Exception as exc:                                    # noqa: BLE001
+            logger.warning("DE WEO extension unavailable (%s); AMECO horizon only",
+                           exc)
     return {k: v for k, v in sorted(out.items()) if 0 <= k <= 15}
 
 
