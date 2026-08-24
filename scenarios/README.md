@@ -174,3 +174,41 @@ A **conditional mapping**: you supply the scenario, the tool prices it. Not a fo
 years is the expected result. Present sensitivities, never forecasts; the scenarios
 carry the uncertainty. Japan is directional only: its beta on the US premium is 0.74
 over the full sample against 0.12 on changes since 2010.
+
+## Named scenarios
+
+The sheet holds five independent scenarios, switched by the bar above the market tabs:
+**Baseline**, **Goldilocks**, **High growth, high inflation**, **Stagflation** and
+**Hard landing**. Each is a complete copy of the input state for every market, so
+switching is instant and nothing leaks across; a dot on the bar marks the ones that
+have been moved off their opening values.
+
+`Baseline` opens where the sheet has always opened — each market's own expected policy
+path, the IMF WEO macro baseline for growth and inflation, and the official fiscal
+balance re-aligned to it. The other four start as copies until their numbers are
+entered.
+
+**Pre-populating.** `PRESETS` in `sheet/index.html` is the seam. Give a scenario a
+per-market block of `{row: {year: value}}` and it is applied over the baseline opening
+at load:
+
+```js
+PRESETS["Stagflation"] = {
+  US: {inflation:   {2027: 4.0, 2028: 4.2, 2029: 3.8},
+       policy_rate: {2027: 5.0, 2028: 5.0},
+       real_growth: {2027: 0.5, 2028: 0.3}},
+  UK: { ... }};
+```
+
+Anything left out keeps the baseline number, so a scenario can state a view on two rows
+and stay neutral on the rest. A `deficit` block (the **balance**, deficit negative)
+takes that market's row manual, exactly as typing in it does — the growth rule stops
+driving it.
+
+**What the reader gets.** A comparison table above the grid runs all five side by side
+for the selected market: the ten-year yield at three and ten years, the difference from
+Baseline in basis points, and the annualised nominal and real return. Typed numbers
+persist in the browser between visits and are dropped automatically if the underlying
+data vintage changes, so a stored scenario can never mix last month's market path with
+this month's charts. Export writes all five as one CSV, each block readable by
+`load_scenario` unchanged.

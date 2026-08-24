@@ -35,6 +35,26 @@ header{display:flex;flex-direction:column;gap:10px;border-bottom:1px solid var(-
 .eyebrow{font:500 11px/1 "IBM Plex Mono",monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
 h1{font-family:Newsreader,Georgia,serif;font-weight:500;font-size:clamp(27px,3.8vw,38px);line-height:1.14;margin:0;letter-spacing:-.01em}
 .lede{max-width:70ch;color:var(--ink-2);margin:0;font-size:15px}
+.scenbar{display:flex;gap:5px;flex-wrap:wrap;margin:0 0 8px}
+.scen{font:500 12.5px/1 "IBM Plex Sans",sans-serif;padding:9px 15px;border:1px solid var(--rule);
+  border-radius:999px;background:var(--card);color:var(--ink2);cursor:pointer}
+.scen[aria-selected="true"]{background:var(--ink);color:var(--card);border-color:var(--ink)}
+.scen.dirty::after{content:"\00a0\2022";color:var(--accent)}
+.scen[aria-selected="true"].dirty::after{color:var(--card)}
+.scenblurb{font:400 12.5px/1.5 "IBM Plex Sans",sans-serif;color:var(--muted);
+  margin:0 0 12px;max-width:86ch;min-height:1.2em}
+table.cmp{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+table.cmp th{font:500 11px/1.3 "IBM Plex Sans",sans-serif;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--muted);text-align:right;padding:0 0 7px 14px;
+  border-bottom:1px solid var(--rule);white-space:nowrap}
+table.cmp th.l{text-align:left;padding-left:0}
+table.cmp td{font:400 13px/1.5 ui-monospace,monospace;color:var(--ink2);
+  text-align:right;padding:6px 0 6px 14px;border-bottom:1px solid var(--rule-soft)}
+table.cmp td.l{font:500 13px/1.5 "IBM Plex Sans",sans-serif;text-align:left;
+  padding-left:0;color:var(--ink)}
+table.cmp tr.here td{background:var(--sunk)}
+table.cmp tr.here td.l::before{content:"\25B8\00a0";color:var(--accent)}
+table.cmp td.spread{color:var(--muted)}
 .tabs{display:flex;gap:6px;flex-wrap:wrap}
 .tab{font:500 13px/1 "IBM Plex Sans",sans-serif;padding:9px 16px;border:1px solid var(--rule);
   background:var(--card);color:var(--ink-2);border-radius:2px;cursor:pointer;transition:.12s}
@@ -163,6 +183,8 @@ footer{border-top:1px solid var(--rule);padding-top:18px;color:var(--muted);font
   value, your rate view phasing in &mdash; at rates you control below. The grid opens on the market's
   own expected path, so an untouched column is not a view; a column you change is one, and it prices
   in gradually rather than all at once.</p>
+  <div class="scenbar" id="scenbar" role="tablist" aria-label="Scenario"></div>
+  <p class="scenblurb" id="scenblurb"></p>
   <div class="tabs" role="tablist" id="tabs"></div>
 </header>
 
@@ -187,6 +209,12 @@ footer{border-top:1px solid var(--rule);padding-top:18px;color:var(--muted);font
 
 <div class="stack">
   <div class="card">
+    <div class="ctitle">Across the five scenarios &mdash; ten-year yield and annualised return</div>
+    <div id="compare"></div>
+    <p class="cnote" id="comparenote"></p>
+  </div>
+
+  <div class="card">
     <h2 id="mktName"></h2>
     <p class="hint" id="mktHint"></p>
     <table class="grid">
@@ -196,7 +224,7 @@ footer{border-top:1px solid var(--rule);padding-top:18px;color:var(--muted);font
     <div class="ctlrow">
       <select id="flatFrom" aria-label="Hold the path flat from this year"></select>
       <button class="act" id="reset" type="button">Reset to the market's path</button>
-      <button class="act primary" id="export" type="button">Export scenario CSV</button>
+      <button class="act primary" id="export" type="button">Export all five scenarios</button>
     </div>
     <details class="gridnote"><summary>About the fiscal balance row, the defaults and the growth rule</summary>
       <p id="note"></p></details>
@@ -268,7 +296,8 @@ let FLAT = {};                                   // per market: hold flat from t
 const BASE_ROWS = [["policy_rate","Policy rate"],["inflation","Inflation (headline)"],
               ["real_growth","Real growth"]];
 const rowsFor = c => BASE_ROWS.concat([["deficit","Fiscal balance (% GDP)"]]);
-let market = "US", S = {};
+let market = "US";
+let S = {};
 
 /* ---- The opening: policy at the market's own implied path (the curve's number is
    what makes an untouched policy row return today's yield), growth and inflation at
@@ -372,8 +401,109 @@ const scenarioFor = c => ({policy_rate: asPath(c,"policy_rate"),
                            deficit: (!DEFEDIT[c] && ruleDeficitFull(c))
                                     || Object.fromEntries(Object.entries(
                                          asPath(c,"deficit")).map(([k,v]) => [k,-v]))});
-MK.forEach(c => { S[c] = defaults(c); FLAT[c] = YEARS[YEARS.length-1];
-                  DEFEDIT[c] = false; syncDeficit(c); });
+
+/* --------------------------- named scenarios -----------------------------------
+   The sheet used to hold ONE state. It now holds five, switched by the bar above the
+   grid, because the point of a scenario tool in front of a committee is the contrast
+   between paths rather than any single one.
+
+   Each scenario is a complete, independent copy of {S, FLAT, DEFEDIT} for every
+   market, so switching is instant and nothing leaks across. `Baseline` opens where
+   the sheet has always opened -- the market's own policy path and the WEO macro
+   baseline -- and the other four start as copies of it until their numbers are typed
+   in or seeded through PRESETS below.
+
+   PRESETS is the seam for pre-populating: give a scenario a per-market block of
+   {row: {year: value}} and it is applied over the baseline opening at load. Anything
+   left out simply keeps the baseline number, so a scenario can state a view on two
+   rows and stay neutral on the rest. */
+const SCEN_NAMES = ["Baseline","Goldilocks","High growth, high inflation",
+                    "Stagflation","Hard landing"];
+const SCEN_BLURB = {
+  "Baseline": "The house starting point: the market's own policy path, the IMF WEO "
+    + "macro baseline, and each fiscal authority's official balance re-aligned to it.",
+  "Goldilocks": "",
+  "High growth, high inflation": "",
+  "Stagflation": "",
+  "Hard landing": ""};
+
+/* Populated scenario inputs. Shape:
+     PRESETS["Stagflation"] = {US: {inflation: {2027: 4.0, 2028: 4.2},
+                                    policy_rate: {...}, real_growth: {...},
+                                    deficit: {...}},   // balance, deficit NEGATIVE
+                               UK: {...}}
+   A `deficit` block takes that market's balance row manual (the growth rule stops
+   driving it), matching what typing in the row does by hand. */
+const PRESETS = {};
+
+let SCEN = "Baseline";
+const SC = {};                                   // name -> {S, FLAT, DEFEDIT}
+
+function blankState(){
+  const st = {S:{}, FLAT:{}, DEFEDIT:{}};
+  MK.forEach(c => { st.S[c] = defaults(c); st.FLAT[c] = YEARS[YEARS.length-1];
+                    st.DEFEDIT[c] = false; });
+  return st;
+}
+function applyPreset(st, name){
+  const p = PRESETS[name];
+  if(!p) return st;
+  MK.forEach(c => {
+    const blk = p[c]; if(!blk) return;
+    for(const row in blk){
+      for(const Y in blk[row]){
+        if(st.S[c][row] && YEARS.includes(+Y)) st.S[c][row][+Y] = +blk[row][Y];
+      }
+      if(row === "deficit") st.DEFEDIT[c] = true;   // a stated balance is a fiscal view
+    }
+  });
+  return st;
+}
+/* Bind the module-level S/FLAT/DEFEDIT to the active scenario. Everything downstream
+   reads those three names, so switching scenario is a rebind rather than a rewrite. */
+function activate(name){
+  SCEN = name;
+  const st = SC[name];
+  S = st.S; FLAT = st.FLAT; DEFEDIT = st.DEFEDIT;
+  MK.forEach(c => syncDeficit(c));
+}
+SCEN_NAMES.forEach(n => { SC[n] = applyPreset(blankState(), n); });
+activate("Baseline");
+
+/* Typed numbers survive a reload -- the sheet is a working surface, not a demo. */
+const STORE_KEY = "tpa.scenarios.v1";
+function saveAll(){
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify(
+    {v:1, asof:D.asof, scen:SCEN,
+     data:Object.fromEntries(SCEN_NAMES.map(n =>
+       [n, {S:SC[n].S, FLAT:SC[n].FLAT, DEFEDIT:SC[n].DEFEDIT}]))})); }
+  catch(e){ /* private window, blocked storage: the sheet still works */ }
+}
+function restoreAll(){
+  let raw=null;
+  try{ raw = localStorage.getItem(STORE_KEY); }catch(e){ return false; }
+  if(!raw) return false;
+  try{
+    const j = JSON.parse(raw);
+    /* A stored scenario built on an older data vintage would silently mix last
+       month's market path with this month's charts, so it is dropped rather than
+       half-applied. */
+    if(!j || j.v !== 1 || j.asof !== D.asof) return false;
+    SCEN_NAMES.forEach(n => {
+      const b = (j.data || {})[n]; if(!b) return;
+      MK.forEach(c => {
+        if(b.S && b.S[c]) for(const row in SC[n].S[c])
+          if(b.S[c][row]) SC[n].S[c][row] = b.S[c][row];
+        if(b.FLAT && b.FLAT[c] != null) SC[n].FLAT[c] = b.FLAT[c];
+        if(b.DEFEDIT && b.DEFEDIT[c] != null) SC[n].DEFEDIT[c] = b.DEFEDIT[c];
+      });
+    });
+    if(SCEN_NAMES.includes(j.scen)) SCEN = j.scen;
+    return true;
+  }catch(e){ return false; }
+}
+restoreAll();
+activate(SCEN);
 
 /* ------------------------------- engine (ports scenarios/engine.py) ------------- */
 const kink = x => Math.max(x - KINK, 0);
@@ -599,6 +729,73 @@ function chart(el, spec){
 const PATH_HS = Array.from({length:11}, (_,i) => i);
 const yrOf = h => Y0 + D.year_frac - Math.floor(D.year_frac) + h;   // horizon -> decimal year
 
+/* True when a scenario has been moved off its opening values -- so the bar can show
+   at a glance which of the five actually carry a view. */
+function isDirty(name){
+  const base = applyPreset(blankState(), name);
+  const st = SC[name];
+  /* The balance row is DERIVED unless the user has taken it manual, so it is not an
+     independent input and comparing it would mark every scenario dirty -- a blank
+     state has not had the rule run over it yet. When it IS manual, DEFEDIT differing
+     from the opening already says so. */
+  const rows = ["policy_rate","inflation","real_growth"];
+  return MK.some(c =>
+    rows.some(row => YEARS.some(Y =>
+      Math.abs((st.S[c][row][Y] ?? 0) - (base.S[c][row][Y] ?? 0)) > 5e-3))
+    || (st.DEFEDIT[c] && YEARS.some(Y =>
+      Math.abs((st.S[c].deficit[Y] ?? 0) - (base.S[c].deficit[Y] ?? 0)) > 5e-3))
+    || st.FLAT[c] !== base.FLAT[c] || st.DEFEDIT[c] !== base.DEFEDIT[c]);
+}
+
+function renderScenBar(){
+  document.getElementById("scenbar").innerHTML = SCEN_NAMES.map(n =>
+    `<button class="scen${isDirty(n) ? " dirty" : ""}" role="tab" data-s="${n}"
+      aria-selected="${n===SCEN}">${n}</button>`).join("");
+  document.querySelectorAll(".scen").forEach(b => b.onclick = () => {
+    activate(b.dataset.s); saveAll(); render(); });
+  document.getElementById("scenblurb").textContent = SCEN_BLURB[SCEN] || "";
+}
+
+/* The comparison table. Projecting a scenario means rebinding the module state, so
+   the active one is restored afterwards -- projection reads S/FLAT/DEFEDIT directly
+   and there is no purely functional path through it. */
+function scenarioRows(c){
+  const keep = SCEN, out = [];
+  SCEN_NAMES.forEach(n => {
+    activate(n);
+    const r = project(c, HORIZONS.map(h => h));
+    out.push({name:n, rows:r});
+  });
+  activate(keep);
+  return out;
+}
+function renderCompare(){
+  const box = document.getElementById("compare");
+  const all = scenarioRows(market);
+  const base = all[0];
+  const cell = (v, d) => (v==null || !isFinite(v)) ? "&mdash;" : v.toFixed(d==null?2:d);
+  const head = `<tr><th class="l">Scenario</th>`
+    + HORIZONS.map(h => `<th>${h}y yield</th><th>vs base</th>`
+        + `<th>${h}y return</th><th>real</th>`).join("") + `</tr>`;
+  const body = all.map(s => {
+    const tds = s.rows.map((r, i) => {
+      const b = base.rows[i];
+      const dy = s.name === base.name ? null : (r.y - b.y) * 100;
+      return `<td>${cell(r.y)}</td>`
+        + `<td class="spread">${dy==null ? "&mdash;"
+             : (dy>0?"+":"") + dy.toFixed(0) + "bp"}</td>`
+        + `<td>${cell(r.nom)}</td><td class="spread">${cell(r.real)}</td>`;
+    }).join("");
+    return `<tr class="${s.name===SCEN ? "here" : ""}"><td class="l">${s.name}</td>${tds}</tr>`;
+  }).join("");
+  box.innerHTML = `<table class="cmp">${head}${body}</table>`;
+  document.getElementById("comparenote").textContent =
+    NAME[market] + ". Yield is the ten-year at that horizon; return is the annualised "
+    + "total return on a constant-maturity ten-year bought today and held that long, "
+    + "with the real column deflated by each scenario's own inflation path. "
+    + "\u201cvs base\u201d is the yield difference from Baseline.";
+}
+
 function renderTabs(){
   document.getElementById("tabs").innerHTML = MK.map(c =>
     `<button class="tab" role="tab" data-c="${c}" aria-selected="${c===market}">${NAME[c]}</button>`).join("");
@@ -669,13 +866,15 @@ function renderInputs(){
       S[market][k][+inp.dataset.y] = v;
       if(k === "deficit") DEFEDIT[market] = true;        // a stated fiscal view
       if(k === "real_growth") syncDeficit(market);       // rule follows the growth row
-      refreshCells(inp); renderCharts(); renderResults();
+      refreshCells(inp); renderCharts(); renderResults(); renderCompare();
+      renderScenBar(); saveAll();
     };
     inp.onchange = () => { renderInputs(); };
   });
   const dl = document.getElementById("deflabel");
   if(dl) dl.onclick = () => { DEFEDIT[market] = false; syncDeficit(market);
-                              renderInputs(); renderCharts(); renderResults(); };
+                              renderInputs(); renderCharts(); renderResults();
+                              renderCompare(); renderScenBar(); saveAll(); };
   document.querySelectorAll("#inputs .dv").forEach(n => {
     n.onmouseenter = e => {
       const t = document.getElementById("celltip");
@@ -795,6 +994,7 @@ function renderResults(){
 
 function render(){
   const M = D.markets[market];
+  renderScenBar();
   renderTabs();
   document.getElementById("mktName").textContent = NAME[market] + " — your projections";
   document.getElementById("mktHint").textContent =
@@ -852,16 +1052,36 @@ function render(){
         + "Useful as a reference case: it is what the curve already implies."
       : `Projections start from the market's own forward expectation and move toward yours:
          ${inThree.toFixed(0)}% of your view is priced by three years and ${inTen.toFixed(0)}% by ten.`);
-  renderInputs(); renderCharts(); renderResults();
+  renderInputs(); renderCharts(); renderResults(); renderCompare();
 }
 
 document.getElementById("rho").onchange = e => { RHO = parseFloat(e.target.value); render(); };
+/* the dials are display-wide, not per scenario: they describe the model, not a view */
 document.getElementById("lamv").onchange = e => { LAMV = parseFloat(e.target.value); render(); };
+/* Reset returns THIS market in THIS scenario to the scenario's own opening -- its
+   preset if it has one, the market's path if not. The other four are untouched. */
 document.getElementById("reset").onclick = () => {
-  S[market] = defaults(market); FLAT[market] = YEARS[YEARS.length-1];
-  DEFEDIT[market] = false; syncDeficit(market); render(); };
+  const fresh = applyPreset(blankState(), SCEN);
+  S[market] = fresh.S[market]; FLAT[market] = fresh.FLAT[market];
+  DEFEDIT[market] = fresh.DEFEDIT[market];
+  syncDeficit(market); saveAll(); render(); };
 
 /* ---------------------------------------- export ------------------------------- */
+/* Export every scenario, not just the visible one: the point of the sheet in this
+   form is the set of five, and a committee pack wants them side by side. Each block
+   is a `scenario,` header line followed by the same year rows the single-scenario
+   export always wrote, so `load_scenario` can read a block unchanged. */
+function csvAll(){
+  const keep = SCEN, out = [];
+  SCEN_NAMES.forEach(n => {
+    activate(n);
+    out.push("# scenario," + n);
+    out.push(csv().trimEnd());
+    out.push("");
+  });
+  activate(keep);
+  return out.join("\n") + "\n";
+}
 function csv(){
   const sc = S[market];
   // a rule-derived balance row is NOT exported: the engine re-derives the identical
@@ -883,7 +1103,7 @@ document.getElementById("export").onclick = async () => {
   if(!dl){ st.className="status bad";
     st.textContent = "Saving is not available in this view — copy the values into scenarios/"
       + market.toLowerCase() + ".csv instead."; return; }
-  const data = csv(), name = market.toLowerCase();
+  const data = csvAll(), name = market.toLowerCase() + "_scenarios";
   try{
     await dl.save({filename: name + ".csv", data});
     st.className="status ok"; st.textContent = "Saved. Drop it in scenarios/ and run python -m scenarios.engine.";
