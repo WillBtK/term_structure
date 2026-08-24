@@ -186,6 +186,14 @@ def build() -> dict:
            "us_from": int(us_sbc.index[0].year), "window_y": shiller.WINDOW // 12,
            "n": len(sbc_pts), "markets": int(sp["country"].nunique())}
 
+    # The level question the ratio model does not answer directly: at what rate of
+    # inflation does the correlation turn positive? Pooled across the four markets.
+    from validation.sbc_inflation_level import build_panel as sbcl_panel, fit as sbcl_fit
+    sbcl = sbcl_panel()
+    sbc_level = dict(sbcl_fit(sbcl))
+    sbc_level["pts"] = [[round(r["pi"], 2), round(r["sbc"], 3), r["country"]]
+                        for _, r in sbcl.iterrows()]
+
     # --- Q6: the official bid, US ------------------------------------------------
     own_us = monthly(us["price_insensitive"], nd=1)
 
@@ -204,9 +212,13 @@ def build() -> dict:
                         if 1 <= k <= 10],
              "eps": SEMI_ELASTICITY, "closure": GAP_CLOSURE}
 
-    # --- Q6: the fiscal break, tested rather than asserted ------------------------
-    from model.tp_drivers import fiscal_break_search
+    # --- Q6: the fiscal break -----------------------------------------------------
+    # The sup-Wald test answers "is there a break"; the rolling coefficient answers
+    # "by how much has the sensitivity changed", which is the question a reader has.
+    # The test statistic is kept in the payload for the record, not for a slide.
+    from model.tp_drivers import fiscal_break_search, rolling_fiscal_sensitivity
     brk = fiscal_break_search(us)
+    fiscal_roll = rolling_fiscal_sensitivity(us)
 
     # --- Q6: the ownership channel, as a COEFFICIENT ------------------------------
     # "a very large buyer who does not care about price" is only an argument if the
@@ -253,7 +265,7 @@ def build() -> dict:
                 "z": round(resid_now / sigma, 1)},
         "rho_paths": rho_paths,
         "sbc": sbc, "own_us": own_us, "chain": chain,
-        "brk": brk, "own": own,
+        "brk": brk, "own": own, "fiscal_roll": fiscal_roll, "sbc_level": sbc_level,
     }
 
 

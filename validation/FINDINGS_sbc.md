@@ -189,3 +189,37 @@ precision. (b) Pre-war equity and CPI data are monthly averages of sparse underl
 observations; the 19th-century cells should be read as "small and unstable", not as
 precise. (c) US only. The cross-sectional evidence across six markets is what the
 scatter above provides; this adds depth in one market, not breadth.
+
+---
+
+## Extension — the level at which bonds stop hedging
+
+`validation/sbc_inflation_level.py`. The ratio model above is the mechanism and is what
+the scenario chain uses, but it answers a volatility question, and the question an
+investment committee asks is a level one: *at what rate of inflation do bonds stop
+hedging?* Composing the Okun kink with the ratio fit would answer it by multiplying two
+fitted relationships and their errors, so this regresses the realised correlation
+directly on the realised inflation level, pooled across the four deck markets.
+
+| | |
+|---|---|
+| Observations | 150 market-years, 4 markets |
+| Slope | +0.046 per pp of inflation |
+| **Correlation crosses zero at** | **3.49%** (90% bootstrap band 2.92–4.15%) |
+| Fitted correlation at a 2% target | −0.07 |
+| Fitted correlation at 4% | +0.02 |
+| R² | 0.204 |
+
+**A hockey stick was tested and rejected.** Searching a kink over 0.5–7% pins it at the
+grid floor, which is the search reporting that there is nothing to find: over the
+observed range the relationship is a straight line, and the parameter of interest is
+where it crosses zero rather than where it bends.
+
+**Quote the pooled number only.** Per market the crossings scatter — UK 0.7%, DE 2.7%,
+US 4.2%, JP 7.7%, with R² between 0.02 and 0.27 — because each market observes a narrow
+slice of inflation history. The pooled estimate is identified by the cross-section. The
+dispersion is a caveat to state, not four separate answers to quote.
+
+**Why it matters.** 3.5% is not a crisis number. It is a sustained overshoot of a 2%
+target, which is a materially more likely state of the world than the level at which
+this relationship is usually discussed.

@@ -490,6 +490,63 @@ def fiscal_break_search(p: pd.DataFrame, trim: float = TRIM) -> dict:
             "nobreak_bp": round(nobreak["coef"] * 100, 1)}
 
 
+ROLL_WINDOW = 40        # vintages in the rolling window; ~17 years of CBO baselines
+
+
+def rolling_fiscal_sensitivity(p: pd.DataFrame, window: int = ROLL_WINDOW) -> dict:
+    """How the US fiscal sensitivity has moved through time, in basis points.
+
+    ``fiscal_break_search`` answers "is there a break?" with a test statistic. This
+    answers the question a reader actually has -- "has the market's sensitivity to
+    deficits changed, and by how much?" -- by refitting the coefficient on a moving
+    window of CBO vintages and plotting the result. Same regression, same HAC, same
+    vintage frequency; only the sample moves.
+
+    Two series are returned, and the difference between them is the point.
+
+    * ``trend``   carries a linear trend, the rolling analogue of the trend and
+      trend-squared ``measure_us_fiscal`` ships. A quadratic in a 40-vintage window
+      would fit the window rather than the relationship, so it is linear here.
+    * ``notrend`` omits it.
+
+    They agree closely until about 2020 -- both near zero through the 2000s, both
+    turning positive around 2012, both near 27bp by 2016 -- and then separate, with
+    the trended estimate continuing to about 53bp while the untrended one falls back
+    to about 13bp. That gap is exactly the drift the trend control exists to remove:
+    post-2020 the inflation-uncertainty driver and the projected deficit both rise
+    together, so without the control the uncertainty driver absorbs the fiscal
+    coefficient. The trended endpoint is the one that agrees with the full-sample
+    post-break estimate; the untrended one is shown anyway rather than dropped,
+    because a reader is entitled to see how much the control is doing.
+    """
+    q = p.dropna(subset=["tp", "fiscal", *CORE]).copy()
+    chg = q["fiscal"].ne(q["fiscal"].shift())
+    if len(chg):
+        chg.iloc[0] = True
+        q = q[chg.values]
+    n = len(q)
+    if n < window + 5:
+        return {"trend": [], "notrend": [], "window": window, "n": n}
+    x = design(q, CORE)
+    y = q["tp"].values
+
+    def _series(with_trend: bool) -> list:
+        out = []
+        for end in range(window, n + 1):
+            sl = slice(end - window, end)
+            cols = [np.ones(window), q["fiscal"].values[sl],
+                    *[x[k].values[sl] for k in CORE]]
+            if with_trend:
+                cols.append(np.arange(window, dtype=float))
+            A = np.column_stack(cols)
+            b, *_ = np.linalg.lstsq(A, y[sl], rcond=None)
+            out.append([str(q.index[end - 1].date()), round(float(b[1]) * 100, 1)])
+        return out
+
+    return {"trend": _series(True), "notrend": _series(False),
+            "window": window, "n": n}
+
+
 def _fit_us_production(p: pd.DataFrame) -> DriverModel:
     """The US model: three drivers fitted on the long sample, fiscal as a measured
     post-break adjustment.

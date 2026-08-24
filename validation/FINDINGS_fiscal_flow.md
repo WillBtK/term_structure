@@ -125,3 +125,32 @@ The five-year average deficit — a proxy for the structural balance, closer to 
 projected measure — was tested and is worse than both alternatives everywhere except a
 truncated German sample (UK 2.75 out of sample against 0.71 for the stock). Raw
 cyclicality is not the thing that needs stripping out.
+
+---
+
+## The sensitivity through time, not just the break
+
+`model.tp_drivers.rolling_fiscal_sensitivity`. The Quandt-Andrews test answers "is there
+a break"; a rolling refit answers "by how much has the sensitivity changed", which is
+the question a reader actually has. Same regression, same HAC, same vintage frequency —
+only the sample moves, on a 40-vintage window.
+
+| | ~2003 | 2012 | 2016 | 2020 | today |
+|---|---|---|---|---|---|
+| with drift control | −6bp | +3bp | +27bp | +34bp | **+53bp** |
+| without | −12bp | ±0bp | +27bp | +25bp | +13bp |
+
+Two readings matter. First, the shape: at or below zero through the 1990s and 2000s,
+crossing into positive territory in the early 2010s, climbing since. A trailing window
+registers a 2008 break with a lag, which is why the crossing is later than the break
+date — the exhibit and the test agree.
+
+Second, the divergence after 2020. The projected deficit and inflation uncertainty both
+rise across that period, so without a drift control the uncertainty driver absorbs the
+fiscal coefficient and the estimate falls back to 13bp. The controlled estimate ends at
+53bp, which is what the full-sample post-break fit gives (51.9bp, t 6.7). Both series
+are carried in the payload and both are plotted, because a reader is entitled to see how
+much the control is doing rather than be told it is fine.
+
+Verified in `model/tests/test_rolling_fiscal.py` against synthetic panels with a known
+coefficient and a known step date.
