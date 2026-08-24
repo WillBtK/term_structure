@@ -620,9 +620,18 @@ function project(c, hs){
   const us0 = usM.drivers, usH = {};
   hs.forEach(h => usH[h] = driversAt("US", usS, h));
   const usResid = usM.tp_today - usPremium(us0);      // what the drivers cannot explain
+  /* ONE VIEW, ONE SPEED. The share of your view priced by horizon h is 1 - lam^h, and
+     it weights BOTH legs -- your rate path in blendedPolicy, and the premium's move in
+     fair value here. Previously the premium took your inflation path at face value
+     from year one while the matching rate view phased in over a decade, so a coherent
+     forecast (tighten, and inflation falls with it) moved the yield on the gap between
+     two dials rather than on the economics. The residual still decays at RHO: it is
+     not a view, and how fast a mispricing dies is a different question. */
+  const vw = h => 1 - Math.pow(LAMV, h);
   const tpUs = {0: usM.tp_today};
   hs.forEach(h => tpUs[h] = h === 0 ? usM.tp_today
-                                    : usPremium(usH[h]) + usResid * Math.pow(RHO, h));
+    : usM.tp_today + (usPremium(usH[h]) - usPremium(us0)) * vw(h)
+      + usResid * (Math.pow(RHO, h) - 1));
 
   const tp = {0: M.tp_today};
   if(c === "US"){ hs.forEach(h => tp[h] = tpUs[h]); }
@@ -632,7 +641,15 @@ function project(c, hs){
     hs.forEach(h => {
       if(h === 0){ tp[0] = M.tp_today; return; }
       const ownH = driversAt(c, sc, h);
-      tp[h] = spreadPremium(c, usH[h], ownH, tpUs[h]) + resid * Math.pow(RHO, h);
+      /* Split before weighting: the US premium arriving in tpUs[h] has already been
+         blended, so weighting the whole move would damp that channel twice and make
+         every spread market converge more slowly than the US for no reason. The beta
+         channel passes at full weight; only this market's own relative drivers carry
+         the weight. Holding tpUs[0] fixed in both premia isolates that own channel. */
+      const usMove = M.model.beta_us * (tpUs[h] - tpUs[0]);
+      const ownMove = spreadPremium(c, usH[h], ownH, tpUs[0])
+                    - spreadPremium(c, us0, own0, tpUs[0]);
+      tp[h] = M.tp_today + usMove + ownMove * vw(h) + resid * (Math.pow(RHO, h) - 1);
     });
   }
   const curve = M.y_today - M.tp_today;              // what the market prices

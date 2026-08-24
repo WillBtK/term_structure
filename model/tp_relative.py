@@ -101,7 +101,8 @@ class RelativeModel:
     def scenario(self, us_today: dict, us_scenario: dict, own_today: dict,
                  own_scenario: dict, tp_us_today: float, tp_us_scenario: float,
                  tp_today: float, horizon: float = 0.0,
-                 rho: float = RESIDUAL_PERSISTENCE) -> float:
+                 rho: float = RESIDUAL_PERSISTENCE,
+                 view_weight: float = 1.0) -> float:
         """Anchored on today's observed premium, exactly as the US model is.
 
         The model supplies the level from the drivers and today supplies what they
@@ -110,11 +111,40 @@ class RelativeModel:
         and for the evidence that Germany and Japan prefer no decay at all while the US
         and UK clearly prefer some.
 
-        At the zero horizon this returns today's premium exactly, whatever ``rho``.
+        At the zero horizon this returns today's premium exactly for any ``rho``
+        PROVIDED ``view_weight`` is the engine's ``1 - lambda**h``, which is zero
+        there. Unweighted it returns today's premium plus the whole move in fair
+        value, because the drivers at h=0 already read the user's full path; the
+        engine used to paper over that by writing ``tp[0] = tp_today`` at the call
+        site instead of calling this.
+
+        ``view_weight`` phases the scenario's move in fair value in at the same rate
+        the expectations leg phases the rate view in -- see
+        ``model.tp_drivers.DriverModel.scenario`` for why one view must price at one
+        speed.
+
+        The move has to be SPLIT before it is weighted. The premium is linear in its
+        parts, so
+
+            premium(s) - premium(t) = beta * (tp_us_s - tp_us_t)      <- US channel
+                                    + [own relative drivers moving]   <- own channel
+
+        and the US premium arriving in ``tp_us_scenario`` has already been blended by
+        the US model. Weighting the whole move would damp that channel a second time,
+        which would make every spread market converge more slowly than the US for no
+        reason. So the US channel passes through at full weight and only this market's
+        own relative drivers carry ``view_weight``. Evaluating both premia at the same
+        ``tp_us_today`` is what isolates the own channel.
+
+        ``view_weight=1.0`` reproduces the unblended result exactly.
         """
         residual = float(tp_today) - self.premium(us_today, own_today, tp_us_today)
-        return (self.premium(us_scenario, own_scenario, tp_us_scenario)
-                + residual * (rho ** float(horizon)))
+        w = float(view_weight)
+        us_move = self.beta_us * (float(tp_us_scenario) - float(tp_us_today))
+        own_move = (self.premium(us_scenario, own_scenario, tp_us_today)
+                    - self.premium(us_today, own_today, tp_us_today))
+        return (float(tp_today) + us_move + own_move * w
+                + residual * (rho ** float(horizon) - 1.0))
 
 
 def _relative(own: dict, us: dict) -> dict:

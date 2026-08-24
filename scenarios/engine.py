@@ -53,6 +53,20 @@ The chain, every link anchored to today:
      that decline in as a view nobody expressed -- which is why the sheet's neutral
      opening is the market's own year-by-year path rather than a flat line.
 
+     THE SAME WEIGHT APPLIES TO THE PREMIUM. A view is one object: "policy tightens
+     and inflation comes down with it" is a single forecast, not two. Until this was
+     made explicit the premium's drivers took the user's inflation path at face value
+     from year one while the expectations leg phased the matching rate view in at
+     1 - lam**h -- a fifth of it after a year. A disinflationary tightening therefore
+     put the whole premium fall in immediately and only a fifth of the rate rise, and
+     the net ten-year yield moved on the gap between two dials rather than on the
+     economics. Nothing supports the market believing one half of a forecast faster
+     than the other, so both legs now move at 1 - lam**h and the composition of the
+     yield at any horizon is coherent. The RESIDUAL still decays at ``rho``: it is not
+     a view, it is the part of today's premium the drivers cannot explain, and how
+     fast a mispricing dies is a different question from how fast a forecast is
+     believed.
+
      At h = 0 no part of the view is in yet, so Pbar(0) is the market's number exactly
      and y(0) = TP(0) + Pbar(0) reproduces today's yield. ``VIEW_CONVERGENCE = 0.8``
      puts about half a stated view into the three-year horizon and nine tenths into the
@@ -418,9 +432,13 @@ def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dic
     us_drv.update({h: drivers_at(us_state, us_scen, h, debt_defaults.get("US"),
                                  deficit_defaults.get("US"))
                    for h in HORIZONS})
+    # One view, one speed. The share of the user's view that has been priced at this
+    # horizon is 1 - lambda**h, and it now weights BOTH legs: the expectations leg in
+    # blended_policy_average and the premium's move in fair value here.
+    vw = {h: 1.0 - float(view_convergence) ** float(h) for h in HORIZONS}
     us_tp = {0: us_state.tp_today}
     us_tp.update({h: us_model.scenario(us_drv[0], us_drv[h], us_state.tp_today,
-                                       horizon=h, rho=rho)
+                                       horizon=h, rho=rho, view_weight=vw[h])
                   for h in HORIZONS})
 
     results = {"US": run_market(us_state, us_scen, us_tp, debt_defaults.get("US"),
@@ -433,7 +451,8 @@ def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dic
         for h in HORIZONS:
             own_h = drivers_at(st, sc, h, debt_defaults.get(c), deficit_defaults.get(c))
             tp[h] = m.scenario(us_drv[0], us_drv[h], st.drivers_today, own_h,
-                               us_tp[0], us_tp[h], st.tp_today, horizon=h, rho=rho)
+                               us_tp[0], us_tp[h], st.tp_today, horizon=h, rho=rho,
+                               view_weight=vw[h])
         results[c] = run_market(st, sc, tp, debt_defaults.get(c), view_convergence)
     return results
 

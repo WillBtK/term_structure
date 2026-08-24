@@ -200,7 +200,8 @@ class DriverModel:
                 + sum(self.coef[k] * x[k] for k in self.drivers)) - panel["tp"]
 
     def scenario(self, today: dict, scenario: dict, tp_today: float,
-                 horizon: float = 0.0, rho: float = RESIDUAL_PERSISTENCE) -> float:
+                 horizon: float = 0.0, rho: float = RESIDUAL_PERSISTENCE,
+                 view_weight: float = 1.0) -> float:
         """Scenario premium anchored to today's observed level, with the unexplained
         part DECAYING at ``rho`` per year rather than persisting for ever.
 
@@ -221,9 +222,31 @@ class DriverModel:
         goes straight to the model's own fair value, which for the US today would mean
         asserting the ten-year yield is 71bp rich. The default sits between them --
         see ``RESIDUAL_PERSISTENCE`` for the evidence.
+
+        ``view_weight`` is how much of the SCENARIO's move in fair value has been
+        priced by this horizon. It exists so the premium leg and the expectations leg
+        price one view at ONE speed.
+
+        Without it the two legs disagree in a way that cannot be defended. The
+        expectations leg phases a stated rate view in at ``1 - lambda**h`` -- a fifth
+        of it after a year, half after three. The premium's drivers took the same
+        user's inflation path at face value from year one. So a single coherent view --
+        policy tightens and inflation falls with it -- put the whole disinflation into
+        the premium immediately while only a fifth of the tightening reached the
+        expectations leg, and the net ten-year yield moved for no reason other than the
+        gap between two dials. There is no evidence for the market believing one half
+        of a forecast faster than the other, so the model should not assert it.
+
+        Passing ``view_weight=1.0`` reproduces the unblended behaviour exactly, which
+        is what makes this a generalisation rather than a change of model: the residual
+        still decays at ``rho`` (it is not a view and does not phase in), and at
+        ``horizon=0`` this still returns today's premium whatever either dial says.
         """
         residual = float(tp_today) - self.premium(**today)
-        return self.premium(**scenario) + residual * (rho ** float(horizon))
+        w = float(view_weight)
+        fair_move = self.premium(**scenario) - self.premium(**today)
+        return (float(tp_today) + fair_move * w
+                + residual * (rho ** float(horizon) - 1.0))
 
 
 def _us_holdings(index: pd.DatetimeIndex) -> pd.DataFrame:
