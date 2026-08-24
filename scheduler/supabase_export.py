@@ -243,6 +243,8 @@ SHEET_BUCKET = os.environ.get("SUPABASE_SHEET_BUCKET") or "sheet"
 SHEET_OBJECT = "index.html"
 DECK_HTML = ROOT / "presentation" / "index.html"
 DECK_OBJECT = "deck.html"          # served by the worker at /deck
+SUMMARY_HTML = ROOT / "presentation" / "summary.html"
+SUMMARY_OBJECT = "summary.html"    # served by the worker at /summary
 
 
 def _fresh_sheet_html() -> str:
@@ -284,9 +286,10 @@ def maybe_upload_sheet() -> bool:
         logger.warning("sheet %s missing; skipping publish.", SHEET_HTML)
         return False
     ok = _upload_page(url, key, SHEET_OBJECT, _fresh_sheet_html(), "sheet")
-    if DECK_HTML.exists():
-        _upload_page(url, key, DECK_OBJECT,
-                     DECK_HTML.read_text(encoding="utf-8"), "deck")
+    for src, obj, label in ((DECK_HTML, DECK_OBJECT, "deck"),
+                            (SUMMARY_HTML, SUMMARY_OBJECT, "summary")):
+        if src.exists():
+            _upload_page(url, key, obj, src.read_text(encoding="utf-8"), label)
     return ok
 
 

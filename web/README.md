@@ -84,9 +84,9 @@ is a comfortable default).
 * **The sheet updates itself** — every daily pipeline run re-uploads it with
   fresh data. Nothing to redo.
 * **If the numbers look stale**, re-run Step 2's workflow button.
-* **The presentation deck** is served at **`/deck`** on the same address (e.g.
-  `yield-scenarios.will-oswald.workers.dev/deck`) — uploaded by the same pipeline
-  run, behind the same door.
+* **The presentations** are on the same address: **`/deck`** for the full
+  walkthrough and **`/summary`** for the two-slide version. Both are uploaded by
+  the same pipeline run, behind the same door.
 * **The Atlas is unaffected** (it stays on its public link).
 * **If the office proxy also blocks the "Export CSV" download**, say so — the
   next step recorded for that is saving scenarios into Supabase instead of

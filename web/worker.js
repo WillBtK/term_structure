@@ -47,6 +47,7 @@ async function serve(request, env) {
     // serves the scenario sheet
     const path = new URL(request.url).pathname;
     const object = path.startsWith("/deck") ? "deck.html"
+                 : path.startsWith("/summary") ? "summary.html"
                  : (env.SHEET_OBJECT || "index.html");
     // tolerate a URL pasted without the scheme
     let base = env.SUPABASE_URL.trim().replace(/\/+$/, "");

@@ -157,6 +157,47 @@ def build() -> dict:
                  + [["fair value", round(float(fair_today), 2)]])
     tp_state = round(float(st.tp_today), 2)
 
+    # --- Q5: bonds stop hedging — the one OBSERVABLE link in the chain ----------
+    # Brixton et al. (AQR 2023): growth vol pushes the stock-bond correlation down
+    # (bonds hedge), inflation vol pushes it up (bonds stop hedging). The ratio form
+    # is what we use -- see validation/FINDINGS_sbc.md.
+    from validation.sbc_macro import build_panel as sbc_panel
+    sp = sbc_panel()
+    sbc_pts = [[round(float(r["sigma_pi"] / r["sigma_g"]), 3), round(float(r["sbc"]), 3),
+                r["country"]] for _, r in sp.iterrows()
+               if r["sigma_g"] and np.isfinite(r["sigma_pi"] / r["sigma_g"])
+               and r["sigma_pi"] / r["sigma_g"] < 4]
+    x = np.array([q[0] for q in sbc_pts]); yv = np.array([q[1] for q in sbc_pts])
+    sb, sa = np.polyfit(x, yv, 1)
+    us_sbc = sp[sp["country"] == "US"].set_index("date")["sbc"]
+    sbc = {"pts": sbc_pts, "slope": round(float(sb), 2), "a": round(float(sa), 3),
+           "us": monthly(us_sbc, nd=2),
+           "n": len(sbc_pts), "markets": int(sp["country"].nunique())}
+
+    # --- Q6: the official bid, US ------------------------------------------------
+    own_us = monthly(us["price_insensitive"], nd=1)
+
+    # --- Q7: growth -> deficit, the sensitivity chain ----------------------------
+    from macro.fiscal_rules import GAP_CLOSURE, SEMI_ELASTICITY
+    from macro.fiscal_projections import growth_baseline, path as fiscal_path
+    from macro.fiscal_rules import adjusted_deficit
+    off = fiscal_path("US")
+    base_g = {k: v for k, v in enumerate(
+        [growth_baseline("US").get(pd.Timestamp.today().year + k, 1.8)
+         for k in range(0, 12)])}
+    slow = {k: v - 1.0 for k, v in base_g.items()}
+    chain = {"official": [round(off.get(k, list(off.values())[-1]), 2) for k in range(1, 11)],
+             "slower": [round(v, 2) for k, v in
+                        sorted(adjusted_deficit("US", slow, base_g, off).items())
+                        if 1 <= k <= 10],
+             "eps": SEMI_ELASTICITY, "closure": GAP_CLOSURE}
+
+    # --- Q7: convergence — nothing jumps -----------------------------------------
+    # illustrative: a 1pp view phasing in at lambda, a gap decaying at rho
+    LAM, RHO = 0.8, 0.9
+    converge = {"view": [round(100 * (1 - LAM ** h)) for h in range(11)],
+                "resid": [round(100 * RHO ** h) for h in range(11)]}
+
     # --- Act V: what it says now -------------------------------------------------
     tp_now = float(tp_state)
     resid_now = tp_now - float(fair_today)
@@ -187,6 +228,7 @@ def build() -> dict:
                 "resid": round(resid_now, 2), "sigma": round(sigma, 2),
                 "z": round(resid_now / sigma, 1)},
         "rho_paths": rho_paths,
+        "sbc": sbc, "own_us": own_us, "chain": chain, "converge": converge,
     }
 
 
