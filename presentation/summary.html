@@ -4,9 +4,10 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
 :root{
-  --bg:#141517; --stage:#191B1E; --ink:#E9EAEB; --ink2:#B4BAC0; --muted:#7E858C;
-  --rule:#2B3036; --rule-soft:#22262B; --sunk:#1E2226;
-  --us:#3987e5; --uk:#d95926; --de:#199e70; --jp:#c98500; --accent:#3987e5;
+  --bg:#F4F1EC; --stage:#FBFAF8; --card:#FFFFFF; --sunk:#F4F1EC;
+  --ink:#191C1F; --ink2:#4C5257; --muted:#797F85;
+  --rule:#E4E0D9; --rule-soft:#EFECE6;
+  --us:#2f6fd4; --uk:#c2410c; --de:#157f5b; --jp:#8c2c86; --accent:#2f6fd4;
   --serif:"Newsreader",Georgia,serif; --sans:"IBM Plex Sans",system-ui,sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,monospace;
 }
@@ -37,7 +38,7 @@ path.thin{stroke-width:1.4}
   border-radius:3px;min-width:19px;height:19px;text-align:center;flex:none;margin-top:2px}
 .step .t{font:400 13.5px/1.45 var(--sans);color:var(--ink2)}
 .step .t b{color:var(--ink);font-weight:600}
-.panel{background:var(--sunk);border:1px solid var(--rule-soft);border-radius:4px;padding:15px 17px}
+.panel{background:var(--card);border:1px solid var(--rule);border-radius:4px;padding:15px 17px}
 .panel .tag{font:500 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;
   color:var(--muted);display:block;margin-bottom:9px}
 .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;width:100%}
@@ -61,8 +62,31 @@ const MC = {US:"var(--us)", UK:"var(--uk)", DE:"var(--de)", JP:"var(--jp)"};
 const MN = {US:"United States", UK:"United Kingdom", DE:"Germany", JP:"Japan"};
 const mser = m => (m && m.t0 != null)
   ? m.v.map((y,i)=>[m.t0+i/12, y]).filter(p=>p[1]!=null) : [];
-function chart(w, h, x0, x1, y0, y1, pad){
+function niceStep(range, target){
+  const raw = range/(target||4), mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const nm = raw/mag;
+  return (nm<1.5?1:nm<3?2:nm<7?5:10)*mag;
+}
+/* Bounds from what the chart will actually show, snapped outward on the RAW
+   range - padding first and snapping after inflates every axis by up to a step. */
+function bounds(series, opt){
+  opt = opt||{};
+  let lo=Infinity, hi=-Infinity;
+  const a=opt.x0==null?-Infinity:opt.x0, b=opt.x1==null?Infinity:opt.x1;
+  series.forEach(s=>s.forEach(q=>{ const v=q[1];
+    if(q[0]<a || q[0]>b) return;
+    if(v!=null && isFinite(v)){ lo=Math.min(lo,v); hi=Math.max(hi,v); } }));
+  if(!isFinite(lo)){ lo=0; hi=1; }
+  if(opt.zero){ lo=Math.min(lo,0); hi=Math.max(hi,0); }
+  if(hi===lo){ hi=lo+1; }
+  if(opt.lo!=null) lo=opt.lo;
+  if(opt.hi!=null) hi=opt.hi;
+  const step=niceStep(hi-lo, opt.ticks||5);
+  return [Math.floor(lo/step)*step, Math.ceil(hi/step)*step, step];
+}
+function chart(w, h, x0, x1, yb, pad){
   const p = Object.assign({l:44, r:18, t:12, b:26}, pad||{});
+  const [y0,y1,ystep] = yb;
   const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
   svg.setAttribute("width", w); svg.setAttribute("height", h);
   svg.setAttribute("viewBox", "0 0 " + w + " " + h);
@@ -77,8 +101,9 @@ function chart(w, h, x0, x1, y0, y1, pad){
     for(const k in at) n.setAttribute(k, at[k]); (parent||svg).appendChild(n); return n; };
   cr.setAttribute("x",p.l); cr.setAttribute("y",p.t);
   cr.setAttribute("width",w-p.l-p.r); cr.setAttribute("height",h-p.t-p.b);
-  const span = y1-y0, gs = span>8?4:span>4?2:span>1.6?1:0.5;
+  const gs = ystep;
   for(let v=Math.ceil(y0/gs)*gs; v<=y1+1e-9; v+=gs){
+    if(Math.abs(v)<1e-9) v=0;
     el("line",{x1:p.l,x2:w-p.r,y1:Y(v),y2:Y(v),class:Math.abs(v)<1e-9?"zeroline":"gridline"});
     el("text",{x:p.l-7,y:Y(v)+4,"text-anchor":"end"}).textContent=(+v.toFixed(2)).toString(); }
   const raw=(x1-x0)/5, mag=Math.pow(10,Math.floor(Math.log10(raw))), nm=raw/mag;
@@ -86,8 +111,9 @@ function chart(w, h, x0, x1, y0, y1, pad){
   for(let v=Math.ceil(x0/xs)*xs; v<=x1+1e-9; v+=xs)
     el("text",{x:X(v),y:h-p.b+17,"text-anchor":"middle"})
       .textContent = xs<1 ? v.toFixed(1) : Math.round(v).toString();
-  const clip = pts => pts.filter(q=>q[0]>=x0 && q[0]<=x1);
-  return {svg, X, Y, el,
+  const clip = pts => pts.filter(q=>q[0]>=x0 && q[0]<=x1 && q[1]!=null);
+  const ends = [];
+  return {svg, X, Y, el, x0, x1, y0, y1, w, h, p,
     path(pts, at){ const c=clip(pts);
       const d=c.map((q,i)=>(i?"L":"M")+X(q[0]).toFixed(1)+" "+Y(q[1]).toFixed(1)).join(" ");
       return this.el("path", Object.assign({d,class:"series","clip-path":"url(#"+cid+")"}, at)); },
@@ -95,7 +121,26 @@ function chart(w, h, x0, x1, y0, y1, pad){
       const up=clip(a).map(q=>X(q[0]).toFixed(1)+" "+Y(q[1]).toFixed(1)).join(" L");
       const dn=clip(b).slice().reverse().map(q=>X(q[0]).toFixed(1)+" "+Y(q[1]).toFixed(1)).join(" L");
       return this.el("path", Object.assign({d:"M"+up+" L"+dn+" Z",
-        "clip-path":"url(#"+cid+")"}, at)); }};
+        "clip-path":"url(#"+cid+")"}, at)); },
+    /* fill goes on style, not the attribute - `svg text{fill:...}` outranks a
+       presentation attribute, which silently greyed every direct label. */
+    note(x, y, text, color, anchor){
+      this.el("text",{x:X(x),y:Y(y),class:"lbl",style:"fill:"+(color||"var(--muted)"),
+        "text-anchor":anchor||"start"}).textContent = text; },
+    endLabel(pts, text, color){ const c=clip(pts); if(!c.length) return;
+      ends.push({y:Y(c[c.length-1][1]), text:text, color:color}); },
+    flush(){
+      if(!ends.length) return;
+      const MIN=17, top=p.t+7, bot=h-p.b-2;
+      ends.sort((a,b)=>a.y-b.y);
+      for(let i=1;i<ends.length;i++)
+        if(ends[i].y-ends[i-1].y<MIN) ends[i].y=ends[i-1].y+MIN;
+      const over = ends[ends.length-1].y - bot;
+      if(over>0) ends.forEach(e=>e.y-=over);
+      if(ends[0].y<top){ const d=top-ends[0].y; ends.forEach(e=>e.y+=d); }
+      ends.forEach(e=>{ this.el("text",{x:w-p.r+6,y:e.y+4,class:"lbl",style:"fill:"+e.color})
+        .textContent = e.text; });
+      ends.length = 0; }};
 }
 const div=(cls,html)=>{const d=document.createElement("div");
   if(cls)d.className=cls; if(html!=null)d.innerHTML=html; return d;};
@@ -131,7 +176,7 @@ SLIDES.push(function(st){
   [["We measure the premium","the same way in all four markets - a curve model anchored on surveys, "
     + "corrected for the zero-rate years and for regime changes"],
    ["The US sets the level","the four premia share one common factor worth about <b>"
-    + Math.round(P.pc1.level*100)+"%</b> of their variation, and the US leads it"],
+    + "80%</b> of their variation, and the US leads it"],
    ["Three drivers explain the US","<b>inflation</b> and the volatility it brings, the <b>projected "
     + "deficit</b>, and how much is held by <b>price-insensitive buyers</b>"],
    ["Other markets are the US plus a difference","relative inflation, relative ownership, relative "
@@ -146,14 +191,15 @@ SLIDES.push(function(st){
   o.b.appendChild(left);
   const right=div(""); right.style.flex="1"; right.style.display="flex";
   right.style.flexDirection="column"; right.style.justifyContent="center";
-  const c=chart(560,300,1990,2027,-1,9);
   const ys=mser(P.y_us), es=mser(P.exp_us);
-  c.area(ys,es,{fill:MC.US,opacity:.2});
+  const c=chart(560,300,1990,2027,bounds([ys,es],{zero:true,x0:1990,x1:2027}),{r:118});
+  c.area(ys,es,{fill:MC.US,opacity:.18});
   c.path(ys,{stroke:"var(--ink2)"});
   c.path(es,{stroke:MC.US,class:"series thin"});
-  c.el("text",{x:c.X(1991),y:c.Y(8.4),class:"lbl",fill:"var(--ink2)"}).textContent="US 10y yield";
-  c.el("text",{x:c.X(2011),y:c.Y(4.6),class:"lbl",fill:MC.US}).textContent="term premium";
-  c.el("text",{x:c.X(1998),y:c.Y(0.2),class:"lbl",fill:MC.US}).textContent="expected policy";
+  c.endLabel(ys,"10y yield","var(--ink2)");
+  c.endLabel(es,"expected policy",MC.US);
+  c.note(1991, c.y1-0.5, "the gap is the term premium", MC.US);
+  c.flush();
   right.appendChild(c.svg);
   right.appendChild(div("panel",
     "<span class=\"tag\">Today, United States</span>"
@@ -174,8 +220,8 @@ SLIDES.push(function(st){
   st.appendChild(o.s);
   const g=div("grid2");
   const ev=[
-["~"+(Math.round(P.pc1.level*20)*5)+"%", "Term premia move together",
-     "One common factor explains about "+Math.round(P.pc1.level*100)+"% of the variation across the "
+["~80%", "Term premia move together",
+     "One common factor explains about 80% of the variation across the "
      + "four markets. The share moves through time, which is why we model the differences rather "
      + "than assume them away.", "var(--us)"],
     ["1-1.5%", "Inflation's effect is non-linear",
