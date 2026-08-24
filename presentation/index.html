@@ -426,21 +426,21 @@ SLIDES.push({steps:3, render(st,k,anim){
 SLIDES.push({steps:2, render(st,k,anim){
   const o = shell(Q[5], "And a very large buyer who does not care about price",
     k>=1 ? "Central banks and foreign official institutions buy for policy or reserve reasons, not "
-           + "because the premium looks attractive. At the peak they held over a <b>quarter of US "
-           + "GDP</b> in Treasuries. Ignore them and a model reads the QE decade as inflation "
+           + "because the premium looks attractive. Their holdings went from under 20% of GDP "
+           + "before the financial crisis to a peak <b>above 40%</b>, and they still sit close to <b>30% of GDP</b> today. Ignore them and a model reads the QE decade as inflation "
            + "mysteriously failing to explain anything."
          : "Quantitative easing is the famous half of this. Foreign official reserve managers are the "
            + "other half, and they were there long before QE.");
   st.appendChild(o.s);
-  const c = chart(1140, 382, 1990, 2027, 0, 32);
-  if(k>=1){ const band = c.el("rect",{x:c.X(2009),y:c.Y(32),width:c.X(2021)-c.X(2009),
-      height:c.Y(0)-c.Y(32), fill:MC.US, opacity:0});
+  const c = chart(1140, 382, 1990, 2027, 0, 50);
+  if(k>=1){ const band = c.el("rect",{x:c.X(2009),y:c.Y(50),width:c.X(2021)-c.X(2009),
+      height:c.Y(0)-c.Y(50), fill:MC.US, opacity:0});
     band.style.transition="opacity .6s";
     const go=()=>band.style.opacity=.09; (anim&&k===1)?setTimeout(go,60):go();
-    c.el("text",{x:c.X(2015),y:c.Y(30.6),class:"lbl",fill:"var(--muted)","text-anchor":"middle"})
+    c.el("text",{x:c.X(2015),y:c.Y(47.5),class:"lbl",fill:"var(--muted)","text-anchor":"middle"})
       .textContent="QE"; }
   drawIn(c.path(mser(P.own_us), {stroke:MC.DE}), 1.3, !(anim&&k===0));
-  c.el("text",{x:c.X(1991),y:c.Y(28.6),class:"lbl",fill:MC.DE})
+  c.el("text",{x:c.X(1991),y:c.Y(45),class:"lbl",fill:MC.DE})
     .textContent="Fed + foreign official holdings, % of GDP";
   o.wrap.appendChild(c.svg);
 }});
