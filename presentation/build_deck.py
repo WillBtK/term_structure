@@ -46,16 +46,19 @@ def build() -> dict:
               for c in MARKETS if c != "US"}
 
     # --- Act I: the object -------------------------------------------------------
-    obs = pd.read_parquet(HERE.parent / "viz" / "data_daily.parquet")
-    obs = obs[(obs["instrument"] == "nominal") & (obs["tenor"] == 10.0)]
-    ten = {c: (obs[obs["country"] == c].set_index("date")["observed"]
-               .sort_index() * 100).resample("MS").mean() for c in MARKETS}
-    # display + PC1 series from the canonical parquet (the FINDINGS basis); the
-    # estimation panels keep supplying the fits
-    tpq = pd.read_parquet(HERE.parent / "viz" / "data_daily.parquet")
-    tpq = tpq[(tpq["instrument"] == "nominal") & (tpq["tenor"] == 10.0)]
-    tp = {c: (tpq[tpq["country"] == c].set_index("date")["term_premium"]
-              .sort_index() * 100).resample("MS").mean().dropna() for c in MARKETS}
+    # Yield and premium must share one monthly convention or their difference -- the
+    # expectations leg -- picks up an artefact. Both come from macro.tp_history, which
+    # is month-END throughout and history-extends Germany on both series.
+    from macro.tp_history import long_yield_monthly, spliced_tp
+    ten = {c: long_yield_monthly(10.0)[c] for c in MARKETS}
+    # The DISPLAY series come from the spliced monthly history, not the daily panel.
+    # The daily Bund curve starts 1997-08, but Germany has a committed monthly exhibit
+    # back to 1972-09 which macro.tp_history level-matches onto the production series at
+    # a single month-end -- preserving the 1970s shape and removing only the level
+    # offset that the historical fit's full-sample mean introduces. Showing four markets
+    # from 1997 when three of them run to the 1970s understates what we have.
+    hist = spliced_tp(10.0)
+    tp = {c: hist[c].dropna() for c in MARKETS}
     y_us = ten["US"].dropna()
     exp_us = (y_us - tp["US"]).dropna()          # expectations leg = yield - premium
     today = {c: {"y": round(float(ten[c].dropna().iloc[-1]), 2),
@@ -63,6 +66,7 @@ def build() -> dict:
 
     # --- Act II: common, but never naively --------------------------------------
     # PC1 share on the balanced four-market panel, levels and 5y-rolling on changes
+    # PC1 stays on the balanced overlap -- a common factor needs all four present
     panel4 = pd.concat({c: tp[c] for c in MARKETS}, axis=1).loc["1997-08":].dropna()
     z = (panel4 - panel4.mean()) / panel4.std()
     pc1_level = float(np.linalg.eigvalsh(z.corr())[-1] / 4)
@@ -169,9 +173,17 @@ def build() -> dict:
                and r["sigma_pi"] / r["sigma_g"] < 4]
     x = np.array([q[0] for q in sbc_pts]); yv = np.array([q[1] for q in sbc_pts])
     sb, sa = np.polyfit(x, yv, 1)
-    us_sbc = sp[sp["country"] == "US"].set_index("date")["sbc"]
+    # The US series comes from SHILLER, not the six-market panel. That panel starts in
+    # 1981 and so contains one inflation regime change; a relationship shown on one
+    # turning point is an anecdote. Shiller's monthly data runs from 1871, which puts
+    # the Great Inflation, the disinflation and two earlier inflations in the picture.
+    from macro import shiller
+    us_sbc = shiller.stock_bond_correlation()
+    eras = shiller.regime_means(us_sbc)
     sbc = {"pts": sbc_pts, "slope": round(float(sb), 2), "a": round(float(sa), 3),
-           "us": monthly(us_sbc, nd=2),
+           "us": monthly(us_sbc, nd=3),
+           "eras": [[r["era"], r["regime"], r["corr"]] for _, r in eras.iterrows()],
+           "us_from": int(us_sbc.index[0].year), "window_y": shiller.WINDOW // 12,
            "n": len(sbc_pts), "markets": int(sp["country"].nunique())}
 
     # --- Q6: the official bid, US ------------------------------------------------
@@ -192,11 +204,23 @@ def build() -> dict:
                         if 1 <= k <= 10],
              "eps": SEMI_ELASTICITY, "closure": GAP_CLOSURE}
 
-    # --- Q7: convergence — nothing jumps -----------------------------------------
-    # illustrative: a 1pp view phasing in at lambda, a gap decaying at rho
-    LAM, RHO = 0.8, 0.9
-    converge = {"view": [round(100 * (1 - LAM ** h)) for h in range(11)],
-                "resid": [round(100 * RHO ** h) for h in range(11)]}
+    # --- Q6: the fiscal break, tested rather than asserted ------------------------
+    from model.tp_drivers import fiscal_break_search
+    brk = fiscal_break_search(us)
+
+    # --- Q6: the ownership channel, as a COEFFICIENT ------------------------------
+    # "a very large buyer who does not care about price" is only an argument if the
+    # buyer's size maps to a number of basis points. It does: the driver enters the US
+    # fit at coef["price_insensitive"] per percentage point of GDP held.
+    pi = us["price_insensitive"].dropna()
+    own_bp = -float(us_m.coef["price_insensitive"]) * 100      # bp per pp of GDP, +ve
+    pi_lo, pi_hi, pi_now = float(pi.min()), float(pi.max()), float(pi.iloc[-1])
+    own = {"bp_per_pp": round(own_bp, 1),
+           "lo": round(pi_lo, 1), "hi": round(pi_hi, 1), "now": round(pi_now, 1),
+           "hi_date": str(pi.idxmax().date()), "lo_date": str(pi.idxmin().date()),
+           # what the build-up took out, and what the unwind has put back
+           "buildup_bp": round((pi_hi - pi_lo) * own_bp),
+           "unwind_bp": round((pi_hi - pi_now) * own_bp)}
 
     # --- Act V: what it says now -------------------------------------------------
     tp_now = float(tp_state)
@@ -228,8 +252,38 @@ def build() -> dict:
                 "resid": round(resid_now, 2), "sigma": round(sigma, 2),
                 "z": round(resid_now / sigma, 1)},
         "rho_paths": rho_paths,
-        "sbc": sbc, "own_us": own_us, "chain": chain, "converge": converge,
+        "sbc": sbc, "own_us": own_us, "chain": chain,
+        "brk": brk, "own": own,
     }
+
+
+PAGES = (HERE / "index.html", HERE / "summary.html")
+_MARK = "const P = "
+
+
+def splice(payload: dict, pages=PAGES) -> list[Path]:
+    """Inline the payload into the deck pages.
+
+    This step used to be manual, and it drifted: the pages carried a payload built
+    before the last three data changes, so every new field read as ``undefined`` and
+    three slides threw. A build that writes the JSON but not the page it is read from
+    has not finished. Rewrites only the ``const P = {...};`` line, so the page's own
+    markup is untouched.
+    """
+    line = _MARK + json.dumps(payload) + ";"
+    done = []
+    for page in pages:
+        if not page.is_file():
+            continue
+        src = page.read_text(encoding="utf-8").split("\n")
+        hit = [i for i, l in enumerate(src) if l.startswith(_MARK)]
+        if not hit:
+            logger.warning("%s has no `%s` line to splice", page.name, _MARK.strip())
+            continue
+        src[hit[0]] = line
+        page.write_text("\n".join(src), encoding="utf-8")
+        done.append(page)
+    return done
 
 
 def _main() -> None:
@@ -237,6 +291,8 @@ def _main() -> None:
     payload = build()
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(payload))
+    for page in splice(payload):
+        print(f"spliced -> {page.name} ({page.stat().st_size:,} bytes)")
     print(f"asof {payload['asof']}  PC1 {payload['pc1']['level']:.2f}  "
           f"R2 infl {payload['r2']['infl']:.3f} full {payload['r2']['full']:.3f}  "
           f"gap {payload['now']['resid']:+.2f} ({payload['now']['z']:.1f} sigma)  "

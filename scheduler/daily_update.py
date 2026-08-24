@@ -43,6 +43,7 @@ def _refreshers():
     from validation.sf_fed import load_sf_fed_series
     from validation.tips_liquidity import build_noise
     from validation.bund_liquidity import build_noise as build_bund_noise
+    from macro.shiller import refresh as shiller_refresh
     return [
         ("US GSW (nominal)", lambda: load_gsw_params(refresh=True)),
         ("US TIPS (real)", lambda: load_tips_params(refresh=True)),
@@ -55,6 +56,7 @@ def _refreshers():
         ("Switzerland (daily)", lambda: ch_load(refresh=True, freq="D")),
         ("Canada (daily)", lambda: ca_load(refresh=True, freq="D")),   # BoC ZC curve (daily-only)
         ("CA benchmark nowcast", lambda: ca_bench(refresh=True)),   # BoC Valet, next-business-day
+        ("Shiller long US history", shiller_refresh),
         ("Benchmark: C&R (SF Fed)", lambda: load_sf_fed_series(refresh=True)),
         ("Benchmarks: ACM/KW/DKW", lambda: bench.refresh_all_us_benchmarks(refresh=True)),
         # Standalone daily product (not just a model input): the TIPS curve-fitting
