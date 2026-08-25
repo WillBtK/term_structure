@@ -188,22 +188,32 @@ path, the IMF WEO macro baseline for growth and inflation, and the official fisc
 balance re-aligned to it. The other four start as copies until their numbers are
 entered.
 
-**Pre-populating.** `PRESETS` in `sheet/index.html` is the seam. Give a scenario a
-per-market block of `{row: {year: value}}` and it is applied over the baseline opening
-at load:
+**Pre-populating from a CSV.** `python -m scenarios.load_presets views.csv` parses a
+scenario file and writes the sheet's `PRESETS` block. `--check` parses and reports
+without touching the sheet. Long format:
 
-```js
-PRESETS["Stagflation"] = {
-  US: {inflation:   {2027: 4.0, 2028: 4.2, 2029: 3.8},
-       policy_rate: {2027: 5.0, 2028: 5.0},
-       real_growth: {2027: 0.5, 2028: 0.3}},
-  UK: { ... }};
+```csv
+scenario,market,row,year,value
+Stagflation,US,inflation,2027,4.5
+Stagflation,US,policy_rate,2027,5.5
 ```
 
-Anything left out keeps the baseline number, so a scenario can state a view on two rows
-and stay neutral on the rest. A `deficit` block (the **balance**, deficit negative)
-takes that market's row manual, exactly as typing in it does — the growth rule stops
-driving it.
+A wide layout with one column per year is detected and reshaped automatically, which is
+usually how a forecast table arrives. Market names, row names and scenario names are
+matched loosely — `United States`, `Real GDP growth`, `high growth high inflation` all
+resolve — but anything unrecognised **raises** rather than being quietly dropped, and a
+blank value is skipped rather than read as zero.
+
+Rows are `policy_rate`, `inflation`, `real_growth` and `fiscal_balance`; the first three
+are percent, the balance is percent of GDP with **deficit negative**, matching what the
+sheet shows. Supplying a balance takes that market's row manual, so the growth rule
+stops driving it — supply growth instead and let the rule do the work.
+
+**A view stated for part of the grid runs to the end of it.** The last year you give is
+carried forward. Stating policy at 2% for 2027–28 and nothing after means 2% from 2027
+onward, not a dip and a snap back to the market's path in 2029. State the later years
+explicitly to say something different. Years you never touch on a row keep the baseline
+opening, so a scenario can state a view on two rows and stay neutral on the rest.
 
 **What the reader gets.** A comparison table above the grid runs all five side by side
 for the selected market: the ten-year yield at three and ten years, the difference from

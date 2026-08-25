@@ -451,8 +451,19 @@ function applyPreset(st, name){
   MK.forEach(c => {
     const blk = p[c]; if(!blk) return;
     for(const row in blk){
-      for(const Y in blk[row]){
-        if(st.S[c][row] && YEARS.includes(+Y)) st.S[c][row][+Y] = +blk[row][Y];
+      if(!st.S[c][row]) continue;
+      const given = Object.keys(blk[row]).map(Number)
+                          .filter(Y => YEARS.includes(Y)).sort((a,b) => a-b);
+      given.forEach(Y => st.S[c][row][Y] = +blk[row][Y]);
+      /* Carry the last stated year forward to the end of the grid. Falling back to
+         the baseline for unstated years turned "policy at 2% in 2027-28" into a V:
+         down to 2, then straight back up to the market's 3.25 in 2029, which is not
+         what anyone meant. Holding flat is the sheet's convention everywhere else,
+         so a view stated for part of the grid runs to the end of it. State the later
+         years explicitly to say something different. */
+      if(given.length){
+        const last = given[given.length - 1], v = +blk[row][last];
+        YEARS.filter(Y => Y > last).forEach(Y => st.S[c][row][Y] = v);
       }
       if(row === "deficit") st.DEFEDIT[c] = true;   // a stated balance is a fiscal view
     }
@@ -746,10 +757,13 @@ function chart(el, spec){
 const PATH_HS = Array.from({length:11}, (_,i) => i);
 const yrOf = h => Y0 + D.year_frac - Math.floor(D.year_frac) + h;   // horizon -> decimal year
 
-/* True when a scenario has been moved off its opening values -- so the bar can show
-   at a glance which of the five actually carry a view. */
+/* True when a scenario says something different from Baseline -- which is the useful
+   signal on the bar. Comparing against a scenario's OWN opening instead would mark
+   nothing once all five are seeded from PRESETS, since each would sit exactly where
+   it was put. */
 function isDirty(name){
-  const base = applyPreset(blankState(), name);
+  if(name === "Baseline") return false;
+  const base = SC["Baseline"];
   const st = SC[name];
   /* The balance row is DERIVED unless the user has taken it manual, so it is not an
      independent input and comparing it would mark every scenario dirty -- a blank
