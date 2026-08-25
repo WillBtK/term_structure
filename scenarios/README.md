@@ -1,7 +1,8 @@
 # Scenario tool
 
 A macro forecast in, a ten-year yield and a bond return out, for the US, UK, Germany
-and Japan. One instrument — the ten-year bond — at two horizons: three years and ten.
+and Japan. One instrument — the ten-year bond — at two horizons: three years and ten,
+plus the US thirty-year in the comparison table (below).
 
 ## Inputs
 
@@ -217,7 +218,24 @@ opening, so a scenario can state a view on two rows and stay neutral on the rest
 
 **What the reader gets.** A comparison table above the grid runs all five side by side
 for the selected market: the ten-year yield at three and ten years, the difference from
-Baseline in basis points, and the annualised nominal and real return. Typed numbers
+Baseline in basis points, and the annualised nominal and real return. **For the US each
+scenario gets a second row, the thirty-year** — a genuine second fit of the same model
+on the thirty-year premium (`viz/data_daily.parquet` carries US 30y nominal from 1985;
+R² 0.90 on 488 months), with the expected-rate leg averaged over thirty years rather
+than ten so the identity `y = premium + expected average short rate` still closes on
+today's yield to a hundredth of a basis point. The drivers are the same series at the
+same definitions — expected inflation is a ten-year survey measure, the fiscal driver
+the five-year-ahead projection — because that is what the coefficients are estimated
+against at every tenor; holding them fixed is what lets the thirty-year loadings be read
+as *how much more the long end moves for the same shift*. They differ substantially: the
+long end loads less on the LEVEL of expected inflation (+0.72 against +1.01) and far
+more on inflation UNCERTAINTY (+1.81 against +0.81), which is the sensible reading — a
+thirty-year bond is paid for the width of the distribution, not its centre. Each bond is
+compared against its own Baseline; a thirty-year yield is not a spread to the ten.
+
+Only the US. The other three price off the US premium through the relative model in
+`model/tp_relative.py`, and that model is fitted at ten years, so a thirty-year Bund or
+gilt would need its own relative fit — not claimed here. Typed numbers
 persist in the browser between visits and are dropped automatically if the underlying
 data vintage changes, so a stored scenario can never mix last month's market path with
 this month's charts. Export writes all five as one CSV, each block readable by

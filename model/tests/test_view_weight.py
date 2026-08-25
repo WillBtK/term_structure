@@ -121,3 +121,22 @@ def test_relative_does_not_damp_the_us_channel_twice():
     for w in (0.0, 0.4, 1.0):
         got = m.scenario(d, d, d, d, 1.63, 2.13, 0.9, horizon=3, rho=1.0, view_weight=w)
         assert got - 0.9 == pytest.approx(m.beta_us * 0.5, abs=1e-12)
+
+
+# ---------------------------------------------- the panel at another tenor ----------
+
+def test_build_panel_takes_the_tenor_from_the_premium_curve():
+    """The left-hand side moves with ``tenor``; the drivers deliberately do not.
+
+    Re-cutting the regressors at each tenor would change both sides at once and the
+    coefficients would stop being comparable across the curve, which is the only thing
+    a second fit is for.
+    """
+    from model.tp_drivers import build_panel
+    ten, thirty = build_panel("US", 10.0), build_panel("US", 30.0)
+    assert list(ten.columns) == list(thirty.columns)
+    common = ten.index.intersection(thirty.index)
+    assert len(common) > 300
+    assert not np.allclose(ten.loc[common, "tp"], thirty.loc[common, "tp"])
+    for k in ("expected_inflation", "inflation_uncertainty", "price_insensitive"):
+        assert np.allclose(ten.loc[common, k], thirty.loc[common, k], equal_nan=True)

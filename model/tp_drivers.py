@@ -261,14 +261,23 @@ def _us_holdings(index: pd.DatetimeIndex) -> pd.DataFrame:
     return out
 
 
-def build_panel(country: str = "US") -> pd.DataFrame:
-    """Monthly panel of one market's term premium and its drivers."""
+def build_panel(country: str = "US", tenor: float = 10.0) -> pd.DataFrame:
+    """Monthly panel of one market's term premium and its drivers.
+
+    ``tenor`` selects which point of the premium curve is the left-hand side. The
+    drivers are NOT re-cut with it: expected inflation is a ten-year-ahead survey
+    measure and the fiscal driver is CBO's five-year-ahead projection, and those are
+    the statistics the coefficients are defined against. Fitting a thirty-year premium
+    on the same regressors asks how much MORE the long end moves for the same shift in
+    the drivers, which is the question; re-cutting the regressors would change both
+    sides at once and the coefficients would no longer be comparable across tenors.
+    """
     from macro.debt_gdp import history as debt_history
     from macro.fetch_core_cpi import core_inflation_vol
     from macro.inflation_expectations import expectations
     from macro.tp_history import spliced_tp
 
-    d = pd.DataFrame({"tp": spliced_tp(10.0)[country],
+    d = pd.DataFrame({"tp": spliced_tp(tenor)[country],
                       "expected_inflation": expectations(country)}).dropna()
     if country == "US":
         d = d.join(_us_holdings(d.index))

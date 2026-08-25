@@ -136,3 +136,47 @@ def test_other_markets_are_left_alone():
     for c in ("US", "DE", "JP"):
         adj, note = _cpi_adjust(c, raw, 2026.638)
         assert adj == raw and note == ""
+
+
+# ------------------------------------------ another point of the premium curve ------
+
+def test_the_us_ships_a_thirty_year_fit_and_it_satisfies_the_identity():
+    """The long bond is a second fit of the same model, not a spread assumption.
+
+    The check that matters is the identity: at today's date the thirty-year yield must
+    equal the thirty-year premium plus the market's expected average short rate over
+    thirty years, read off the same expected-rate curve the ten-year uses. If that
+    fails, the two legs have been taken over different spans and every projection off
+    this block is wrong by the mismatch.
+    """
+    p = json.loads(Path(OUT).read_text())
+    us = p["markets"]["US"]
+    alt = us["tenors"]["30"]
+    assert alt["tenor"] == 30.0
+    assert alt["model"]["kind"] == "us"
+    assert set(alt["model"]["coef"]) == set(us["model"]["coef"])
+    assert set(alt["model"]["adjust"]) == set(alt["model"]["base"]) == {"fiscal"}
+    assert 12.0 < alt["duration"] < 20.0                 # a 30y par bond
+    assert alt["n"] > 300 and alt["r2"] > 0.7
+
+    e30 = us["expected_curve"]["30.0"]
+    assert alt["y_today"] == pytest.approx(alt["tp_today"] + e30, abs=0.02)
+
+
+def test_only_the_us_claims_a_thirty_year():
+    """The other three price off the US premium through a relative model fitted at ten
+    years. A thirty-year Bund would need its own relative fit, so none is shipped."""
+    p = json.loads(Path(OUT).read_text())
+    for c in ("UK", "DE", "JP"):
+        assert not p["markets"][c].get("tenors")
+
+
+def test_the_long_end_is_a_different_fit_not_a_copy():
+    """If the thirty-year block simply mirrored the ten-year the whole exercise would be
+    decorative. The premium, the loadings and the duration must all differ."""
+    p = json.loads(Path(OUT).read_text())
+    us, alt = p["markets"]["US"], p["markets"]["US"]["tenors"]["30"]
+    assert abs(alt["tp_today"] - us["tp_today"]) > 0.2
+    assert abs(alt["duration"] - us["duration"]) > 3.0
+    assert any(abs(alt["model"]["coef"][k] - us["model"]["coef"][k]) > 1e-6
+               for k in us["model"]["coef"])

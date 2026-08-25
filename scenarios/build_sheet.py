@@ -53,6 +53,15 @@ HIST_FROM = "1990"
 # deduction would understate long-dated UK expectations by most of a point. The wedge
 # is applied only to the share of each forward year falling before the reform. Beyond
 # it RPI is CPIH, which differs from CPI only marginally (owner-occupier housing).
+# --- Alternate points of the curve ---------------------------------------------
+# The sheet projects one instrument per market, the ten-year. The US premium is
+# estimated all the way out to thirty (viz/data_daily.parquet carries 30y nominal from
+# 1985), so the long bond can be carried as a SECOND fit of the same model rather than
+# as a spread assumption bolted onto the ten. Only the US: the other three price off
+# the US premium through the relative model, and that model is fitted at ten years, so
+# a thirty-year Bund or gilt would need its own relative fit and is not claimed here.
+ALT_TENORS = {"US": (30.0,)}
+
 UK_RPI_WEDGE = 0.9          # percentage points of RPI over CPI, pre-reform
 RPI_REFORM = 2030.083       # February 2030
 
@@ -135,6 +144,35 @@ def _deficit_history(country: str) -> list:
     except Exception as exc:                                        # noqa: BLE001
         logger.warning("no deficit history for %s (%s)", country, exc)
         return []
+
+
+def _alt_tenor(country: str, tenor: float, obs: pd.DataFrame,
+               today: pd.Timestamp) -> dict:
+    """A second fit of the same model at another point of the premium curve.
+
+    Everything about the identity is unchanged -- yield = premium + expected average
+    short rate -- but both legs are taken over ``tenor`` years rather than ten: the
+    premium is refitted on the thirty-year series, and the sheet averages the policy
+    path over thirty years when it uses this block. The DRIVERS are the same series at
+    the same definitions (see ``tp_drivers.build_panel``), so the coefficients say how
+    much more the long end moves for the same shift, which is the only comparison worth
+    making.
+    """
+    from model.bond_math import macaulay_duration
+    from model.tp_drivers import build_panel, fit_market
+    p = build_panel(country, tenor)
+    m = fit_market(country, p)
+    mk = obs[(obs["country"] == country) & (obs["tenor"] == tenor)]
+    mk = mk.dropna(subset=["observed"]).sort_values("date")
+    y = float(mk.iloc[-1]["observed"]) * 100.0
+    return {"tenor": tenor, "y_today": round(y, 3),
+            "tp_today": round(float(p["tp"].iloc[-1]), 3),
+            "asof": str(mk.iloc[-1]["date"].date()),
+            "duration": round(macaulay_duration(
+                today, today + pd.DateOffset(years=int(tenor)), y, y / 100.0), 3),
+            "n": int(m.n), "r2": round(float(m.r2), 3),
+            "model": {"kind": "us", "intercept": m.intercept, "coef": m.coef,
+                      "adjust": m.adjust, "base": m.base}}
 
 
 def build() -> dict:
@@ -263,6 +301,12 @@ def build() -> dict:
                        "beta_us": spread[c].beta_us, "coef": spread[c].coef,
                        "adjust": spread[c].adjust, "base": spread[c].base}),
         }
+        for t in ALT_TENORS.get(c, ()):
+            try:
+                payload["markets"][c].setdefault("tenors", {})[str(int(t))] = \
+                    _alt_tenor(c, t, obs, today)
+            except Exception as exc:                                # noqa: BLE001
+                logger.warning("no %gy fit for %s (%s)", t, c, exc)
     return payload
 
 
@@ -274,6 +318,9 @@ def _main() -> None:
     for c, m in payload["markets"].items():
         print(f"{c}: 10y {m['y_today']:.2f}%  TP {m['tp_today']:+.2f}%  D {m['duration']:.1f}y"
               f"  core {m['ewma']['last']:+.2f}% as of {m['ewma']['asof']}")
+        for t, a in (m.get("tenors") or {}).items():
+            print(f"    {t}y {a['y_today']:.2f}%  TP {a['tp_today']:+.2f}%  "
+                  f"D {a['duration']:.1f}y  R2 {a['r2']:.2f} on n={a['n']}")
     print(f"\nwrote {OUT} ({len(OUT.read_text())} bytes)")
 
 
