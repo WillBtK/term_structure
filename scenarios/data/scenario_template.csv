@@ -1,0 +1,121 @@
+scenario,market,year,growth,inflation,policy
+Baseline,US,2026,2.32,3.23,3.94
+Baseline,US,2027,2.1,2.14,3.65
+Baseline,US,2028,2.1,2.18,3.42
+Baseline,US,2029,1.88,2.19,3.25
+Baseline,US,2030,1.75,2.19,3.04
+Baseline,US,2031,1.75,2.18,2.97
+Baseline,UK,2026,0.8,3.2,4.09
+Baseline,UK,2027,1.3,2.42,3.96
+Baseline,UK,2028,1.63,2.0,3.84
+Baseline,UK,2029,1.61,2.0,3.76
+Baseline,UK,2030,1.54,2.0,3.66
+Baseline,UK,2031,1.41,2.0,3.63
+Baseline,DE,2026,0.79,2.65,2.56
+Baseline,DE,2027,1.18,2.3,2.48
+Baseline,DE,2028,1.2,1.97,2.43
+Baseline,DE,2029,0.94,2.16,2.39
+Baseline,DE,2030,0.66,2.19,2.34
+Baseline,DE,2031,0.62,2.1,2.33
+Baseline,JP,2026,0.72,2.24,1.39
+Baseline,JP,2027,0.62,2.34,1.44
+Baseline,JP,2028,0.63,1.98,1.48
+Baseline,JP,2029,0.61,1.98,1.5
+Baseline,JP,2030,0.61,1.97,1.54
+Baseline,JP,2031,0.61,1.97,1.55
+Goldilocks,US,2026,2.32,3.23,3.94
+Goldilocks,US,2027,2.1,2.14,3.65
+Goldilocks,US,2028,2.1,2.18,3.42
+Goldilocks,US,2029,1.88,2.19,3.25
+Goldilocks,US,2030,1.75,2.19,3.04
+Goldilocks,US,2031,1.75,2.18,2.97
+Goldilocks,UK,2026,0.8,3.2,4.09
+Goldilocks,UK,2027,1.3,2.42,3.96
+Goldilocks,UK,2028,1.63,2.0,3.84
+Goldilocks,UK,2029,1.61,2.0,3.76
+Goldilocks,UK,2030,1.54,2.0,3.66
+Goldilocks,UK,2031,1.41,2.0,3.63
+Goldilocks,DE,2026,0.79,2.65,2.56
+Goldilocks,DE,2027,1.18,2.3,2.48
+Goldilocks,DE,2028,1.2,1.97,2.43
+Goldilocks,DE,2029,0.94,2.16,2.39
+Goldilocks,DE,2030,0.66,2.19,2.34
+Goldilocks,DE,2031,0.62,2.1,2.33
+Goldilocks,JP,2026,0.72,2.24,1.39
+Goldilocks,JP,2027,0.62,2.34,1.44
+Goldilocks,JP,2028,0.63,1.98,1.48
+Goldilocks,JP,2029,0.61,1.98,1.5
+Goldilocks,JP,2030,0.61,1.97,1.54
+Goldilocks,JP,2031,0.61,1.97,1.55
+"High growth, high inflation",US,2026,2.32,3.23,3.94
+"High growth, high inflation",US,2027,2.1,2.14,3.65
+"High growth, high inflation",US,2028,2.1,2.18,3.42
+"High growth, high inflation",US,2029,1.88,2.19,3.25
+"High growth, high inflation",US,2030,1.75,2.19,3.04
+"High growth, high inflation",US,2031,1.75,2.18,2.97
+"High growth, high inflation",UK,2026,0.8,3.2,4.09
+"High growth, high inflation",UK,2027,1.3,2.42,3.96
+"High growth, high inflation",UK,2028,1.63,2.0,3.84
+"High growth, high inflation",UK,2029,1.61,2.0,3.76
+"High growth, high inflation",UK,2030,1.54,2.0,3.66
+"High growth, high inflation",UK,2031,1.41,2.0,3.63
+"High growth, high inflation",DE,2026,0.79,2.65,2.56
+"High growth, high inflation",DE,2027,1.18,2.3,2.48
+"High growth, high inflation",DE,2028,1.2,1.97,2.43
+"High growth, high inflation",DE,2029,0.94,2.16,2.39
+"High growth, high inflation",DE,2030,0.66,2.19,2.34
+"High growth, high inflation",DE,2031,0.62,2.1,2.33
+"High growth, high inflation",JP,2026,0.72,2.24,1.39
+"High growth, high inflation",JP,2027,0.62,2.34,1.44
+"High growth, high inflation",JP,2028,0.63,1.98,1.48
+"High growth, high inflation",JP,2029,0.61,1.98,1.5
+"High growth, high inflation",JP,2030,0.61,1.97,1.54
+"High growth, high inflation",JP,2031,0.61,1.97,1.55
+Stagflation,US,2026,2.32,3.23,3.94
+Stagflation,US,2027,2.1,2.14,3.65
+Stagflation,US,2028,2.1,2.18,3.42
+Stagflation,US,2029,1.88,2.19,3.25
+Stagflation,US,2030,1.75,2.19,3.04
+Stagflation,US,2031,1.75,2.18,2.97
+Stagflation,UK,2026,0.8,3.2,4.09
+Stagflation,UK,2027,1.3,2.42,3.96
+Stagflation,UK,2028,1.63,2.0,3.84
+Stagflation,UK,2029,1.61,2.0,3.76
+Stagflation,UK,2030,1.54,2.0,3.66
+Stagflation,UK,2031,1.41,2.0,3.63
+Stagflation,DE,2026,0.79,2.65,2.56
+Stagflation,DE,2027,1.18,2.3,2.48
+Stagflation,DE,2028,1.2,1.97,2.43
+Stagflation,DE,2029,0.94,2.16,2.39
+Stagflation,DE,2030,0.66,2.19,2.34
+Stagflation,DE,2031,0.62,2.1,2.33
+Stagflation,JP,2026,0.72,2.24,1.39
+Stagflation,JP,2027,0.62,2.34,1.44
+Stagflation,JP,2028,0.63,1.98,1.48
+Stagflation,JP,2029,0.61,1.98,1.5
+Stagflation,JP,2030,0.61,1.97,1.54
+Stagflation,JP,2031,0.61,1.97,1.55
+Hard landing,US,2026,2.32,3.23,3.94
+Hard landing,US,2027,2.1,2.14,3.65
+Hard landing,US,2028,2.1,2.18,3.42
+Hard landing,US,2029,1.88,2.19,3.25
+Hard landing,US,2030,1.75,2.19,3.04
+Hard landing,US,2031,1.75,2.18,2.97
+Hard landing,UK,2026,0.8,3.2,4.09
+Hard landing,UK,2027,1.3,2.42,3.96
+Hard landing,UK,2028,1.63,2.0,3.84
+Hard landing,UK,2029,1.61,2.0,3.76
+Hard landing,UK,2030,1.54,2.0,3.66
+Hard landing,UK,2031,1.41,2.0,3.63
+Hard landing,DE,2026,0.79,2.65,2.56
+Hard landing,DE,2027,1.18,2.3,2.48
+Hard landing,DE,2028,1.2,1.97,2.43
+Hard landing,DE,2029,0.94,2.16,2.39
+Hard landing,DE,2030,0.66,2.19,2.34
+Hard landing,DE,2031,0.62,2.1,2.33
+Hard landing,JP,2026,0.72,2.24,1.39
+Hard landing,JP,2027,0.62,2.34,1.44
+Hard landing,JP,2028,0.63,1.98,1.48
+Hard landing,JP,2029,0.61,1.98,1.5
+Hard landing,JP,2030,0.61,1.97,1.54
+Hard landing,JP,2031,0.61,1.97,1.55

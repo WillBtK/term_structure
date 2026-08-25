@@ -26,11 +26,21 @@ Anything you leave out keeps the baseline opening, so a scenario can state a vie
 inflation and growth and stay neutral on the policy path. Baseline may be omitted
 entirely -- it already opens on the market's own curve and the WEO macro baseline.
 
-A wide layout is also accepted, because that is how a forecast table usually arrives::
+**The layout to send.** Six columns, one row per scenario-market-year -- 120 rows for
+five scenarios, four markets and six years::
 
-    scenario,market,row,2026,2027,2028,2029,2030,2031
+    scenario,market,year,growth,inflation,policy
+    Baseline,US,2026,2.32,3.23,3.94
+    Baseline,US,2027,2.10,2.14,3.65
 
-It is detected by the presence of year-like column headers and reshaped to long.
+Two other shapes are accepted without asking, because forecast tables arrive in them:
+
+* years across the top -- ``scenario,market,row,2026,2027,...``
+* one column per variable and scenario, years down the rows --
+  ``market,year,GDP_Baseline,CPI_Baseline,policy_Baseline,GDP_Stagflation,...``
+  The column name is split into a variable and a scenario however it is written:
+  ``GDP_Baseline``, ``cpi baseline``, ``Baseline_policy`` and
+  ``growth_HardLanding`` all resolve.
 """
 from __future__ import annotations
 
@@ -93,6 +103,45 @@ def _match(raw: object, table: dict, what: str) -> str:
     raise ValueError(f"unknown {what} {raw!r}")
 
 
+def _split_column(col: str) -> tuple[str, str] | None:
+    """Split a ``GDP_Baseline``-style header into (row, scenario), either order.
+
+    Tried against every variable and scenario alias rather than by splitting on a
+    delimiter, because the scenario names themselves contain spaces and commas --
+    ``Hard_Landing`` and ``high growth high inflation`` have no reliable separator.
+    """
+    k = _key(col)
+    for row_alias, row in _ROW_ALIASES.items():
+        for scen in SCENARIOS:
+            sk = _key(scen)
+            if k in (row_alias + sk, sk + row_alias):
+                return row, scen
+    return None
+
+
+def _from_variable_columns(df: pd.DataFrame) -> pd.DataFrame | None:
+    """Reshape ``market,year,GDP_Baseline,...`` -- years down, variable+scenario across."""
+    if "year" not in df.columns:
+        return None
+    hits = {c: _split_column(c) for c in df.columns if c not in ("market", "year")}
+    hits = {c: v for c, v in hits.items() if v}
+    if not hits:
+        return None
+    unmatched = [c for c in df.columns
+                 if c not in ("market", "year") and c not in hits]
+    if unmatched:
+        logger.warning("columns not recognised as variable+scenario, ignored: %s",
+                       unmatched)
+    rows = []
+    for _, r in df.iterrows():
+        for col, (row, scen) in hits.items():
+            rows.append({"scenario": scen, "market": r.get("market", "US"),
+                         "row": row, "year": r["year"], "value": r[col]})
+    logger.info("variable-per-scenario layout detected (%d columns) -> reshaped to long",
+                len(hits))
+    return pd.DataFrame(rows)
+
+
 def _to_long(df: pd.DataFrame) -> pd.DataFrame:
     """Reshape a wide year-per-column table if that is what arrived."""
     year_cols = [c for c in df.columns if re.fullmatch(r"\s*(19|20)\d{2}(\.0)?\s*", str(c))]
@@ -110,7 +159,17 @@ def parse(path: str | Path, years: range | None = None) -> dict:
     """CSV -> ``{scenario: {market: {row: {year: value}}}}``, validated."""
     df = pd.read_csv(path)
     df.columns = [_key(c) for c in df.columns]
-    df = _to_long(df)
+    df = _from_variable_columns(df) if _from_variable_columns(df) is not None \
+        else _to_long(df)
+    # the recommended six-column layout has one column PER ROW rather than a `row`
+    # column, so melt those into place
+    value_cols = [c for c in df.columns if c in _ROW_ALIASES
+                  and c not in ("scenario", "market", "year")]
+    if "row" not in df.columns and value_cols:
+        df = df.melt(id_vars=[c for c in ("scenario", "market", "year")
+                              if c in df.columns],
+                     value_vars=value_cols, var_name="row", value_name="value")
+        logger.info("six-column layout detected -> reshaped to long")
     missing = {"scenario", "market", "row", "year", "value"} - set(df.columns)
     if missing:
         raise ValueError(f"CSV is missing column(s): {sorted(missing)}. "
