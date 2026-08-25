@@ -1010,15 +1010,38 @@ function lastVal(block, measure, tenor){
   const addBtn=h('button',{class:'addrow'},'+ Add series'); addBtn.onclick=()=>{ if(CM.rows.length<5){ CM.rows.push({type:'level',A:{cc:'US',inst:'nominal',start:'0',tenor:'10',meas:'obs'}}); redraw(); } };
   const addWrap=h('div'); addWrap.style.margin='2px 0'; addWrap.appendChild(addBtn); right.appendChild(addWrap);
 
-  function sel(opts, val, onch, labels){ const e=h('select',{class:'select-control'});
-    opts.forEach(o=> e.appendChild(h('option',{value:o}, labels?labels(o):o))); e.value=val; e.onchange=()=>onch(e.value); return e; }
+  /* `why(o)` returns a reason string when option `o` is not offerable, in which case it
+     is rendered greyed and unselectable rather than dropped. A missing option reads as a
+     bug; a greyed one with a reason reads as the data boundary it actually is. */
+  function sel(opts, val, onch, labels, why){ const e=h('select',{class:'select-control'});
+    opts.forEach(o=>{ const r=why?why(o):null;
+      const op=h('option',{value:o}, (labels?labels(o):o) + (r ? ' \u2014 '+r : ''));
+      if(r) op.disabled=true;
+      e.appendChild(op); });
+    e.value=val; e.onchange=()=>onch(e.value); return e; }
+  /* The full tenor ladder any market reports, so the picker keeps a stable shape and a
+     point that is missing here is visibly missing rather than absent. */
+  const ALL_TENORS=(()=>{ const u=new Set();
+    Object.values(DATA.countries).forEach(C=>Object.values(C.instruments)
+      .forEach(b=>(b.tenors||[]).forEach(t=>u.add(t))));
+    return Array.from(u).sort((a,b)=>a-b); })();
+  // why this tenor cannot be picked on the current market/instrument/start
+  function tenorWhy(sp, t){
+    if(tenorsFor(sp.cc,sp.inst,sp.start).includes(t)) return null;
+    if(!baseTenors(sp.cc,sp.inst).includes(t)) return 'not on this curve';
+    return 'needs '+TKEY(+(sp.start||0)+ +t)+'y';
+  }
   function specSelects(sp, onchange){          // the four pick dropdowns, as an array
+    // market / instrument / start all change WHICH tenors exist, so they rebuild the row
+    // rather than just redrawing the chart -- otherwise the tenor list goes stale and
+    // offers points the new curve does not report.
     return [
-      sel(DATA.order, sp.cc, v=>{ sp.cc=v; fixSpec(sp); onchange(); }),
-      sel(instsFor(sp.cc), sp.inst, v=>{ sp.inst=v; fixSpec(sp); onchange(); }, instLabel),
+      sel(DATA.order, sp.cc, v=>{ sp.cc=v; fixSpec(sp); redraw(); }),
+      sel(instsFor(sp.cc), sp.inst, v=>{ sp.inst=v; fixSpec(sp); redraw(); }, instLabel),
       sel(['0'].concat(startsFor(sp.cc,sp.inst).map(TKEY)), sp.start||'0',
-          v=>{ sp.start=v; fixSpec(sp); onchange(); }, v=>v==='0'?'Spot':'in '+v+'y'),
-      sel(tenorsFor(sp.cc,sp.inst,sp.start), sp.tenor, v=>{ sp.tenor=v; onchange(); }, t=>t+'y'),
+          v=>{ sp.start=v; fixSpec(sp); redraw(); }, v=>v==='0'?'Spot':'in '+v+'y'),
+      sel(ALL_TENORS, sp.tenor, v=>{ sp.tenor=v; onchange(); }, t=>t+'y',
+          t=>tenorWhy(sp,t)),
       sel(['obs','exp','tp'], sp.meas, v=>{ sp.meas=v; onchange(); }, m=>({obs:'Actual',exp:'Expected',tp:'Term premium'}[m])),
     ];
   }
