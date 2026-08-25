@@ -61,6 +61,13 @@ jobs:
           OPENBLAS_NUM_THREADS: "1"
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}   # optional: enables the TIPS-noise gauge + reliable Kim-Wright
         run: python -m scheduler.daily_update
+      - name: Export UK term premia (for the OBR model)
+        # Writes exports/uk_term_premia_monthly.csv from the freshly-rebuilt canonical
+        # parquet; consumed by WillBtK/OBR_Model's forward refinancing mode. Same schema
+        # as the US export. Committed by the final step below.
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m exports.uk_term_premia_monthly
       - name: Export to Supabase + publish Atlas (inert without secrets)
         timeout-minutes: 15       # Supabase upsert + upload normally ~3-4 min; fail fast if it hangs
         env:
@@ -92,12 +99,12 @@ jobs:
           set +e
           git config user.name  "atlas-bot"
           git config user.email "noreply@anthropic.com"
-          git add germany/data/bund_prices/ 2>/dev/null || true
+          git add germany/data/bund_prices/ exports/uk_term_premia_monthly.csv 2>/dev/null || true
           if git diff --cached --quiet; then
-            echo "no new Bund cross-sections"
+            echo "no new data to commit (Bund store + UK term premia unchanged)"
             exit 0
           fi
-          git commit -m "Accumulate Bund per-ISIN cross-section [skip ci]" || exit 0
+          git commit -m "Daily: Bund per-ISIN store + UK term premia export [skip ci]" || exit 0
           for i in 1 2 3; do
             git pull --rebase --autostash origin "${GITHUB_REF_NAME}" \
               && git push origin "HEAD:${GITHUB_REF_NAME}" \
