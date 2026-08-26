@@ -110,14 +110,16 @@ def _curve_path(curve: dict, years: int = 12) -> list:
                                  for k in range(years)]
 
 
-def _forward_tens(observed: dict, horizons: int = 11) -> list:
-    """The market's own forward ten-year yield at each horizon -- what the curve already
-    prices for the bond we are projecting, and so the reference our path has to beat.
-    Same cumulative identity, applied to observed yields rather than expected rates."""
+def _forward_tens(observed: dict, horizons: int = 11, span: float = 10.0) -> list:
+    """The market's own forward yield on this bond at each horizon -- what the curve
+    already prices for the instrument we are projecting, and so the reference our path
+    has to beat. Same cumulative identity, applied to observed yields rather than
+    expected rates. ``span`` is the bond's own life, so a thirty-year row is compared
+    against the forward THIRTY-year and not against the forward ten."""
     from scenarios.engine import market_forward_average
     if not observed:
         return []
-    return [round(market_forward_average(observed, h, span=10.0), 3)
+    return [round(market_forward_average(observed, h, span=span), 3)
             for h in range(horizons)]
 
 
@@ -147,7 +149,7 @@ def _deficit_history(country: str) -> list:
 
 
 def _alt_tenor(country: str, tenor: float, obs: pd.DataFrame,
-               today: pd.Timestamp) -> dict:
+               today: pd.Timestamp, curve: dict | None = None) -> dict:
     """A second fit of the same model at another point of the premium curve.
 
     Everything about the identity is unchanged -- yield = premium + expected average
@@ -171,6 +173,8 @@ def _alt_tenor(country: str, tenor: float, obs: pd.DataFrame,
             "duration": round(macaulay_duration(
                 today, today + pd.DateOffset(years=int(tenor)), y, y / 100.0), 3),
             "n": int(m.n), "r2": round(float(m.r2), 3),
+            # the curve's own forward yield on THIS bond, horizon by horizon
+            "fwd": _forward_tens(curve or {}, span=tenor),
             "model": {"kind": "us", "intercept": m.intercept, "coef": m.coef,
                       "adjust": m.adjust, "base": m.base}}
 
@@ -319,7 +323,8 @@ def build() -> dict:
         for t in ALT_TENORS.get(c, ()):
             try:
                 payload["markets"][c].setdefault("tenors", {})[str(int(t))] = \
-                    _alt_tenor(c, t, obs, today)
+                    _alt_tenor(c, t, obs, today,
+                               {float(k): float(v) for k, v in nom.items()})
             except Exception as exc:                                # noqa: BLE001
                 logger.warning("no %gy fit for %s (%s)", t, c, exc)
     return payload

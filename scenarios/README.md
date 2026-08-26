@@ -269,8 +269,12 @@ rather than 1995 like the other charts, because a ten-year fan of five paths is
 unreadable squeezed into the right quarter of the plot.
 
 **What the reader gets.** A comparison table above the grid runs all five side by side
-for the selected market: the ten-year yield at three and ten years, the difference from
-Baseline in basis points, and the annualised nominal and real return. **The US can add a second row per
+for the selected market: the ten-year yield at three and ten years, **the gap to the
+market's own forward yield on the same bond**, the difference from Baseline, and the
+annualised nominal and real return. The forward gap is the one that decides anything &mdash;
+a view is only a trade once it differs from what the curve already prices, and the
+comparison is taken at each row's own tenor, so a thirty-year row is measured against
+the forward thirty rather than the forward ten. **The US can add a second row per
 scenario, the thirty-year** — off by default, since the ten-year is the instrument the
 tool is about and a second row halves the speed the table reads at; the checkbox on the
 card turns it on, and it only appears where a second fit exists. It is — a genuine second fit of the same model
