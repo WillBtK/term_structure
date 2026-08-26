@@ -1,0 +1,56 @@
+scenario,market,year,growth,inflation,policy
+Baseline,UK,2026,0.8,3.5,4.0
+Baseline,UK,2027,1.0,3.0,3.0
+Baseline,UK,2028,1.4,2.3,3.0
+Baseline,UK,2029,1.4,2.3,3.0
+Baseline,UK,2030,1.4,2.3,3.0
+Baseline,UK,2031,1.4,2.3,3.0
+Baseline,UK,2032,1.4,2.3,3.0
+Baseline,UK,2033,1.4,2.3,3.0
+Baseline,UK,2034,1.4,2.3,3.0
+Baseline,UK,2035,1.4,2.3,3.0
+Baseline,UK,2036,1.4,2.3,3.0
+Goldilocks,UK,2026,1.3,1.84,3.75
+Goldilocks,UK,2027,2.25,1.84,3.75
+Goldilocks,UK,2028,2.25,1.84,3.75
+Goldilocks,UK,2029,2.25,1.84,3.75
+Goldilocks,UK,2030,2.25,1.84,3.75
+Goldilocks,UK,2031,2.25,1.84,3.75
+Goldilocks,UK,2032,2.25,1.84,3.75
+Goldilocks,UK,2033,2.25,1.84,3.75
+Goldilocks,UK,2034,2.25,1.84,3.75
+Goldilocks,UK,2035,2.25,1.84,3.75
+Goldilocks,UK,2036,2.25,1.84,3.75
+High Growth High Inflation,UK,2026,1.3,4.55,4.25
+High Growth High Inflation,UK,2027,2.25,3.9,4.25
+High Growth High Inflation,UK,2028,2.25,2.99,4.25
+High Growth High Inflation,UK,2029,2.25,2.99,4.25
+High Growth High Inflation,UK,2030,2.25,2.99,4.25
+High Growth High Inflation,UK,2031,2.25,2.99,4.25
+High Growth High Inflation,UK,2032,2.25,2.99,4.25
+High Growth High Inflation,UK,2033,2.25,2.99,4.25
+High Growth High Inflation,UK,2034,2.25,2.99,4.25
+High Growth High Inflation,UK,2035,2.25,2.99,4.25
+High Growth High Inflation,UK,2036,2.25,2.99,4.25
+Stagflation,UK,2026,-1.5,7.0,5.25
+Stagflation,UK,2027,0.8,4.5,4.75
+Stagflation,UK,2028,0.8,4.5,4.75
+Stagflation,UK,2029,0.8,4.5,4.75
+Stagflation,UK,2030,0.8,4.5,4.75
+Stagflation,UK,2031,0.8,4.5,4.75
+Stagflation,UK,2032,0.8,4.5,4.75
+Stagflation,UK,2033,0.8,4.5,4.75
+Stagflation,UK,2034,0.8,4.5,4.75
+Stagflation,UK,2035,0.8,4.5,4.75
+Stagflation,UK,2036,0.8,4.5,4.75
+Hard Landing,UK,2026,-1.7,0.5,0.0
+Hard Landing,UK,2027,0.5,1.1,0.0
+Hard Landing,UK,2028,0.5,1.1,0.0
+Hard Landing,UK,2029,0.5,1.1,0.0
+Hard Landing,UK,2030,0.5,1.1,0.0
+Hard Landing,UK,2031,0.5,1.1,0.0
+Hard Landing,UK,2032,0.5,1.1,0.0
+Hard Landing,UK,2033,0.5,1.1,0.0
+Hard Landing,UK,2034,0.5,1.1,0.0
+Hard Landing,UK,2035,0.5,1.1,0.0
+Hard Landing,UK,2036,0.5,1.1,0.0
