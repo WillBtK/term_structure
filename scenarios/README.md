@@ -270,8 +270,10 @@ unreadable squeezed into the right quarter of the plot.
 
 **What the reader gets.** A comparison table above the grid runs all five side by side
 for the selected market: the ten-year yield at three and ten years, the difference from
-Baseline in basis points, and the annualised nominal and real return. **For the US each
-scenario gets a second row, the thirty-year** — a genuine second fit of the same model
+Baseline in basis points, and the annualised nominal and real return. **The US can add a second row per
+scenario, the thirty-year** — off by default, since the ten-year is the instrument the
+tool is about and a second row halves the speed the table reads at; the checkbox on the
+card turns it on, and it only appears where a second fit exists. It is — a genuine second fit of the same model
 on the thirty-year premium (`viz/data_daily.parquet` carries US 30y nominal from 1985;
 R² 0.90 on 488 months), with the expected-rate leg averaged over thirty years rather
 than ten so the identity `y = premium + expected average short rate` still closes on

@@ -120,3 +120,29 @@ def test_splice_refuses_a_sheet_without_the_anchor(tmp_path):
     sheet.write_text("nothing to replace\n")
     with pytest.raises(ValueError, match="PRESETS"):
         lp.splice({}, sheet)
+
+
+def test_several_files_merge_rather_than_replace(tmp_path):
+    """Markets arrive one file at a time and splice replaces the whole block, so
+    loading Japan on its own must not silently drop the US."""
+    us = tmp_path / "us.csv"
+    us.write_text("scenario,market,year,growth,inflation,policy\n"
+                  "Baseline,US,2026,2.3,3.6,3.75\n")
+    jp = tmp_path / "jp.csv"
+    jp.write_text("scenario,market,year,growth,inflation,policy\n"
+                  "Baseline,JP,2026,0.8,1.9,1.25\n")
+    out = lp.parse_many([us, jp], range(2026, 2032))
+    assert set(out["Baseline"]) == {"US", "JP"}
+    assert out["Baseline"]["US"]["policy_rate"] == {2026: 3.75}
+    assert out["Baseline"]["JP"]["policy_rate"] == {2026: 1.25}
+
+
+def test_a_later_file_overrides_only_the_cells_it_states(tmp_path):
+    a = tmp_path / "a.csv"
+    a.write_text("scenario,market,year,growth,inflation,policy\n"
+                 "Baseline,US,2026,2.3,3.6,3.75\nBaseline,US,2027,2.1,3.2,3.75\n")
+    b = tmp_path / "b.csv"
+    b.write_text("scenario,market,year,growth,inflation,policy\n"
+                 "Baseline,US,2027,2.1,3.2,4.00\n")
+    out = lp.parse_many([a, b], range(2026, 2032))
+    assert out["Baseline"]["US"]["policy_rate"] == {2026: 3.75, 2027: 4.00}

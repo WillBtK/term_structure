@@ -55,6 +55,10 @@ table.cmp td.l{font:500 13px/1.5 "IBM Plex Sans",sans-serif;text-align:left;
 table.cmp tr.here td{background:var(--sunk)}
 table.cmp tr.here td.l:not(.inst)::before{content:"\25B8\00a0";color:var(--accent)}
 table.cmp td.spread{color:var(--muted)}
+.alt-toggle{float:right;font:400 11px/1.3 "IBM Plex Sans",sans-serif;letter-spacing:0;
+  text-transform:none;color:var(--muted);cursor:pointer;display:none;align-items:center;gap:5px}
+.alt-toggle.on{display:inline-flex}
+.alt-toggle input{margin:0;cursor:pointer}
 /* The instrument sub-row: no rule between a scenario's own bonds, so the pair reads as
    one block and the rule falls where the scenario changes. */
 table.cmp td.inst{font:400 12px/1.5 "IBM Plex Sans",sans-serif;color:var(--muted);
@@ -217,7 +221,9 @@ footer{border-top:1px solid var(--rule);padding-top:18px;color:var(--muted);font
 
 <div class="stack">
   <div class="card">
-    <div class="ctitle">Across the five scenarios &mdash; ten-year yield and annualised return</div>
+    <div class="ctitle">Across the five scenarios &mdash; ten-year yield and annualised return
+      <label class="alt-toggle" id="alt30wrap"><input type="checkbox" id="alt30">
+        also show the thirty-year</label></div>
     <div id="compare"></div>
     <p class="cnote" id="comparenote"></p>
   </div>
@@ -311,7 +317,11 @@ let RHO = 0.9;   // annual survival of the unexplained premium
    arrives rather than whose opinion it is. */
 let LAMV = null;
 const LEARN = D.learning || {low: 0.40, high: 0.685, split: 4.0};
-function lamFor(name){
+/* Per MARKET as well as per scenario: a world can be inflationary in one economy and
+   not in another, and the engine has always classified market by market. Reading the
+   US path for every market was a bug that only showed once a second market was seeded. */
+function lamFor(name, c){
+  c = c || market;
   if(LAMV != null) return LAMV;                       // the dial wins when set
   /* The first scenario is the house forecast, and it converges differently from the
      rest. A conditional state has a forcing event -- it happens, and the market cannot
@@ -320,7 +330,7 @@ function lamFor(name){
      learning, and slower. */
   if(name === SCEN_NAMES[0]) return LEARN.view != null ? LEARN.view : 0.8;
   const sc = (SC[name] || {}).S;
-  const pi = sc && sc.US && sc.US.inflation;
+  const pi = sc && sc[c] && sc[c].inflation;
   if(!pi) return LEARN.low;
   const v = YEARS.map(Y => pi[Y]).filter(x => x != null && isFinite(x));
   if(!v.length) return LEARN.low;
@@ -475,7 +485,7 @@ const SCEN_BLURB = {
                                UK: {...}}
    A `deficit` block takes that market's balance row manual (the growth rule stops
    driving it), matching what typing in the row does by hand. */
-const PRESETS = {"Baseline": {"US": {"real_growth": {"2026": 2.3, "2027": 2.1, "2028": 2.1, "2029": 2.1, "2030": 2.1, "2031": 2.1}, "inflation": {"2026": 3.6, "2027": 3.2, "2028": 2.5, "2029": 2.5, "2030": 2.5, "2031": 2.5}, "policy_rate": {"2026": 3.75, "2027": 3.75, "2028": 3.75, "2029": 3.75, "2030": 3.75, "2031": 3.75}}}, "Goldilocks": {"US": {"real_growth": {"2026": 3.0, "2027": 3.0, "2028": 3.0, "2029": 3.0, "2030": 3.0, "2031": 3.0}, "inflation": {"2026": 2.0, "2027": 2.0, "2028": 2.0, "2029": 2.0, "2030": 2.0, "2031": 2.0}, "policy_rate": {"2026": 4.0, "2027": 4.0, "2028": 4.0, "2029": 4.0, "2030": 4.0, "2031": 4.0}}}, "High Growth High Inflation": {"US": {"real_growth": {"2026": 3.1, "2027": 3.1, "2028": 3.1, "2029": 3.1, "2030": 3.1, "2031": 3.1}, "inflation": {"2026": 3.3, "2027": 3.3, "2028": 3.3, "2029": 3.3, "2030": 3.3, "2031": 3.3}, "policy_rate": {"2026": 5.0, "2027": 5.0, "2028": 5.0, "2029": 5.0, "2030": 5.0, "2031": 5.0}}}, "Stagflation": {"US": {"real_growth": {"2026": -0.8, "2027": 1.5, "2028": 1.5, "2029": 1.5, "2030": 1.5, "2031": 1.5}, "inflation": {"2026": 7.5, "2027": 5.5, "2028": 5.5, "2029": 5.5, "2030": 5.5, "2031": 5.5}, "policy_rate": {"2026": 6.0, "2027": 5.5, "2028": 5.5, "2029": 5.5, "2030": 5.5, "2031": 5.5}}}, "Hard Landing": {"US": {"real_growth": {"2026": -1.0, "2027": 1.25, "2028": 1.25, "2029": 1.25, "2030": 1.25, "2031": 1.25}, "inflation": {"2026": 1.0, "2027": 1.5, "2028": 1.5, "2029": 1.5, "2030": 1.5, "2031": 1.5}, "policy_rate": {"2026": 0.5, "2027": 1.0, "2028": 1.0, "2029": 1.0, "2030": 1.0, "2031": 1.0}}}};
+const PRESETS = {"Baseline": {"US": {"real_growth": {"2026": 2.3, "2027": 2.1, "2028": 2.1, "2029": 2.1, "2030": 2.1, "2031": 2.1}, "inflation": {"2026": 3.6, "2027": 3.2, "2028": 2.5, "2029": 2.5, "2030": 2.5, "2031": 2.5}, "policy_rate": {"2026": 3.75, "2027": 3.75, "2028": 3.75, "2029": 3.75, "2030": 3.75, "2031": 3.75}}, "JP": {"real_growth": {"2026": 0.8, "2027": 0.8, "2028": 0.9, "2029": 0.9, "2030": 0.9, "2031": 0.9}, "inflation": {"2026": 1.9, "2027": 2.0, "2028": 2.0, "2029": 2.0, "2030": 2.0, "2031": 2.0}, "policy_rate": {"2026": 1.25, "2027": 1.75, "2028": 1.75, "2029": 1.75, "2030": 1.75, "2031": 1.75}}}, "Goldilocks": {"US": {"real_growth": {"2026": 3.0, "2027": 3.0, "2028": 3.0, "2029": 3.0, "2030": 3.0, "2031": 3.0}, "inflation": {"2026": 2.0, "2027": 2.0, "2028": 2.0, "2029": 2.0, "2030": 2.0, "2031": 2.0}, "policy_rate": {"2026": 4.0, "2027": 4.0, "2028": 4.0, "2029": 4.0, "2030": 4.0, "2031": 4.0}}, "JP": {"real_growth": {"2026": 1.35, "2027": 1.35, "2028": 1.35, "2029": 1.35, "2030": 1.35, "2031": 1.35}, "inflation": {"2026": 1.6, "2027": 1.6, "2028": 1.6, "2029": 1.6, "2030": 1.6, "2031": 1.6}, "policy_rate": {"2026": 1.6, "2027": 1.6, "2028": 1.6, "2029": 1.6, "2030": 1.6, "2031": 1.6}}}, "High Growth High Inflation": {"US": {"real_growth": {"2026": 3.1, "2027": 3.1, "2028": 3.1, "2029": 3.1, "2030": 3.1, "2031": 3.1}, "inflation": {"2026": 3.3, "2027": 3.3, "2028": 3.3, "2029": 3.3, "2030": 3.3, "2031": 3.3}, "policy_rate": {"2026": 5.0, "2027": 5.0, "2028": 5.0, "2029": 5.0, "2030": 5.0, "2031": 5.0}}, "JP": {"real_growth": {"2026": 1.6, "2027": 1.6, "2028": 1.6, "2029": 1.6, "2030": 1.6, "2031": 1.6}, "inflation": {"2026": 2.6, "2027": 2.6, "2028": 2.6, "2029": 2.6, "2030": 2.6, "2031": 2.6}, "policy_rate": {"2026": 2.0, "2027": 2.0, "2028": 2.0, "2029": 2.0, "2030": 2.0, "2031": 2.0}}}, "Stagflation": {"US": {"real_growth": {"2026": -0.8, "2027": 1.5, "2028": 1.5, "2029": 1.5, "2030": 1.5, "2031": 1.5}, "inflation": {"2026": 7.5, "2027": 5.5, "2028": 5.5, "2029": 5.5, "2030": 5.5, "2031": 5.5}, "policy_rate": {"2026": 6.0, "2027": 5.5, "2028": 5.5, "2029": 5.5, "2030": 5.5, "2031": 5.5}}, "JP": {"real_growth": {"2026": -0.5, "2027": 0.63, "2028": 0.63, "2029": 0.63, "2030": 0.63, "2031": 0.63}, "inflation": {"2026": 3.0, "2027": 3.5, "2028": 3.5, "2029": 3.5, "2030": 3.5, "2031": 3.5}, "policy_rate": {"2026": 2.0, "2027": 2.0, "2028": 2.0, "2029": 2.0, "2030": 2.0, "2031": 2.0}}}, "Hard Landing": {"US": {"real_growth": {"2026": -1.0, "2027": 1.25, "2028": 1.25, "2029": 1.25, "2030": 1.25, "2031": 1.25}, "inflation": {"2026": 1.0, "2027": 1.5, "2028": 1.5, "2029": 1.5, "2030": 1.5, "2031": 1.5}, "policy_rate": {"2026": 0.5, "2027": 1.0, "2028": 1.0, "2029": 1.0, "2030": 1.0, "2031": 1.0}}, "JP": {"real_growth": {"2026": -0.4, "2027": 0.54, "2028": 0.54, "2029": 0.54, "2030": 0.54, "2031": 0.54}, "inflation": {"2026": 0.6, "2027": 0.8, "2028": 0.8, "2029": 0.8, "2030": 0.8, "2031": 0.8}, "policy_rate": {"2026": 0.0, "2027": 0.0, "2028": 0.0, "2029": 0.0, "2030": 0.0, "2031": 0.0}}}};
 
 let SCEN = "Baseline";
 const SC = {};                                   // name -> {S, FLAT, DEFEDIT}
@@ -688,6 +698,8 @@ function project(c, hs, alt){
   const usMod = (c === "US" && alt) ? alt.model : D.markets.US.model;
   const us0 = usM.drivers, usH = {};
   hs.forEach(h => usH[h] = driversAt("US", usS, h));
+  const usLam = lamFor(SCEN, "US");   // the US leg is classified by the US path
+  const usVw = h => 1 - Math.pow(usLam, h);
   const usResid = usM.tp_today - usPremium(us0, usMod);  // what the drivers cannot explain
   /* ONE VIEW, ONE SPEED. The share of your view priced by horizon h is 1 - lam^h, and
      it weights BOTH legs -- your rate path in blendedPolicy, and the premium's move in
@@ -696,11 +708,11 @@ function project(c, hs, alt){
      forecast (tighten, and inflation falls with it) moved the yield on the gap between
      two dials rather than on the economics. The residual still decays at RHO: it is
      not a view, and how fast a mispricing dies is a different question. */
-  const lam = lamFor(SCEN);
+  const lam = lamFor(SCEN, c);
   const vw = h => 1 - Math.pow(lam, h);
   const tpUs = {0: usM.tp_today};
   hs.forEach(h => tpUs[h] = h === 0 ? usM.tp_today
-    : usM.tp_today + (usPremium(usH[h], usMod) - usPremium(us0, usMod)) * vw(h)
+    : usM.tp_today + (usPremium(usH[h], usMod) - usPremium(us0, usMod)) * usVw(h)
       + usResid * (Math.pow(RHO, h) - 1));
 
   const tp = {0: M.tp_today};
@@ -874,13 +886,19 @@ function renderScenBar(){
 /* Every instrument this market can be compared on: the ten-year always, plus any
    alternate point of the curve the payload carries a fit for (today, US thirty-year).
    Ordered short to long. */
+/* The ten-year is the instrument this tool is about, and it is what the table shows
+   unless the long bond is asked for. A second row per scenario doubles the table's
+   height and halves the speed it can be read at, which is the wrong default for a
+   number that is mostly a cross-check. */
+let SHOW_ALT = false;
 function instruments(c){
   const M = D.markets[c];
   const out = [{tenor: D.tenor || 10, label: (D.tenor || 10) + "y", alt: null}];
-  Object.values(M.tenors || {}).forEach(a =>
+  if(SHOW_ALT) Object.values(M.tenors || {}).forEach(a =>
     out.push({tenor: a.tenor, label: a.tenor + "y", alt: a}));
   return out.sort((a, b) => a.tenor - b.tenor);
 }
+function hasAlt(c){ return Object.keys((D.markets[c] || {}).tenors || {}).length > 0; }
 function scenarioRows(c, alt){
   const keep = SCEN, out = [];
   SCEN_NAMES.forEach(n => {
@@ -932,6 +950,14 @@ function renderCompare(){
       + "\u201cvs base\u201d is the yield difference from Baseline.";
   document.getElementById("comparenote").textContent = NAME[market] + ". " + which
     + " The real column is deflated by each scenario\u2019s own inflation path.";
+}
+
+function renderAltToggle(){
+  const w = document.getElementById("alt30wrap");
+  if(!w) return;
+  w.classList.toggle("on", hasAlt(market));      // only where a second fit exists
+  const box = document.getElementById("alt30");
+  if(box) box.checked = SHOW_ALT;
 }
 
 function renderTabs(){
@@ -1212,7 +1238,7 @@ function render(){
          years and ${(Math.pow(RHO,10)*100).toFixed(0)}% to ten. The US and UK prefer
          some decay out of sample at both horizons; Germany and Japan prefer none, so
          this is a judgement rather than a fitted constant.`);
-  const lam = lamFor(SCEN);
+  const lam = lamFor(SCEN, market);
   const inOne = 100*(1 - Math.pow(lam,1)), inThree = 100*(1 - Math.pow(lam,3));
   document.getElementById("lamnote").innerHTML = lam === 0
     ? "The state is priced in full from the first horizon &mdash; perfect foresight. No "
@@ -1228,9 +1254,10 @@ function render(){
             the central bank cannot ease into them. Your typed paths are unchanged: at long
             horizons the yield still converges on exactly what you entered.`
         : " Overridden by hand; clear the dial to return to the fitted speed."));
-  renderInputs(); renderCharts(); renderResults(); renderCompare();
+  renderInputs(); renderCharts(); renderResults(); renderAltToggle(); renderCompare();
 }
 
+document.getElementById("alt30").onchange = e => { SHOW_ALT = e.target.checked; render(); };
 document.getElementById("rho").onchange = e => { RHO = parseFloat(e.target.value); render(); };
 /* the dials are display-wide, not per scenario: they describe the model, not a view */
 document.getElementById("lamv").onchange = e => {

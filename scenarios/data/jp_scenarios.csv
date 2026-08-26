@@ -1,0 +1,56 @@
+scenario,market,year,growth,inflation,policy
+Baseline,JP,2026,0.8,1.9,1.25
+Baseline,JP,2027,0.8,2.0,1.75
+Baseline,JP,2028,0.9,2.0,1.75
+Baseline,JP,2029,0.9,2.0,1.75
+Baseline,JP,2030,0.9,2.0,1.75
+Baseline,JP,2031,0.9,2.0,1.75
+Baseline,JP,2032,0.9,2.0,1.75
+Baseline,JP,2033,0.9,2.0,1.75
+Baseline,JP,2034,0.9,2.0,1.75
+Baseline,JP,2035,0.9,2.0,1.75
+Baseline,JP,2036,0.9,2.0,1.75
+Goldilocks,JP,2026,1.35,1.6,1.6
+Goldilocks,JP,2027,1.35,1.6,1.6
+Goldilocks,JP,2028,1.35,1.6,1.6
+Goldilocks,JP,2029,1.35,1.6,1.6
+Goldilocks,JP,2030,1.35,1.6,1.6
+Goldilocks,JP,2031,1.35,1.6,1.6
+Goldilocks,JP,2032,1.35,1.6,1.6
+Goldilocks,JP,2033,1.35,1.6,1.6
+Goldilocks,JP,2034,1.35,1.6,1.6
+Goldilocks,JP,2035,1.35,1.6,1.6
+Goldilocks,JP,2036,1.35,1.6,1.6
+High Growth High Inflation,JP,2026,1.6,2.6,2.0
+High Growth High Inflation,JP,2027,1.6,2.6,2.0
+High Growth High Inflation,JP,2028,1.6,2.6,2.0
+High Growth High Inflation,JP,2029,1.6,2.6,2.0
+High Growth High Inflation,JP,2030,1.6,2.6,2.0
+High Growth High Inflation,JP,2031,1.6,2.6,2.0
+High Growth High Inflation,JP,2032,1.6,2.6,2.0
+High Growth High Inflation,JP,2033,1.6,2.6,2.0
+High Growth High Inflation,JP,2034,1.6,2.6,2.0
+High Growth High Inflation,JP,2035,1.6,2.6,2.0
+High Growth High Inflation,JP,2036,1.6,2.6,2.0
+Stagflation,JP,2026,-0.5,3.0,2.0
+Stagflation,JP,2027,0.63,3.5,2.0
+Stagflation,JP,2028,0.63,3.5,2.0
+Stagflation,JP,2029,0.63,3.5,2.0
+Stagflation,JP,2030,0.63,3.5,2.0
+Stagflation,JP,2031,0.63,3.5,2.0
+Stagflation,JP,2032,0.63,3.5,2.0
+Stagflation,JP,2033,0.63,3.5,2.0
+Stagflation,JP,2034,0.63,3.5,2.0
+Stagflation,JP,2035,0.63,3.5,2.0
+Stagflation,JP,2036,0.63,3.5,2.0
+Hard Landing,JP,2026,-0.4,0.6,0.0
+Hard Landing,JP,2027,0.54,0.8,0.0
+Hard Landing,JP,2028,0.54,0.8,0.0
+Hard Landing,JP,2029,0.54,0.8,0.0
+Hard Landing,JP,2030,0.54,0.8,0.0
+Hard Landing,JP,2031,0.54,0.8,0.0
+Hard Landing,JP,2032,0.54,0.8,0.0
+Hard Landing,JP,2033,0.54,0.8,0.0
+Hard Landing,JP,2034,0.54,0.8,0.0
+Hard Landing,JP,2035,0.54,0.8,0.0
+Hard Landing,JP,2036,0.54,0.8,0.0

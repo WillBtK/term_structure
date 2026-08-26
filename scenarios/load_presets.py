@@ -155,6 +155,23 @@ def _to_long(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def parse_many(paths, years: range | None = None) -> dict:
+    """Several CSVs merged into one ``PRESETS`` block.
+
+    Markets arrive one file at a time, and ``splice`` replaces the whole block -- so
+    loading Japan on its own would silently drop the US. Every file that should be in
+    the sheet is parsed together, and a later file only overrides the exact
+    scenario/market/row/year cells it states.
+    """
+    out: dict = {}
+    for path in paths:
+        for scen, blk in parse(path, years).items():
+            for mkt, rows in blk.items():
+                for row, vals in rows.items():
+                    out.setdefault(scen, {}).setdefault(mkt, {}).setdefault(row, {}).update(vals)
+    return out
+
+
 def parse(path: str | Path, years: range | None = None) -> dict:
     """CSV -> ``{scenario: {market: {row: {year: value}}}}``, validated."""
     df = pd.read_csv(path)
@@ -239,12 +256,12 @@ def report(presets: dict) -> str:
 def _main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("csv", help="the scenario CSV")
+    ap.add_argument("csv", nargs="+", help="the scenario CSV(s); all are merged")
     ap.add_argument("--check", action="store_true",
                     help="parse and report only; do not touch the sheet")
     a = ap.parse_args()
     years = _grid_years()
-    presets = parse(a.csv, years)
+    presets = parse_many(a.csv, years)
     print(f"\ngrid years {years[0]}-{years[-1]}\n")
     print(report(presets))
     if a.check:
