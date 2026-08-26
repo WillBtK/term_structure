@@ -1,8 +1,7 @@
 # Scenario tool
 
 A macro forecast in, a ten-year yield and a bond return out, for the US, UK, Germany
-and Japan. One instrument — the ten-year bond — at two horizons: three years and ten,
-plus the US thirty-year in the comparison table (below).
+and Japan. One instrument — the ten-year bond — at two horizons: three years and ten.
 
 ## Inputs
 
@@ -269,31 +268,32 @@ rather than 1995 like the other charts, because a ten-year fan of five paths is
 unreadable squeezed into the right quarter of the plot.
 
 **What the reader gets.** A comparison table above the grid runs all five side by side
-for the selected market: the ten-year yield at three and ten years, **the gap to the
-market's own forward yield on the same bond**, the difference from Baseline, and the
-annualised nominal and real return. The forward gap is the one that decides anything &mdash;
-a view is only a trade once it differs from what the curve already prices, and the
-comparison is taken at each row's own tenor, so a thirty-year row is measured against
-the forward thirty rather than the forward ten. **The US can add a second row per
-scenario, the thirty-year** — off by default, since the ten-year is the instrument the
-tool is about and a second row halves the speed the table reads at; the checkbox on the
-card turns it on, and it only appears where a second fit exists. It is — a genuine second fit of the same model
-on the thirty-year premium (`viz/data_daily.parquet` carries US 30y nominal from 1985;
-R² 0.90 on 488 months), with the expected-rate leg averaged over thirty years rather
-than ten so the identity `y = premium + expected average short rate` still closes on
-today's yield to a hundredth of a basis point. The drivers are the same series at the
-same definitions — expected inflation is a ten-year survey measure, the fiscal driver
-the five-year-ahead projection — because that is what the coefficients are estimated
-against at every tenor; holding them fixed is what lets the thirty-year loadings be read
-as *how much more the long end moves for the same shift*. They differ substantially: the
-long end loads less on the LEVEL of expected inflation (+0.72 against +1.01) and far
-more on inflation UNCERTAINTY (+1.81 against +0.81), which is the sensible reading — a
-thirty-year bond is paid for the width of the distribution, not its centre. Each bond is
-compared against its own Baseline; a thirty-year yield is not a spread to the ten.
+for the selected market: the ten-year yield at three and ten years, the difference from
+Baseline, and the annualised nominal and real return. What the curve already prices for
+the same bond is the dashed line on the chart above, so it is not repeated as a column.
 
-Only the US. The other three price off the US premium through the relative model in
-`model/tp_relative.py`, and that model is fitted at ten years, so a thirty-year Bund or
-gilt would need its own relative fit — not claimed here. Typed numbers
+**The table shows the ten-year and only the ten-year.** A second row per scenario
+doubles its height for a number that is a cross-check rather than the argument. The
+thirty-year fit is still built and still shipped in the payload, and `project` still
+takes an alternate tenor, so restoring the row is a display change and not a modelling
+one.
+
+That fit is a genuine second estimate of the same model on the thirty-year premium
+(`viz/data_daily.parquet` carries US 30y nominal from 1985; R² 0.90 on 488 months),
+with the expected-rate leg averaged over thirty years rather than ten so the identity
+`y = premium + expected average short rate` still closes on today's yield to a
+hundredth of a basis point. The drivers are the same series at the same definitions —
+expected inflation is a ten-year survey measure, the fiscal driver the five-year-ahead
+projection — because that is what the coefficients are estimated against at every
+tenor; holding them fixed is what lets the thirty-year loadings be read as *how much
+more the long end moves for the same shift*. They differ substantially: the long end
+loads less on the LEVEL of expected inflation (+0.72 against +1.01) and far more on
+inflation UNCERTAINTY (+1.81 against +0.81), which is the sensible reading — a
+thirty-year bond is paid for the width of the distribution, not its centre.
+
+Only the US has one. The other three price off the US premium through the relative
+model in `model/tp_relative.py`, and that model is fitted at ten years, so a
+thirty-year Bund or gilt would need its own relative fit — not claimed here. Typed numbers
 persist in the browser between visits and are dropped automatically if the underlying
 data vintage changes, so a stored scenario can never mix last month's market path with
 this month's charts. Export writes all five as one CSV, each block readable by
