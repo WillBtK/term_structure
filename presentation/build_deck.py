@@ -243,6 +243,10 @@ def build() -> dict:
 
     return {
         "asof": str(panel4.index[-1].date()),
+        # What the footer shows. The deck is built off the MONTHLY driver panel,
+        # so a day-precise date implies a freshness the exhibits do not have -- and
+        # invites a pointless mismatch against the scenario sheet, which is daily.
+        "asof_label": panel4.index[-1].strftime("%B %Y"),
         "today": today,
         "tp": {c: monthly(tp[c]) for c in MARKETS},
         "y_us": monthly(y_us), "exp_us": monthly(exp_us),
