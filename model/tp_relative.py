@@ -36,6 +36,14 @@ divergence in amplitude. A committee should be told the US sets the direction an
 market's own QE and fiscal path decide how far it travels -- not that the four markets
 have become one.
 
+Which is why each market is now fitted on its OWN policy regime (``REGIME_START``) and
+not on everything available. Germany used to start in 1991-04 and returned a beta of
+1.296 -- above one, so a US premium move was AMPLIFIED into the Bund -- while scoring
+R2 = -0.245 on 2010+, worse than predicting the mean. On the euro sample the beta is
+0.964 and Japan, cut at 2000 to match its production re-estimation, falls from 0.739 to
+0.482 with recent fit improving from 0.294 to 0.564. The shipped betas are therefore
+UK 0.888, Germany 0.964, Japan 0.482.
+
 The fiscal channel is the same object in every market: the FIVE-YEAR-AHEAD OFFICIAL
 projected deficit (CBO for the US, OBR / AMECO / Cabinet Office for the spreads --
 ``macro.fiscal_projections``), entering the spread as the relative (own minus US)
@@ -66,6 +74,38 @@ SPREAD_MARKETS = tuple(c for c in MARKETS if c != "US")
 # level is not a spread market -- and above by 1.5, which no sample comes near.
 BETA_BOUNDS = (0.0, 1.5)
 MIN_T = 2.0
+MIN_OBS = 60          # below this a regime-trimmed sample is not worth the trade
+
+# --- Where each market's relative fit is allowed to start ------------------------
+# The rest of this repo estimates every market on ONE monetary-policy regime, so that
+# no structural break sits inside the sample (README, "Modern production TP vs
+# historical exhibit"). The relative model was not held to that rule, and Germany paid
+# for it: its pair began in 1991-04, which put reunification, the EMS crisis and the
+# convergence trade inside the fit, and -- worse -- 76 of those months are SPLICED
+# historical-exhibit premia carried in with a +2.06pp level offset at the 1997-08 seam,
+# not production estimates at all.
+#
+# The damage was measurable rather than theoretical. Fitted on the full sample the
+# German model scored R2 = -0.245 on 2010+: worse than predicting the mean, against
+# 0.732 for the UK on the same test. Beta came out at 1.296 -- above one, so a US
+# premium move was amplified on its way into the Bund -- and that single number was
+# most of what drove the German premium to zero in a scenario where the US premium
+# collapsed.
+#
+# Two further reasons the full-sample number was too high, both of which survive this
+# fix and belong in any discussion of it: the fit is on LEVELS, where beta falls from
+# 1.24 to 0.94 to 0.54 as the sample shortens while the twelve-month-CHANGES beta
+# barely moves (0.64 / 0.67 / 0.61) -- the signature of a regression loading on the
+# shared secular decline in premia rather than on co-movement; and where the sign
+# constraint kills a relative channel, its work is absorbed into beta, which is why
+# the constrained fit (1.296) sits above simple OLS (1.24).
+REGIME_START = {
+    "DE": "1999-01-01",   # the euro. Production premia begin 1997-08; before that the
+                          # series is the spliced historical exhibit.
+    "JP": "2000-01-01",   # matches the production re-cut on the regime-clean 2000-05+
+                          # sample (validation/FINDINGS_japan.md)
+    "UK": None,           # the pair already starts 2004-10; nothing to trim
+}
 
 
 @dataclass(frozen=True)
@@ -195,6 +235,17 @@ def fit_relative(country: str, pair: pd.DataFrame | None = None,
     balance is the priced fiscal object, and carrying both would double-count.
     """
     p = build_pair(country) if pair is None else pair
+    start = REGIME_START.get(country)
+    if start is not None:
+        before = len(p)
+        p = p[p.index >= start]
+        if len(p) < MIN_OBS:
+            logger.warning("%s: regime start %s leaves only %d observations; "
+                           "falling back to the full sample", country, start, len(p))
+            p = build_pair(country) if pair is None else pair
+        elif len(p) < before:
+            logger.info("%s: relative fit on %s+ (%d of %d months; the rest predates "
+                        "the regime)", country, start[:4], len(p), before)
     us_model = us_model or fit_market("US")
     y = p["tp"].values
     base = {k: float(p[f"rel_{k}"].iloc[-1]) for k in CORE}

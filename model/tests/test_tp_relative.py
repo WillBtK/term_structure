@@ -132,3 +132,34 @@ def test_the_fit_never_contains_an_adjustment_channel():
     m = fit_relative("SYN", _pair(), REF)
     assert not set(m.coef) & set(m.adjust)
     assert m.r2 > 0.5
+
+
+# ------------------------------- regime-aligned samples ----------------------------
+
+def test_the_regime_start_trims_the_sample_it_is_given():
+    """Germany's pair began in 1991 -- reunification, the EMS crisis and 76 months of
+    spliced historical-exhibit premia carried in with a level offset. Fitting on that
+    produced a beta above one and a NEGATIVE out-of-sample R2."""
+    import pandas as pd
+
+    from model.tp_relative import REGIME_START
+    assert REGIME_START["DE"] == "1999-01-01"
+    assert REGIME_START["JP"] == "2000-01-01"
+    assert REGIME_START["UK"] is None          # its pair already starts 2004-10
+    for start in REGIME_START.values():
+        if start:
+            pd.Timestamp(start)                # parses
+
+
+def test_a_regime_start_that_would_gut_the_sample_is_ignored(monkeypatch, caplog):
+    """Trimming must never leave a fit with too little to identify anything: below
+    MIN_OBS the full sample is used and the fallback is logged, not silent."""
+    import logging
+
+    import model.tp_relative as tr
+    pair = _pair(n=120)
+    monkeypatch.setitem(tr.REGIME_START, "XX", "2400-01-01")   # trims everything
+    with caplog.at_level(logging.WARNING):
+        m = tr.fit_relative("XX", pair, REF)
+    assert m.n == len(pair)
+    assert any("falling back to the full sample" in r.message for r in caplog.records)
