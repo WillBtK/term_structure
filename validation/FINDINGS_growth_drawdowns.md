@@ -91,6 +91,42 @@ shows +478bp at ten years against a historical +46bp at two years; the input pat
 far more extreme than anything in the sample, so this is a statement about the input,
 not a model error — but it is the number that will be challenged.
 
+## The learning speed, fitted
+
+The scenario engine's weight on your path is `1 - lam**h`. It used to be justified as
+how *persuasive* your view is, with `lam = 0.8` asserted. That justification does not
+survive the conditional reading: a scenario other than the baseline is not a forecast
+anyone has to be persuaded of, it is the statement "if the world is X, how do bonds
+price?". There is no disagreement to decay. What there is, is **learning** — the state
+has changed and the market prices it as it unfolds, with no foresight.
+
+That is measurable, and these episodes measure it: states that did materialise, learned
+in real time. Fitting `1 - lam**h` to the market's own ten-year expected-rate leg over
+the rising limb of each regime (`learning_speed()`):
+
+| regime | λ | priced at 1y | at 3y | at 10y |
+|---|---|---|---|---|
+| low inflation | **0.40** | 60% | 94% | >99% |
+| high inflation | **0.685** | 32% | 68% | 98% |
+| *previously asserted* | *0.80* | *20%* | *49%* | *89%* |
+
+The market prices a calm state roughly **three times faster** than the old constant
+assumed, and an inflationary one more slowly than a calm one — because the central bank
+cannot ease into it and the path stays genuinely murky. One constant cannot express
+that, which is why the engine now classifies each scenario by **its own mean inflation
+over the projection grid** (`engine.convergence_for`) rather than by name.
+
+The baseline is treated as a state like any other. Under a learning reading there is
+only one process: the market's prior is today's curve — which is why `h=0` still
+reproduces today's yield, since `1 - lam**0 = 0` for any λ — and λ is how fast
+information arrives, not whose opinion it is.
+
+**What this does not change.** Your typed paths are untouched. At long horizons the
+yield still converges on exactly what you entered; policy at 1% still delivers 1%. Only
+the route there is faster. On the current US scenarios the three-year column moves by
++50 to +309bp and the ten-year by −10 to +75bp, which is the right signature for a
+change that is about the path and not the destination.
+
 ## Caveats
 
 Small samples: 12 low-inflation and 7 high-inflation episodes, and the 30y and 60-month
@@ -101,4 +137,8 @@ regime start use extrapolated parameters (see the README's regime discussion); t
 the bound, so its decomposition loads almost everything onto the premium — a property
 of the ELB, not of Japanese recessions. The 4% inflation split is a judgement; the two
 groups separate cleanly enough that the exact threshold is not doing the work, but it
-has not been tuned or tested for robustness.
+has not been tuned or tested for robustness. The fitted lambdas inherit the
+normalisation caveat above: taking the trough as the full move understates it if the
+state persists past the window, and a larger full move implies a HIGHER lambda (slower
+learning). That assumption, not the decay rate, is the thing to put in front of a
+committee.

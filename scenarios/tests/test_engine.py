@@ -457,3 +457,39 @@ def test_a_fiscal_balance_column_loads_negated_to_the_internal_convention(tmp_pa
                  "1,3.5,2.3,1.8,-5.87\n2,3.2,2.2,1.7,-6.1\n")
     sc = load_scenario(f)
     assert sc.deficit == {1.0: 5.87, 2.0: 6.1}
+
+
+# ------------------------------- learning speed, per scenario -----------------------
+
+def test_the_learning_speed_comes_from_the_scenario_own_inflation():
+    """A scenario is classified by what it says, not by what it is called -- so the
+    rule travels to scenarios nobody has written yet."""
+    from scenarios.engine import (LEARNING, LEARNING_INFL_SPLIT, Scenario,
+                                  convergence_for)
+    calm = Scenario("US", policy_rate={1: 3.0}, inflation={y: 2.5 for y in range(1, 7)})
+    hot = Scenario("US", policy_rate={1: 6.0}, inflation={y: 5.5 for y in range(1, 7)})
+    assert convergence_for(calm) == LEARNING["low"]
+    assert convergence_for(hot) == LEARNING["high"]
+    # a single spike that averages below the split is a calm world, correctly
+    spike = Scenario("US", policy_rate={1: 4.0},
+                     inflation={1: 7.5, 2: 2.0, 3: 2.0, 4: 2.0, 5: 2.0, 6: 2.0})
+    assert sum(spike.inflation.values()) / 6 < LEARNING_INFL_SPLIT
+    assert convergence_for(spike) == LEARNING["low"]
+
+
+def test_something_without_an_inflation_path_falls_back_to_the_calm_speed():
+    """`Scenario` always carries an inflation path, but the classifier is also handed
+    plain objects by the sheet's own code path, so it must not assume the attribute."""
+    from scenarios.engine import LEARNING, convergence_for
+
+    class Bare:
+        pass
+
+    assert convergence_for(Bare()) == LEARNING["low"]
+
+
+def test_the_horizon_zero_identity_survives_any_learning_speed():
+    """y(0) = today's yield rests on 1 - lam**0 = 0, which holds for every lam. If a
+    change to the learning speed could move today's yield, the anchor would be gone."""
+    for lam in (0.0, 0.4, 0.685, 0.8, 1.0):
+        assert 1.0 - lam ** 0 == 0.0

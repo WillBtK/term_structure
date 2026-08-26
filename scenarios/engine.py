@@ -119,6 +119,40 @@ HORIZONS = (3, 10)
 # independent windows. 0.8 sits just inside that bound on the faster-convergence side.
 # It is a reasoned setting in a wide band, which is why the sheet exposes it as a dial.
 VIEW_CONVERGENCE = 0.8
+
+# --- How fast the market learns a state it is living through ---------------------
+# The weight on your path is 1 - lam**h, and what it measures is NOT how persuasive
+# your view is. A scenario other than the baseline is a conditional statement -- "if
+# the world is stagflationary, how do bonds price?" -- so there is no disagreement to
+# decay. What there is, is learning: the state has changed, but the market has no
+# foresight and prices it as it unfolds. That is a measurable object, and
+# validation/growth_drawdowns.py measures it, fitting 1 - lam**h to the market's own
+# ten-year expected-rate leg through episodes where a state did materialise.
+#
+# It differs by regime, which one constant cannot express: an unambiguous state is
+# learned fast, an inflationary one slowly, because the central bank cannot ease into
+# it and the path stays genuinely murky. A scenario is classified by its OWN mean
+# inflation over the projection grid rather than by name, so the rule travels to
+# scenarios nobody has written yet.
+#
+# The baseline gets the same treatment as every other state. Under a learning reading
+# there is only one process: the market's prior is today's curve -- which is why h=0
+# still reproduces today's yield, since 1 - lam**0 = 0 for any lam -- and lam is how
+# fast information arrives, not whose opinion it is.
+LEARNING = {"low": 0.40, "high": 0.685}   # fitted; see FINDINGS_growth_drawdowns.md
+LEARNING_INFL_SPLIT = 4.0                 # % mean inflation dividing the two regimes
+
+
+def convergence_for(scenario, learning: dict | None = None,
+                    split: float = LEARNING_INFL_SPLIT) -> float:
+    """The learning speed this scenario's own inflation path implies."""
+    lam = dict(LEARNING if learning is None else learning)
+    path = getattr(scenario, "inflation", None) or {}
+    if not path:
+        return lam["low"]
+    mean_pi = sum(float(v) for v in path.values()) / len(path)
+    return lam["high"] if mean_pi >= split else lam["low"]
+
 REQUIRED_COLUMNS = ("year", "policy_rate", "inflation", "real_growth")
 
 
@@ -396,7 +430,7 @@ def run_market(state: MarketState, scenario: Scenario, tp_path: dict,
 def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dict,
         debt_defaults: dict | None = None, deficit_defaults: dict | None = None,
         rho: float = RESIDUAL_PERSISTENCE,
-        view_convergence: float = VIEW_CONVERGENCE,
+        view_convergence: float | None = None,
         growth_defaults: dict | None = None) -> dict:
     """All markets. The US premium path is computed first; every spread market's
     premium is a beta on it plus its drivers relative to the US, both at the same
@@ -428,6 +462,10 @@ def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dic
                 scenarios[c] = _replace(sc, deficit=adjusted_deficit(
                     c, sc.real_growth, growth_defaults[c], deficit_defaults[c]))
     us_state, us_scen = states["US"], scenarios["US"]
+    # Each market's own scenario sets its own learning speed, unless the caller pins
+    # one (the sheet's dial, and every test that wants a fixed weight).
+    lam_of = {c: (float(view_convergence) if view_convergence is not None
+                  else convergence_for(sc)) for c, sc in scenarios.items()}
     us_drv = {0: us_state.drivers_today}
     us_drv.update({h: drivers_at(us_state, us_scen, h, debt_defaults.get("US"),
                                  deficit_defaults.get("US"))
@@ -435,14 +473,14 @@ def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dic
     # One view, one speed. The share of the user's view that has been priced at this
     # horizon is 1 - lambda**h, and it now weights BOTH legs: the expectations leg in
     # blended_policy_average and the premium's move in fair value here.
-    vw = {h: 1.0 - float(view_convergence) ** float(h) for h in HORIZONS}
+    vw = {h: 1.0 - lam_of["US"] ** float(h) for h in HORIZONS}
     us_tp = {0: us_state.tp_today}
     us_tp.update({h: us_model.scenario(us_drv[0], us_drv[h], us_state.tp_today,
                                        horizon=h, rho=rho, view_weight=vw[h])
                   for h in HORIZONS})
 
     results = {"US": run_market(us_state, us_scen, us_tp, debt_defaults.get("US"),
-                                view_convergence)}
+                                lam_of["US"])}
     for c, m in spread_models.items():
         if c not in scenarios:
             continue
@@ -452,8 +490,8 @@ def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dic
             own_h = drivers_at(st, sc, h, debt_defaults.get(c), deficit_defaults.get(c))
             tp[h] = m.scenario(us_drv[0], us_drv[h], st.drivers_today, own_h,
                                us_tp[0], us_tp[h], st.tp_today, horizon=h, rho=rho,
-                               view_weight=vw[h])
-        results[c] = run_market(st, sc, tp, debt_defaults.get(c), view_convergence)
+                               view_weight=1.0 - lam_of[c] ** float(h))
+        results[c] = run_market(st, sc, tp, debt_defaults.get(c), lam_of[c])
     return results
 
 

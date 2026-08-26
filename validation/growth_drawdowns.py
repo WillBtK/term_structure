@@ -218,6 +218,43 @@ def by_inflation_regime(countries: tuple = tuple(UNEMP), split: float = INFL_SPL
     return out
 
 
+# lambda is searched on this grid; 0.01 steps are far finer than the data can resolve
+_LAM_GRID = np.linspace(0.05, 0.95, 181)
+# committed fallback, from the run recorded in FINDINGS_growth_drawdowns.md -- the fit
+# needs FRED, and a scenario sheet must still build when FRED is down
+LEARNING_FALLBACK = {"low inflation": 0.40, "high inflation": 0.68}
+
+
+def learning_speed(split: float = INFL_SPLIT) -> dict:
+    """How fast the market prices a state it is living through, per inflation regime.
+
+    Fits ``share(h) = 1 - lam ** h`` to the market's OWN ten-year expected-rate leg over
+    the rising limb of each regime's event study, normalising on the trough as the fully
+    priced move. This is the object the scenario sheet needs and it is not a matter of
+    taste: the episodes are states that did materialise, learned in real time with no
+    foresight, which is exactly the premise of a conditional scenario.
+
+    The normalisation is the judgement in it. Taking the trough as "the full move"
+    understates the eventual move if the state persists beyond the sample window, and a
+    larger full move would imply a HIGHER lambda (slower learning). That is the
+    assumption to put in front of a committee, rather than the decay rate itself.
+    """
+    out = {}
+    for name, (tab, _) in by_inflation_regime(split=split).items():
+        if tab.empty or "e10" not in tab:
+            out[name] = LEARNING_FALLBACK.get(name, 0.8)
+            continue
+        e = tab["e10"]
+        peak = e.idxmin()
+        climb = [(h, v / e.min()) for h, v in e.items() if 0 < h <= peak]
+        if not climb or e.min() >= 0:
+            out[name] = LEARNING_FALLBACK.get(name, 0.8)
+            continue
+        out[name] = float(min(_LAM_GRID, key=lambda l: sum(
+            (1 - l ** (h / 12.0) - share) ** 2 for h, share in climb)))
+    return out
+
+
 def _fmt(df: pd.DataFrame, cols: list, title: str) -> str:
     have = [c for c in cols if c in df.columns and df[c].notna().any()]
     if not have:
@@ -262,6 +299,11 @@ def _main() -> None:
                    "  MEAN change in the OBSERVED yield, bp"))
         print(_fmt(tab, [f"e{t:g}" for t in TENORS], "  ...of which EXPECTED-RATE, bp"))
         print(_fmt(tab, [f"tp{t:g}" for t in TENORS], "  ...of which TERM PREMIUM, bp"))
+
+    print(f"\n{'='*72}\nFITTED LEARNING SPEED (lambda)")
+    for k, v in learning_speed().items():
+        print(f"  {k:<16} lam {v:.2f}   -> {1-v:.0%} of the state priced at 1y, "
+              f"{1-v**3:.0%} at 3y, {1-v**10:.0%} at 10y")
 
     p = pooled()
     print(f"\n{'='*72}\nPOOLED across all markets (both regimes together)")

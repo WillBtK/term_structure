@@ -224,9 +224,24 @@ def build() -> dict:
                               if y >= now_year}}
         except Exception:                                           # noqa: BLE001
             pass
+    # The market's learning speed, fitted from past episodes rather than asserted, so
+    # the page can say where its decay rate came from. Falls back to the committed
+    # constants when FRED is unreachable -- the fit needs an unemployment series.
+    from scenarios.engine import LEARNING, LEARNING_INFL_SPLIT
+    learning = {"low": LEARNING["low"], "high": LEARNING["high"],
+                "split": LEARNING_INFL_SPLIT, "fitted": False}
+    try:
+        from validation.growth_drawdowns import learning_speed
+        fit = learning_speed(LEARNING_INFL_SPLIT)
+        learning.update({"low": round(float(fit["low inflation"]), 3),
+                         "high": round(float(fit["high inflation"]), 3),
+                         "fitted": True})
+    except Exception as exc:                                        # noqa: BLE001
+        logger.warning("learning speed not refitted (%s); using committed values", exc)
+
     payload = {"halflife": HL, "tenor": TENOR, "lam": 0.5 ** (1.0 / HL),
                "asof": str(obs["date"].max().date()), "markets": {},
-               "view_convergence": VIEW_CONVERGENCE,
+               "view_convergence": VIEW_CONVERGENCE, "learning": learning,
                "year0": int(now.year), "year_frac": round(float(year_frac), 3),
                # the endogenous-deficit rule: deficit(t) = official(t) - eps*gap(t),
                # the gap cumulating growth deviations vs the WEO baseline and closing

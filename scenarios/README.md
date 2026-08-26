@@ -98,11 +98,38 @@ average would smuggle that decline in as a view nobody expressed.
 
 Without this, a three-year projection paired the **market's** term premium with your
 **entire** rate view — an inconsistency that showed up as an implausibly high ten-year
-yield at short horizons. `λ = 0.8` puts about half a stated view into the three-year
-horizon and nine tenths into the ten-year one; `λ = 0` restores take-it-literally
-behaviour and `λ = 1` projects the market's own forward curve. At `h = 0` no view is in
-yet, so `y(0) = TP(0) + P̄(0)` reproduces today's yield exactly. Every result carries
-`market_policy_avg`, `view_policy_avg` and `view_weight` so the blend is inspectable.
+yield at short horizons. At `h = 0` no view is in yet, so `y(0) = TP(0) + P̄(0)`
+reproduces today's yield exactly. Every result carries `market_policy_avg`,
+`view_policy_avg` and `view_weight` so the blend is inspectable.
+
+**λ is fitted, and it is not about persuasion.** It used to be asserted at 0.8 and
+justified as how quickly your view reaches the market. That justification does not
+survive the way these scenarios are actually used: everything except the baseline is a
+*conditional* statement — "if the world is stagflationary, how do bonds price?" — and
+there is no disagreement to decay in a conditional. What there is, is **learning**. The
+state has changed and the market has no foresight, so it prices the state as it unfolds.
+
+That is measurable, and `validation/growth_drawdowns.py` measures it on episodes where
+a state did materialise:
+
+| regime | λ | priced at 1y | at 3y |
+|---|---|---|---|
+| calm | **0.40** | 60% | 94% |
+| inflationary | **0.685** | 32% | 68% |
+| *previously asserted* | *0.80* | *20%* | *49%* |
+
+A calm state is priced about three times faster than the old constant assumed; an
+inflationary one more slowly, because the central bank cannot ease into it and the path
+stays murky. One constant cannot say both, so each scenario is classified by **its own
+mean inflation over the grid** (`engine.convergence_for`) rather than by name — the rule
+travels to scenarios nobody has written yet. The baseline is treated as a state like any
+other: there is one process, the market's prior is today's curve, and λ is how fast
+information arrives rather than whose opinion it is.
+
+**Your typed paths are untouched.** At long horizons the yield still converges on
+exactly what you entered — policy at 1% still delivers 1%. Only the route there is
+faster. The dial above the grid overrides λ by hand (`0` = perfect foresight, `1` =
+project the market's own forward curve); leaving it on *fitted* uses the table.
 
 ## The two inflation channels
 
