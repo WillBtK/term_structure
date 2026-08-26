@@ -180,3 +180,16 @@ def test_the_long_end_is_a_different_fit_not_a_copy():
     assert abs(alt["duration"] - us["duration"]) > 3.0
     assert any(abs(alt["model"]["coef"][k] - us["model"]["coef"][k]) > 1e-6
                for k in us["model"]["coef"])
+
+
+def test_todays_premium_and_yield_come_from_the_same_observation():
+    """y(0) = TP(0) + Pbar(0) is the anchor the whole projection hangs from, and it
+    only holds if the premium and the yield are read on the same date. The monthly
+    driver panel ends where its DRIVERS end -- UK core CPI runs a month or two behind
+    the curve -- so taking the premium from the panel's last row paired a July premium
+    with an August yield and broke the identity by 6bp."""
+    p = json.loads(Path(OUT).read_text())
+    for c in MARKETS:
+        m = p["markets"][c]
+        implied = m["tp_today"] + m["expected_curve"]["10.0"]
+        assert implied == pytest.approx(m["y_today"], abs=0.02), c

@@ -597,9 +597,15 @@ def latest_states(markets=("US", "UK", "DE", "JP")) -> dict:
         mk = allobs[allobs["country"] == c]
         curve = (mk[mk["date"] == mk["date"].max()]
                  .dropna(subset=["expected"]).set_index("tenor")["expected"] * 100.0)
+        # tp_today comes from the SAME daily observation as y_today and the expected
+        # curve, not from the monthly panel's last row. The panel ends where its
+        # DRIVERS end -- UK core CPI runs a month or two behind the curve -- so taking
+        # the premium from there paired a July premium with an August yield and broke
+        # y(0) = TP(0) + Pbar(0) by 6bp in the UK. The panel is what the model is
+        # FITTED on; today's anchor is today's curve.
         out[c] = MarketState(
             country=c, y_today=float(last["observed"]) * 100.0,
-            tp_today=float(p["tp"].iloc[-1]),
+            tp_today=float(last["term_premium"]) * 100.0,
             drivers_today=drivers, core_history=core[c],
             expected_curve={float(t): float(v) for t, v in curve.sort_index().items()})
     return out
