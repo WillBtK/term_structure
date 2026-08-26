@@ -68,3 +68,6 @@ scheduler/supabase_stage/
 !switzerland/data/anchors/
 !switzerland/data/anchors/**
 supply/data/
+
+# Rendered decks: regenerable from presentation/export_pdf.py
+presentation/dist/
