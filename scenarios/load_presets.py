@@ -14,7 +14,7 @@ Expected columns, in any order, header row required::
     scenario,market,row,year,value
 
 * ``scenario`` -- one of the five names, matched case- and punctuation-insensitively,
-  so "high growth high inflation" finds "High growth, high inflation".
+  so "high growth, high inflation" finds "High Growth High Inflation".
 * ``market`` -- US, UK, DE, JP (or United States / Germany / Japan / United Kingdom).
 * ``row`` -- ``policy_rate``, ``inflation``, ``real_growth`` or ``fiscal_balance``.
   Common aliases are accepted: "policy", "cpi", "growth", "gdp", "balance", "deficit".
@@ -58,8 +58,8 @@ logger = logging.getLogger(__name__)
 HERE = Path(__file__).resolve().parent
 SHEET = HERE / "sheet" / "index.html"
 
-SCENARIOS = ["Baseline", "Goldilocks", "High growth, high inflation",
-             "Stagflation", "Hard landing"]
+SCENARIOS = ["Baseline", "Goldilocks", "High Growth High Inflation",
+             "Stagflation", "Hard Landing"]
 MARKETS = ["US", "UK", "DE", "JP"]
 ROWS = ["policy_rate", "inflation", "real_growth", "deficit"]
 

@@ -205,7 +205,7 @@ footer{border-top:1px solid var(--rule);padding-top:18px;color:var(--muted);font
   the curve already prices for the same bond &mdash; the benchmark your path has to beat.</p>
   <div class="results" id="results"></div></div>
   <div class="card">
-    <div class="ctitle">Ten-year yield, % &mdash; history, your path, and what the curve prices</div>
+    <div class="ctitle">Ten-year yield, % &mdash; all five scenarios against what the curve already prices</div>
     <div class="chartbox" id="c_ten"><div class="tip"></div></div>
     <div class="legend">
       <span><i class="sw" style="background:var(--hist)"></i>History</span>
@@ -425,15 +425,18 @@ const scenarioFor = c => ({policy_rate: asPath(c,"policy_rate"),
    {row: {year: value}} and it is applied over the baseline opening at load. Anything
    left out simply keeps the baseline number, so a scenario can state a view on two
    rows and stay neutral on the rest. */
-const SCEN_NAMES = ["Baseline","Goldilocks","High growth, high inflation",
-                    "Stagflation","Hard landing"];
+const SCEN_NAMES = ["Baseline","Goldilocks","High Growth High Inflation",
+                    "Stagflation","Hard Landing"];
 const SCEN_BLURB = {
   "Baseline": "The house starting point: the market's own policy path, the IMF WEO "
     + "macro baseline, and each fiscal authority's official balance re-aligned to it.",
-  "Goldilocks": "",
-  "High growth, high inflation": "",
-  "Stagflation": "",
-  "Hard landing": ""};
+  "Goldilocks": "Growth at 3% with inflation back at target and policy held at 4%.",
+  "High Growth High Inflation": "Growth at 3.1% but inflation stuck at 3.3%, with policy "
+    + "at 5% throughout.",
+  "Stagflation": "A supply shock: output falls 0.8% in 2026 and inflation spikes to 7.5%, "
+    + "then settles at 1.5% growth with 5.5% inflation and policy at 5.5%.",
+  "Hard Landing": "Recession in 2026 \u2014 output down 1%, inflation at 1% \u2014 and the "
+    + "policy rate cut to 0.5%, recovering only to 1%."};
 
 /* Populated scenario inputs. Shape:
      PRESETS["Stagflation"] = {US: {inflation: {2027: 4.0, 2028: 4.2},
@@ -442,7 +445,7 @@ const SCEN_BLURB = {
                                UK: {...}}
    A `deficit` block takes that market's balance row manual (the growth rule stops
    driving it), matching what typing in the row does by hand. */
-const PRESETS = {};
+const PRESETS = {"Baseline": {"US": {"real_growth": {"2026": 2.3, "2027": 2.1, "2028": 2.1, "2029": 2.1, "2030": 2.1, "2031": 2.1}, "inflation": {"2026": 3.6, "2027": 3.2, "2028": 2.8, "2029": 2.8, "2030": 2.8, "2031": 2.8}, "policy_rate": {"2026": 3.75, "2027": 3.75, "2028": 3.75, "2029": 3.75, "2030": 3.75, "2031": 3.75}}}, "Goldilocks": {"US": {"real_growth": {"2026": 3.0, "2027": 3.0, "2028": 3.0, "2029": 3.0, "2030": 3.0, "2031": 3.0}, "inflation": {"2026": 2.0, "2027": 2.0, "2028": 2.0, "2029": 2.0, "2030": 2.0, "2031": 2.0}, "policy_rate": {"2026": 4.0, "2027": 4.0, "2028": 4.0, "2029": 4.0, "2030": 4.0, "2031": 4.0}}}, "High Growth High Inflation": {"US": {"real_growth": {"2026": 3.1, "2027": 3.1, "2028": 3.1, "2029": 3.1, "2030": 3.1, "2031": 3.1}, "inflation": {"2026": 3.3, "2027": 3.3, "2028": 3.3, "2029": 3.3, "2030": 3.3, "2031": 3.3}, "policy_rate": {"2026": 5.0, "2027": 5.0, "2028": 5.0, "2029": 5.0, "2030": 5.0, "2031": 5.0}}}, "Stagflation": {"US": {"real_growth": {"2026": -0.8, "2027": 1.5, "2028": 1.5, "2029": 1.5, "2030": 1.5, "2031": 1.5}, "inflation": {"2026": 7.5, "2027": 5.5, "2028": 5.5, "2029": 5.5, "2030": 5.5, "2031": 5.5}, "policy_rate": {"2026": 6.0, "2027": 5.5, "2028": 5.5, "2029": 5.5, "2030": 5.5, "2031": 5.5}}}, "Hard Landing": {"US": {"real_growth": {"2026": -1.0, "2027": 1.25, "2028": 1.25, "2029": 1.25, "2030": 1.25, "2031": 1.25}, "inflation": {"2026": 1.0, "2027": 1.5, "2028": 1.5, "2029": 1.5, "2030": 1.5, "2031": 1.5}, "policy_rate": {"2026": 0.5, "2027": 1.0, "2028": 1.0, "2029": 1.0, "2030": 1.0, "2031": 1.0}}}};
 
 let SCEN = "Baseline";
 const SC = {};                                   // name -> {S, FLAT, DEFEDIT}
@@ -721,6 +724,10 @@ function valueAt(pts, x){
 }
 
 function chart(el, spec){
+  // per-chart geometry: the headline chart is a full-width card carrying seven series
+  // and needs both a wider box and a right margin for the direct labels
+  const CWx = spec.cw || CW, CHx = spec.ch || CH;
+  const P = Object.assign({}, CP, spec.padR ? {r: spec.padR} : {});
   // clip to the window first: a series that starts before x0 would otherwise be drawn
   // outside the plot area and spill across the card
   const series = spec.series
@@ -733,28 +740,46 @@ function chart(el, spec){
   const x1 = spec.x0 ?? Math.min(...xs), x2 = Math.max(...xs);
   let lo = Math.min(...ys), hi = Math.max(...ys);
   const pd = (hi-lo)*0.14 || 0.5; lo -= pd; hi += pd;
-  const iw = CW-CP.l-CP.r, ih = CH-CP.t-CP.b;
-  const X = v => CP.l + (v-x1)/(x2-x1)*iw, Y = v => CP.t + (hi-v)/(hi-lo)*ih;
+  const iw = CWx-P.l-P.r, ih = CHx-P.t-P.b;
+  const X = v => P.l + (v-x1)/(x2-x1)*iw, Y = v => P.t + (hi-v)/(hi-lo)*ih;
   const path = pts => pts.map((p,i) => (i?"L":"M")+X(p[0]).toFixed(1)+" "+Y(p[1]).toFixed(1)).join(" ");
-  const o = [`<svg viewBox="0 0 ${CW} ${CH}" role="img" aria-label="${spec.label}">`];
+  const o = [`<svg viewBox="0 0 ${CWx} ${CHx}" role="img" aria-label="${spec.label}">`];
 
   const span = hi-lo, gstep = span>8?4:span>4?2:span>1.6?1:0.5;
   for(let v=Math.ceil(lo/gstep)*gstep; v<=hi; v+=gstep){
     const zero = Math.abs(v)<1e-9;
-    o.push(`<line x1="${CP.l}" x2="${CW-CP.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="${zero?'var(--rule)':'var(--rule-soft)'}" stroke-width="1"/>`);
-    o.push(`<text x="${CP.l-6}" y="${Y(v)+3.2}" text-anchor="end" font-size="9" font-family="IBM Plex Mono, monospace" fill="var(--muted)">${(+v.toFixed(1))}</text>`);
+    o.push(`<line x1="${P.l}" x2="${CWx-P.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="${zero?'var(--rule)':'var(--rule-soft)'}" stroke-width="1"/>`);
+    o.push(`<text x="${P.l-6}" y="${Y(v)+3.2}" text-anchor="end" font-size="9" font-family="IBM Plex Mono, monospace" fill="var(--muted)">${(+v.toFixed(1))}</text>`);
   }
   if(spec.split != null && spec.split > x1 && spec.split < x2)
-    o.push(`<rect x="${X(spec.split)}" y="${CP.t}" width="${CW-CP.r-X(spec.split)}" height="${ih}" fill="var(--scen-soft)"/>`);
+    o.push(`<rect x="${X(spec.split)}" y="${P.t}" width="${CWx-P.r-X(spec.split)}" height="${ih}" fill="var(--scen-soft)"/>`);
   [x1, spec.split, x2].forEach(v => { if(v == null) return;
-    o.push(`<text x="${X(v)}" y="${CH-5}" text-anchor="middle" font-size="9" font-family="IBM Plex Mono, monospace" fill="var(--muted)">${Math.round(v)}</text>`); });
+    o.push(`<text x="${X(v)}" y="${CHx-5}" text-anchor="middle" font-size="9" font-family="IBM Plex Mono, monospace" fill="var(--muted)">${Math.round(v)}</text>`); });
 
   series.forEach(s => o.push(`<path d="${path(s.pts)}" fill="none" stroke="${s.color}"
     stroke-width="${s.w||1.7}" ${s.dash?`stroke-dasharray="${s.dash}"`:""} stroke-linejoin="round"/>`));
   series.filter(s => s.dots).forEach(s => s.pts.forEach(pt =>
     o.push(`<circle cx="${X(pt[0])}" cy="${Y(pt[1])}" r="2.4" fill="${s.color}" stroke="var(--card)" stroke-width="1.1"/>`)));
-  o.push(`<line class="xh" x1="0" x2="0" y1="${CP.t}" y2="${CH-CP.b}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>`);
-  o.push(`<rect class="hit" x="${CP.l}" y="${CP.t}" width="${iw}" height="${ih}" fill="transparent" style="cursor:crosshair"/>`);
+  /* Direct labels at the line ends. With five scenario paths converging on a similar
+     yield, hue cannot carry identity -- there are not five hues that stay apart under
+     colour-blindness alongside the history and market colours already in use. The label
+     IS the identity, so the four alternatives can all sit in one recessive ink and the
+     eye still lands on Baseline and the market forward, which is the point of the
+     chart. Labels are pushed apart vertically where they would overlap. */
+  const ends = series.filter(s => s.end).map(s => ({
+    y: Y(s.pts[s.pts.length-1][1]), x: X(s.pts[s.pts.length-1][0]),
+    text: s.end, color: s.color, bold: s.strong}));
+  ends.sort((a,b) => a.y - b.y);
+  const GAP = 10.5;
+  for(let i=1;i<ends.length;i++)
+    if(ends[i].y - ends[i-1].y < GAP) ends[i].y = ends[i-1].y + GAP;
+  const over = ends.length ? ends[ends.length-1].y - (CHx-P.b) : 0;
+  if(over > 0) ends.forEach(e => e.y -= over);          // whole stack back inside the plot
+  ends.forEach(e => o.push(`<text x="${CWx-P.r+5}" y="${e.y+3}" font-size="9"
+    font-family="IBM Plex Sans, sans-serif" font-weight="${e.bold?600:400}"
+    style="fill:${e.color}">${e.text}</text>`));
+  o.push(`<line class="xh" x1="0" x2="0" y1="${P.t}" y2="${CHx-P.b}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>`);
+  o.push(`<rect class="hit" x="${P.l}" y="${P.t}" width="${iw}" height="${ih}" fill="transparent" style="cursor:crosshair"/>`);
   o.push("</svg>");
   el.querySelectorAll("svg").forEach(n => n.remove());
   el.insertAdjacentHTML("beforeend", o.join(""));
@@ -762,14 +787,14 @@ function chart(el, spec){
   const svg = el.querySelector("svg"), tip = el.querySelector(".tip"), xh = el.querySelector(".xh");
   svg.querySelector(".hit").addEventListener("mousemove", ev => {
     const r = svg.getBoundingClientRect();
-    const x = x1 + ((ev.clientX-r.left)/r.width*CW - CP.l)/iw*(x2-x1);
+    const x = x1 + ((ev.clientX-r.left)/r.width*CWx - P.l)/iw*(x2-x1);
     xh.setAttribute("x1", X(x)); xh.setAttribute("x2", X(x)); xh.setAttribute("opacity", 1);
     const yr = Math.floor(x), mo = Math.min(12, Math.max(1, Math.round((x-yr)*12)+1));
     let html = `<div style="color:var(--muted)">${yr}-${String(mo).padStart(2,"0")}</div>`;
     series.forEach(s => { const v = valueAt(s.pts, x);
       if(v != null) html += `<div><span style="color:${s.color}">&#9632;</span> ${s.name} <strong>${v.toFixed(2)}</strong></div>`; });
     tip.innerHTML = html; tip.classList.add("on");
-    const bw = el.getBoundingClientRect().width, lx = X(x)/CW*bw;
+    const bw = el.getBoundingClientRect().width, lx = X(x)/CWx*bw;
     tip.style.left = Math.min(Math.max(lx+12, 2), bw - tip.offsetWidth - 2) + "px";
     tip.style.top = "4px";
   });
@@ -979,22 +1004,53 @@ function renderCharts(){
   const entry = k => YEARS.map(Y => [Y + 1 - Math.floor(D.year_frac) + Y0 - Y0,
                                      sc[k][Math.min(Y, FLAT[market])]])
                           .map(([_,v],i) => [YEARS[i] + 1 - (D.year_frac - Y0), v]);
-  const HIST = "var(--hist)", SCEN = "var(--scen)", MKT = "var(--mkt)";
+  // NB: do not name a local `SCEN` here -- that is the global selected-scenario name,
+  // which this function now reads to decide which path to draw at full weight.
+  const HIST = "var(--hist)", SCENC = "var(--scen)", MKT = "var(--mkt)";
   const now = Y0 + (D.year_frac - Y0);
 
-  /* headline: ten-year yield, our path, and the curve's own forwards */
-  chart(document.getElementById("c_ten"), {label:"Ten-year yield", split:now, x0:1995,
+  /* Headline: the ten-year under every scenario, against what the curve already prices.
+     Two lines are meant to be read first -- the market's own forward, which is the
+     benchmark any view has to beat, and Baseline, which is the house case. The other
+     three sit in a recessive ink at half the weight, present for the range they imply
+     rather than for their individual paths, and named by direct label. Whichever
+     scenario is SELECTED is drawn at full weight in the ink so editing it is visible;
+     that is the one exception to colour-follows-the-entity, and it is a foreground/
+     background distinction rather than a change of hue. */
+  const scenPaths = SCEN_NAMES.map(n => {
+    const keep = SCEN;
+    activate(n);
+    const r = projectPath(market);
+    activate(keep);
+    return {n, pts: r.map(x => [yrOf(x.h), x.y])};
+  });
+  const ALT = "var(--ink-2)", FAINT = "var(--muted)";
+  const SHORT = {"Baseline":"Baseline", "Goldilocks":"Goldilocks",
+                 "High Growth High Inflation":"High growth, high infl.",
+                 "Stagflation":"Stagflation", "Hard Landing":"Hard landing"};
+  /* A shorter history window than the other charts: this one has to show a ten-year
+     fan of five paths, and on a 1995 start the whole projection is squeezed into the
+     right quarter of the plot. 2010 keeps the zero-rate era and the 2022 selloff --
+     the two things that give the fan its scale -- at roughly half the width. */
+  chart(document.getElementById("c_ten"), {label:"Ten-year yield", split:now, x0:2010,
+    cw:760, ch:250, padR:118,
     series:[
       {name:"History", pts:monthsOf(mh.ten), color:HIST},
-      {name:"Forward (curve)", pts:M.fwd10.map((v,h) => [yrOf(h), v]), color:MKT, dash:"2 3", w:1.6},
-      {name:"Your path", pts:rows.map(r => [yrOf(r.h), r.y]), color:SCEN, dash:"4 3", w:2, dots:true}]});
+      ...scenPaths.filter(s => s.n !== "Baseline").map(s => ({
+        name:s.n, pts:s.pts, color:s.n === SCEN ? ALT : FAINT,
+        dash:"4 3", w:s.n === SCEN ? 1.9 : 1.1, dots:s.n === SCEN,
+        end:SHORT[s.n], strong:s.n === SCEN})),
+      {name:"Forward (curve)", pts:M.fwd10.map((v,h) => [yrOf(h), v]), color:MKT,
+       dash:"2 3", w:2.1, end:"Market forward", strong:true},
+      {name:"Baseline", pts:(scenPaths.find(s => s.n === "Baseline")||{}).pts || [],
+       color:SCENC, dash:"4 3", w:2.4, dots:true, end:"Baseline", strong:true}]});
 
   document.getElementById("t_short").textContent = CUR[market] + " — market implied vs your policy path, %";
   chart(document.getElementById("c_short"), {label:"Policy rate", split:now, x0:1995,
     series:[
       {name:"History", pts:monthsOf(mh.short), color:HIST},
       {name:"Market implied", pts:(M.market_policy_path||[]).map((v,k) => [yrOf(k+0.5), v]), color:MKT, dash:"2 3", w:1.6},
-      {name:"Your path", pts:entry("policy_rate"), color:SCEN, dash:"4 3", w:2, dots:true}]});
+      {name:"Your path", pts:entry("policy_rate"), color:SCENC, dash:"4 3", w:2, dots:true}]});
 
   const be = (M.be_path||[]).map((v,k) => [yrOf(k+0.5), v]);
   document.getElementById("benote").innerHTML = M.be_note
@@ -1003,12 +1059,12 @@ function renderCharts(){
     series:[
       {name:"Core (realised)", pts:monthsOf(mh.core), color:HIST},
       {name:BE_NAME[market] || "Breakeven", pts:be, color:MKT, dash:"2 3", w:1.6},
-      {name:"Your path", pts:entry("inflation"), color:SCEN, dash:"4 3", w:2, dots:true}]});
+      {name:"Your path", pts:entry("inflation"), color:SCENC, dash:"4 3", w:2, dots:true}]});
 
   chart(document.getElementById("c_tp"), {label:"Term premium", split:now, x0:1995,
     series:[
       {name:"History", pts:monthsOf(mh.tp), color:HIST},
-      {name:"Your path", pts:rows.map(r => [yrOf(r.h), r.tp]), color:SCEN, dash:"4 3", w:2, dots:true}]});
+      {name:"Your path", pts:rows.map(r => [yrOf(r.h), r.tp]), color:SCENC, dash:"4 3", w:2, dots:true}]});
 
   // everything on this chart is the fiscal BALANCE (deficit negative); the payload's
   // series stay deficit-positive (the coefficient's basis) and are negated here
@@ -1021,7 +1077,7 @@ function renderCharts(){
        pts:(M.deficit_hist||[]).map(p => [p[0], -p[1]]), color:HIST},
       {name:"Official projection", pts:official, color:MKT, dash:"2 3", w:1.5},
       {name:DEFEDIT[market] ? "Your path" : "Your path (derived)",
-       pts:entry("deficit"), color:SCEN, dash:"4 3", w:2, dots:true}]});
+       pts:entry("deficit"), color:SCENC, dash:"4 3", w:2, dots:true}]});
 }
 
 /* Compact result cards: the headline number with two raw lines under it, the full

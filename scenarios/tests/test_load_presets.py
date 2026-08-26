@@ -30,9 +30,9 @@ def test_long_layout(tmp_path):
 
 def test_wide_layout_is_detected_and_reshaped(tmp_path):
     p = _csv(tmp_path, "Scenario,Market,Row,2026,2027,2028\n"
-                       "Hard landing,US,Policy rate,3.5,2.0,1.5\n")
+                       "Hard Landing,US,Policy rate,3.5,2.0,1.5\n")
     out = lp.parse(p, YEARS)
-    assert out["Hard landing"]["US"]["policy_rate"] == {2026: 3.5, 2027: 2.0, 2028: 1.5}
+    assert out["Hard Landing"]["US"]["policy_rate"] == {2026: 3.5, 2027: 2.0, 2028: 1.5}
 
 
 def test_market_and_row_aliases(tmp_path):
@@ -53,8 +53,8 @@ def test_scenario_names_tolerate_punctuation_and_case(tmp_path):
                        "high growth high inflation,US,inflation,2027,3.5\n"
                        "HARD LANDING,US,inflation,2027,1.0\n")
     out = lp.parse(p, YEARS)
-    assert "High growth, high inflation" in out
-    assert "Hard landing" in out
+    assert "High Growth High Inflation" in out
+    assert "Hard Landing" in out
 
 
 def test_years_outside_the_grid_are_dropped_not_silently_kept(tmp_path, caplog):

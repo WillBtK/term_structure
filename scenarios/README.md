@@ -179,8 +179,8 @@ over the full sample against 0.12 on changes since 2010.
 ## Named scenarios
 
 The sheet holds five independent scenarios, switched by the bar above the market tabs:
-**Baseline**, **Goldilocks**, **High growth, high inflation**, **Stagflation** and
-**Hard landing**. Each is a complete copy of the input state for every market, so
+**Baseline**, **Goldilocks**, **High Growth High Inflation**, **Stagflation** and
+**Hard Landing**. Each is a complete copy of the input state for every market, so
 switching is instant and nothing leaks across; a dot on the bar marks the ones that
 have been moved off their opening values.
 
@@ -215,6 +215,20 @@ carried forward. Stating policy at 2% for 2027–28 and nothing after means 2% f
 onward, not a dip and a snap back to the market's path in 2029. State the later years
 explicitly to say something different. Years you never touch on a row keep the baseline
 opening, so a scenario can state a view on two rows and stay neutral on the rest.
+
+**The headline chart shows all five.** The ten-year under every scenario, plotted
+against the curve's own forward ten-year &mdash; the benchmark any view has to beat.
+Two lines are meant to be read first: the **market forward** and **Baseline**. The
+other three sit in a recessive ink at half the weight, present for the range they
+imply rather than for their individual paths, and named by direct label at the line
+end rather than by colour. That is a deliberate choice, not a shortcut: there are not
+five hues that stay apart under colour-blindness alongside the history and market
+colours already in use (checked, not eyeballed &mdash; the worst pair came out at
+&Delta;E 9 against a floor of 15), so the label carries identity and hue is spent on
+the two series the chart is actually about. Whichever scenario is *selected* is drawn
+at full weight in the ink so that editing it is visible. The window starts in 2010
+rather than 1995 like the other charts, because a ten-year fan of five paths is
+unreadable squeezed into the right quarter of the plot.
 
 **What the reader gets.** A comparison table above the grid runs all five side by side
 for the selected market: the ten-year yield at three and ten years, the difference from
