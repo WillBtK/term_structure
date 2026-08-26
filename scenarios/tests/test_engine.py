@@ -493,3 +493,24 @@ def test_the_horizon_zero_identity_survives_any_learning_speed():
     change to the learning speed could move today's yield, the anchor would be gone."""
     for lam in (0.0, 0.4, 0.685, 0.8, 1.0):
         assert 1.0 - lam ** 0 == 0.0
+
+
+def test_the_house_view_converges_more_slowly_than_a_conditional_state():
+    """A conditional state has a forcing event -- it happens and the market sees it.
+    A forecast is made on the information the market already has, so nothing arrives to
+    force agreement. Same inflation path, different rate, decided by `is_view` alone."""
+    from scenarios.engine import LEARNING, Scenario, convergence_for
+    calm = {y: 2.5 for y in range(1, 7)}
+    state = Scenario("US", policy_rate={1: 3.75}, inflation=calm)
+    view = Scenario("US", policy_rate={1: 3.75}, inflation=calm, is_view=True)
+    assert convergence_for(state) == LEARNING["low"]
+    assert convergence_for(view) == LEARNING["view"]
+    assert LEARNING["view"] > LEARNING["low"]        # slower
+
+
+def test_the_view_flag_beats_the_inflation_classifier():
+    """Our forecast converges as a forecast even when it describes a hot world."""
+    from scenarios.engine import LEARNING, Scenario, convergence_for
+    hot = Scenario("US", policy_rate={1: 6.0},
+                   inflation={y: 5.5 for y in range(1, 7)}, is_view=True)
+    assert convergence_for(hot) == LEARNING["view"]

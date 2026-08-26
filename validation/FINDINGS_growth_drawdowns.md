@@ -116,10 +116,16 @@ cannot ease into it and the path stays genuinely murky. One constant cannot expr
 that, which is why the engine now classifies each scenario by **its own mean inflation
 over the projection grid** (`engine.convergence_for`) rather than by name.
 
-The baseline is treated as a state like any other. Under a learning reading there is
-only one process: the market's prior is today's curve — which is why `h=0` still
-reproduces today's yield, since `1 - lam**0 = 0` for any λ — and λ is how fast
-information arrives, not whose opinion it is.
+**The baseline is the exception.** A conditional scenario has a forcing event: the
+state happens, and the market cannot not see it, which is what these episodes measure.
+The baseline is our *forecast*, made on the same information set the market already has.
+Nothing arrives to force agreement, and there is a real chance the forecast is wrong, so
+it keeps the slower disagreement rate (λ = 0.8) rather than a learning speed. An earlier
+draft of this note collapsed the two into one process; that was wrong, and the
+distinction is carried by `Scenario.is_view`.
+
+What does hold for both: the market's prior is today's curve, which is why `h=0` still
+reproduces today's yield — `1 - lam**0 = 0` for any λ.
 
 **What this does not change.** Your typed paths are untouched. At long horizons the
 yield still converges on exactly what you entered; policy at 1% still delivers 1%. Only

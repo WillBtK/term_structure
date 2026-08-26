@@ -229,7 +229,7 @@ def build() -> dict:
     # constants when FRED is unreachable -- the fit needs an unemployment series.
     from scenarios.engine import LEARNING, LEARNING_INFL_SPLIT
     learning = {"low": LEARNING["low"], "high": LEARNING["high"],
-                "split": LEARNING_INFL_SPLIT, "fitted": False}
+                "view": LEARNING["view"], "split": LEARNING_INFL_SPLIT, "fitted": False}
     try:
         from validation.growth_drawdowns import learning_speed
         fit = learning_speed(LEARNING_INFL_SPLIT)

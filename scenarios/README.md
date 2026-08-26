@@ -122,9 +122,20 @@ A calm state is priced about three times faster than the old constant assumed; a
 inflationary one more slowly, because the central bank cannot ease into it and the path
 stays murky. One constant cannot say both, so each scenario is classified by **its own
 mean inflation over the grid** (`engine.convergence_for`) rather than by name — the rule
-travels to scenarios nobody has written yet. The baseline is treated as a state like any
-other: there is one process, the market's prior is today's curve, and λ is how fast
-information arrives rather than whose opinion it is.
+travels to scenarios nobody has written yet.
+
+**The baseline is the exception, and it is a real one.** A conditional scenario has a
+forcing event: the state happens, and the market cannot not see it. The baseline is our
+*forecast*, made on the same information the market already has. Nothing arrives to
+force agreement — the market has seen what we have seen and concluded something else —
+and there is a genuine chance we are simply wrong. So it keeps the slower disagreement
+rate, `λ = 0.8`, and a scenario carries `is_view` to say which of the two it is.
+
+The gap is not academic. Baseline states policy at 3.75% flat while the curve prices it
+falling to about 2.7%, so the view sits ~64bp above the market today and ~128bp above
+at ten years. At the disagreement rate that reads 4.74% / 4.97% at three and ten years;
+at a learning rate it would read 5.23% / 5.15%. Same inputs, and the difference is
+entirely how much of a *disputed forecast* should be treated as already priced.
 
 **Your typed paths are untouched.** At long horizons the yield still converges on
 exactly what you entered — policy at 1% still delivers 1%. Only the route there is

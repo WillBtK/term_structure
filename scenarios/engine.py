@@ -139,14 +139,30 @@ VIEW_CONVERGENCE = 0.8
 # there is only one process: the market's prior is today's curve -- which is why h=0
 # still reproduces today's yield, since 1 - lam**0 = 0 for any lam -- and lam is how
 # fast information arrives, not whose opinion it is.
-LEARNING = {"low": 0.40, "high": 0.685}   # fitted; see FINDINGS_growth_drawdowns.md
+#
+# The BASELINE is the exception, and it is a real one rather than a convenience. A
+# conditional scenario has a forcing event: the state happens, and the market cannot
+# not see it, which is why the fitted speeds apply. The baseline is our FORECAST, made
+# on the same information set the market already has. Nothing arrives to force
+# agreement -- the market has seen what we have seen and concluded something else --
+# and there is a genuine chance we are simply wrong. So it converges on the slower
+# disagreement rate, and a scenario carries `is_view` to say which it is.
+LEARNING = {"low": 0.40, "high": 0.685,   # fitted; see FINDINGS_growth_drawdowns.md
+            "view": VIEW_CONVERGENCE}     # our own forecast: disagreement, not learning
 LEARNING_INFL_SPLIT = 4.0                 # % mean inflation dividing the two regimes
 
 
 def convergence_for(scenario, learning: dict | None = None,
                     split: float = LEARNING_INFL_SPLIT) -> float:
-    """The learning speed this scenario's own inflation path implies."""
+    """The convergence rate this scenario implies.
+
+    A scenario flagged ``is_view`` is our forecast and gets the slower disagreement
+    rate; anything else is a conditional state and gets the fitted learning speed for
+    its own inflation regime.
+    """
     lam = dict(LEARNING if learning is None else learning)
+    if getattr(scenario, "is_view", False):
+        return lam["view"]
     path = getattr(scenario, "inflation", None) or {}
     if not path:
         return lam["low"]
@@ -176,6 +192,9 @@ class Scenario:
     price_insensitive: dict = field(default_factory=dict)   # optional override, % GDP
     debt_gdp: dict = field(default_factory=dict)            # optional override, % GDP
     deficit: dict = field(default_factory=dict)             # optional override, % GDP
+    # True for the house forecast, False for a conditional "if the world is X" state.
+    # It selects the convergence rate and nothing else -- see convergence_for.
+    is_view: bool = False
 
     def __post_init__(self):
         for name in ("policy_rate", "inflation"):
