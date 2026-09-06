@@ -45,6 +45,24 @@ KEEP_CLASSES = {"Notes", "Bonds", "Bills Maturity Value"}
 SOMA_KEEP = {"Bills", "NotesBonds"}
 _TIMEOUT = 90
 
+# Full ladder (DV01), vs the nominal-only ladder above (TYE). Treasury renamed its TIPS
+# class from "Inflation-Indexed Notes/Bonds" to "Inflation-Protected Securities" at
+# 2004-06 with no overlap (confirmed on the cached data: IIN/IIB end 2004-05, IPS starts
+# 2004-06) -- all three map to "tips" and the union is continuous. "Total Marketable" and
+# "Federal Financing Bank" stay excluded (a subtotal row and a non-public-debt issuer,
+# respectively, not securities).
+MSPD_ASSET_CLASS = {
+    "Bills Maturity Value": "bill",
+    "Notes": "nominal",
+    "Bonds": "nominal",
+    "Inflation-Indexed Notes": "tips",
+    "Inflation-Indexed Bonds": "tips",
+    "Inflation-Protected Securities": "tips",
+    "Floating Rate Notes": "frn",
+}
+SOMA_ASSET_CLASS = {"Bills": "bill", "NotesBonds": "nominal", "TIPS": "tips",
+                    "FRNs": "frn", "FRN": "frn"}
+
 
 def _get(url: str, retries: int = 4) -> dict:
     last = None
@@ -149,6 +167,52 @@ def _shape_soma(df: pd.DataFrame) -> pd.DataFrame:
     df = df.dropna(subset=["maturity_date", "amount"])
     return df[df["amount"] > 0][["asof", "cusip", "maturity_date",
                                 "coupon_pct", "amount"]]
+
+
+def _shape_mspd_all(df: pd.DataFrame) -> pd.DataFrame:
+    """Every duration-bearing marketable class, tagged with ``asset_class`` for
+    ``supply.us_dv01`` (nominal curve for bills/notes/bonds, real curve for TIPS, a
+    stipulated short duration for FRNs -- see that module)."""
+    df = df[df["security_class1_desc"].isin(MSPD_ASSET_CLASS)].copy()
+    df["asset_class"] = df["security_class1_desc"].map(MSPD_ASSET_CLASS)
+    df["record_date"] = pd.to_datetime(df["record_date"])
+    df["maturity_date"] = pd.to_datetime(df["maturity_date"], errors="coerce")
+    df["coupon_pct"] = pd.to_numeric(df["interest_rate_pct"], errors="coerce").fillna(0.0)
+    df["amount"] = pd.to_numeric(df["outstanding_amt"], errors="coerce")   # $mn
+    df = df.dropna(subset=["maturity_date", "amount"])
+    df = df[df["amount"] > 0][["record_date", "security_class2_desc", "asset_class",
+                               "maturity_date", "coupon_pct", "amount"]]
+    return df.rename(columns={"security_class2_desc": "cusip"})
+
+
+def _shape_soma_all(df: pd.DataFrame) -> pd.DataFrame:
+    unknown = set(df["securityType"].unique()) - set(SOMA_ASSET_CLASS)
+    if unknown:
+        logger.warning("SOMA: unrecognised securityType(s) %s -- excluded", unknown)
+    df = df[df["securityType"].isin(SOMA_ASSET_CLASS)].copy()
+    df["asset_class"] = df["securityType"].map(SOMA_ASSET_CLASS)
+    df["maturity_date"] = pd.to_datetime(df["maturityDate"], errors="coerce")
+    df["coupon_pct"] = pd.to_numeric(df["coupon"], errors="coerce").fillna(0.0)
+    df["amount"] = pd.to_numeric(df["parValue"], errors="coerce") / 1e6      # -> $mn
+    df = df.dropna(subset=["maturity_date", "amount"])
+    return df[df["amount"] > 0][["asof", "cusip", "asset_class", "maturity_date",
+                                "coupon_pct", "amount"]]
+
+
+def fetch_mspd_all(refresh: bool = False) -> pd.DataFrame:
+    """The full marketable ladder (bills/notes/bonds/TIPS/FRNs), asset-class tagged.
+
+    Reuses ``fetch_mspd``'s raw cache -- it is already unfiltered -- so this never
+    triggers a second download; it only re-shapes with the wider class map.
+    """
+    fetch_mspd(refresh=refresh)                      # ensures MSPD_RAW is cached/fresh
+    return _shape_mspd_all(pd.read_parquet(MSPD_RAW))
+
+
+def fetch_soma_all(refresh: bool = False) -> pd.DataFrame:
+    """The full SOMA Treasury book (bills/notes-bonds/TIPS/FRNs), asset-class tagged."""
+    fetch_soma(refresh=refresh)                       # ensures SOMA_RAW is cached/fresh
+    return _shape_soma_all(pd.read_parquet(SOMA_RAW))
 
 
 def _main() -> None:
