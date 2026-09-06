@@ -198,43 +198,72 @@ def flow_dv01(ladder: pd.DataFrame, months: int = 3) -> pd.Series:
     return pd.Series(out).sort_index()
 
 
-def build(refresh: bool = False) -> pd.DataFrame:
-    if not refresh and DV01_PARQUET.exists() and OUT_LADDER_PARQUET.exists() \
-            and HELD_LADDER_PARQUET.exists():
-        return pd.read_parquet(DV01_PARQUET)
-    from us.fetch_gsw import load_gsw_params
-    from us.tips import load_tips_params
+def _monthly_last(s: pd.Series) -> pd.Series:
+    """Collapse a date-indexed series to one value per calendar month (its last obs)."""
+    out = s.copy()
+    out.index = pd.PeriodIndex(pd.DatetimeIndex(out.index), freq="M")
+    return out.groupby(level=0).last()
 
-    out_all = fetch_mspd_all(refresh=refresh)
-    held_all = fetch_soma_all(refresh=refresh)
-    gsw, tips, _lookup = _curves_by_month(load_gsw_params(), load_tips_params())
 
-    logger.info("Pricing the outstanding ladder...")
-    out_ladder = _dv01_ladder(out_all, "record_date", gsw, tips, _lookup)
-    logger.info("Pricing the SOMA ladder...")
-    held_ladder = _dv01_ladder(held_all, "asof", gsw, tips, _lookup)
+def aggregate(out_ladder: pd.DataFrame, held_ladder: pd.DataFrame) -> pd.DataFrame:
+    """The two priced ladders -> one monthly 4-column frame.
 
-    # Written SEPARATELY, not concatenated into one frame: pandas 2.1.3 hits a block-
-    # concatenation bug (a numpy axis mismatch inside DatetimeArray._concat_same_type)
-    # when stacking two large, independently-built ladders of different lengths -- not
-    # reproducible on small synthetic frames, so a library issue rather than a data one.
-    # Nothing downstream needs them combined; each is used on its own below.
-    DATA.mkdir(parents=True, exist_ok=True)
-    out_ladder.to_parquet(OUT_LADDER_PARQUET)
-    held_ladder.to_parquet(HELD_LADDER_PARQUET)
-
-    out_tot = out_ladder.groupby("date")["dv01_mn"].sum(min_count=1)
-    held_tot = held_ladder.groupby("date")["dv01_mn"].sum(min_count=1)
-    supply_flow = flow_dv01(out_ladder, months=3)
-    soma_flow = flow_dv01(held_ladder, months=3)
-
+    MSPD and SOMA snapshot on DIFFERENT calendar days within a month -- MSPD's
+    ``record_date`` is Treasury's own month-end, SOMA's ``asof`` is whichever
+    Wednesday happened to close out that reporting month. Joining by exact date would
+    union the two into separate rows, each missing the OTHER book's columns entirely
+    (an all-NaN "latest" row is the symptom). Collapse each series to one
+    calendar-month value first, then join on that.
+    """
+    out_tot = _monthly_last(out_ladder.groupby("date")["dv01_mn"].sum(min_count=1))
+    held_tot = _monthly_last(held_ladder.groupby("date")["dv01_mn"].sum(min_count=1))
+    supply_flow = _monthly_last(flow_dv01(out_ladder, months=3))
+    soma_flow = _monthly_last(flow_dv01(held_ladder, months=3))
     df = pd.DataFrame({
         "outstanding_dv01_mn": out_tot,
         "soma_dv01_mn": held_tot,
         "supply_3m_dv01_mn": supply_flow,
         "soma_net_3m_dv01_mn": soma_flow,
     }).sort_index()
+    df.index = df.index.to_timestamp("M")     # month-end, matching MSPD's own convention
     df.index.name = "date"
+    return df
+
+
+def build(refresh: bool = False) -> pd.DataFrame:
+    if not refresh and DV01_PARQUET.exists() and OUT_LADDER_PARQUET.exists() \
+            and HELD_LADDER_PARQUET.exists():
+        return pd.read_parquet(DV01_PARQUET)
+
+    if not refresh and OUT_LADDER_PARQUET.exists() and HELD_LADDER_PARQUET.exists():
+        # The (expensive) per-security pricing is already cached -- only the cheap
+        # aggregation below needs re-running, e.g. after fixing that step itself.
+        out_ladder = pd.read_parquet(OUT_LADDER_PARQUET)
+        held_ladder = pd.read_parquet(HELD_LADDER_PARQUET)
+    else:
+        from us.fetch_gsw import load_gsw_params
+        from us.tips import load_tips_params
+
+        out_all = fetch_mspd_all(refresh=refresh)
+        held_all = fetch_soma_all(refresh=refresh)
+        gsw, tips, _lookup = _curves_by_month(load_gsw_params(), load_tips_params())
+
+        logger.info("Pricing the outstanding ladder...")
+        out_ladder = _dv01_ladder(out_all, "record_date", gsw, tips, _lookup)
+        logger.info("Pricing the SOMA ladder...")
+        held_ladder = _dv01_ladder(held_all, "asof", gsw, tips, _lookup)
+
+        # Written SEPARATELY, not concatenated into one frame: pandas 2.1.3 hits a
+        # block-concatenation bug (a numpy axis mismatch inside
+        # DatetimeArray._concat_same_type) when stacking two large, independently-built
+        # ladders of different lengths -- not reproducible on small synthetic frames,
+        # so a library issue rather than a data one. Nothing downstream needs them
+        # combined; each is used on its own in ``aggregate``.
+        DATA.mkdir(parents=True, exist_ok=True)
+        out_ladder.to_parquet(OUT_LADDER_PARQUET)
+        held_ladder.to_parquet(HELD_LADDER_PARQUET)
+
+    df = aggregate(out_ladder, held_ladder)
     df.to_parquet(DV01_PARQUET)
     return df
 
@@ -251,12 +280,20 @@ def _main() -> None:
             continue
         print(f"  {yr}    {w.outstanding_dv01_mn.mean():>10,.0f}   {w.soma_dv01_mn.mean():>10,.0f}"
               f"      {w.supply_3m_dv01_mn.mean():>+10,.0f}      {w.soma_net_3m_dv01_mn.mean():>+10,.0f}")
-    latest = d.iloc[-1]
-    print(f"\nlatest ({d.index[-1].date()}): outstanding ${latest.outstanding_dv01_mn:,.0f}mn/bp, "
-          f"SOMA ${latest.soma_dv01_mn:,.0f}mn/bp "
-          f"({100*latest.soma_dv01_mn/latest.outstanding_dv01_mn:.1f}% of outstanding), "
-          f"3m net supply ${latest.supply_3m_dv01_mn:+,.0f}mn/bp, "
-          f"3m net SOMA {latest.soma_net_3m_dv01_mn:+,.0f}mn/bp")
+    # MSPD and SOMA publish on different lags -- SOMA's own latest month is often a
+    # calendar month or more ahead of MSPD's, so "the latest row" and "the latest
+    # outstanding figure" are not the same date. Report each off its own last valid
+    # observation rather than a single (possibly NaN) last row.
+    o = d["outstanding_dv01_mn"].dropna()
+    h = d["soma_dv01_mn"].dropna()
+    sup = d["supply_3m_dv01_mn"].dropna()
+    buy = d["soma_net_3m_dv01_mn"].dropna()
+    print(f"\nlatest outstanding ({o.index[-1].date()}): ${o.iloc[-1]:,.0f}mn/bp"
+          + (f"  ({100*h.reindex([o.index[-1]]).iloc[0]/o.iloc[-1]:.1f}% held by SOMA)"
+             if o.index[-1] in h.index else ""))
+    print(f"latest SOMA held    ({h.index[-1].date()}): ${h.iloc[-1]:,.0f}mn/bp")
+    print(f"latest 3m net supply ({sup.index[-1].date()}): ${sup.iloc[-1]:+,.0f}mn/bp")
+    print(f"latest 3m net SOMA buy ({buy.index[-1].date()}): ${buy.iloc[-1]:+,.0f}mn/bp")
 
 
 if __name__ == "__main__":

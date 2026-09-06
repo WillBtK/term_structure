@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from model.bond_math import modified_duration, price_from_ytm
-from supply.us_dv01 import FRN_EFFECTIVE_DURATION, flow_dv01, security_dv01
+from supply.us_dv01 import FRN_EFFECTIVE_DURATION, aggregate, flow_dv01, security_dv01
 
 ASOF = pd.Timestamp("2020-01-15")
 
@@ -124,3 +124,24 @@ def test_no_flow_reported_when_the_lag_month_is_missing():
     lad = _flow_ladder([(t0, "A", 100.0, 8.0)])
     f = flow_dv01(lad, months=3)
     assert len(f) == 0
+
+
+# --------------------------------------------------------------------------- aggregate
+
+def test_aggregate_joins_on_calendar_month_not_exact_date():
+    """MSPD snapshots at true month-end; SOMA snapshots on whichever Wednesday closed
+    the reporting month -- different exact dates for "the same month". Joining by exact
+    date would union them into two NaN-riddled rows; aggregate() must produce one."""
+    out = _flow_ladder([
+        (pd.Timestamp("2020-01-31"), "A", 100.0, 8.0),
+        (pd.Timestamp("2020-02-29"), "A", 100.0, 8.0),
+    ]).assign(asset_class="nominal")
+    held = _flow_ladder([
+        (pd.Timestamp("2020-01-29"), "A", 40.0, 3.2),      # same MONTH, different day
+        (pd.Timestamp("2020-02-26"), "A", 40.0, 3.2),
+    ]).assign(asset_class="nominal")
+    df = aggregate(out, held)
+    assert len(df) == 2                                     # not 4
+    jan = df.loc["2020-01-31"]
+    assert jan.outstanding_dv01_mn == 8.0
+    assert jan.soma_dv01_mn == 3.2                          # not NaN
