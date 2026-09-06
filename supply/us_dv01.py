@@ -58,7 +58,8 @@ from supply.fetch_us import DATA, fetch_mspd_all, fetch_soma_all
 
 logger = logging.getLogger(__name__)
 DV01_PARQUET = DATA / "us_dv01.parquet"
-LADDER_PARQUET = DATA / "us_dv01_ladder.parquet"     # per-CUSIP, for the flow calc
+OUT_LADDER_PARQUET = DATA / "us_dv01_ladder_outstanding.parquet"  # per-CUSIP, for the flow calc
+HELD_LADDER_PARQUET = DATA / "us_dv01_ladder_soma.parquet"
 
 FRN_EFFECTIVE_DURATION = 0.125     # years -- see module docstring
 REAL_CURVE_START = pd.Timestamp("2004-01-01")
@@ -198,7 +199,8 @@ def flow_dv01(ladder: pd.DataFrame, months: int = 3) -> pd.Series:
 
 
 def build(refresh: bool = False) -> pd.DataFrame:
-    if not refresh and DV01_PARQUET.exists() and LADDER_PARQUET.exists():
+    if not refresh and DV01_PARQUET.exists() and OUT_LADDER_PARQUET.exists() \
+            and HELD_LADDER_PARQUET.exists():
         return pd.read_parquet(DV01_PARQUET)
     from us.fetch_gsw import load_gsw_params
     from us.tips import load_tips_params
@@ -212,10 +214,14 @@ def build(refresh: bool = False) -> pd.DataFrame:
     logger.info("Pricing the SOMA ladder...")
     held_ladder = _dv01_ladder(held_all, "asof", gsw, tips, _lookup)
 
-    ladders = pd.concat([out_ladder.assign(book="outstanding"),
-                        held_ladder.assign(book="soma")], ignore_index=True)
+    # Written SEPARATELY, not concatenated into one frame: pandas 2.1.3 hits a block-
+    # concatenation bug (a numpy axis mismatch inside DatetimeArray._concat_same_type)
+    # when stacking two large, independently-built ladders of different lengths -- not
+    # reproducible on small synthetic frames, so a library issue rather than a data one.
+    # Nothing downstream needs them combined; each is used on its own below.
     DATA.mkdir(parents=True, exist_ok=True)
-    ladders.to_parquet(LADDER_PARQUET)
+    out_ladder.to_parquet(OUT_LADDER_PARQUET)
+    held_ladder.to_parquet(HELD_LADDER_PARQUET)
 
     out_tot = out_ladder.groupby("date")["dv01_mn"].sum(min_count=1)
     held_tot = held_ladder.groupby("date")["dv01_mn"].sum(min_count=1)
