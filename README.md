@@ -355,6 +355,29 @@ are the **mean-reversion-floor** numbers — see the note below.
 > and the shadow short rate are untouched. The authoritative corrected numbers
 > and the US-vs-SF-Fed calibration are in **`validation/FINDINGS_mean_reversion.md`**.
 
+## The supply channel — duration, not par (`/supply`)
+
+The premium the curve model estimates is compensation for holding duration risk, so the
+quantity of that risk in private hands is a candidate driver — the preferred-habitat
+reading (Vayanos–Vila). Measuring it in **par** cannot work: by par share the Federal
+Reserve held more of the public debt in the 1970s, running a bills portfolio for reserve
+management, than at the peak of QE. `/supply` therefore measures duration, in two units.
+
+**Ten-year equivalents** (`Σ D_i·A_i / D_ref`) give the *share* a central bank holds —
+SOMA runs about 14% of the Treasury market by par against about 21% of its duration risk.
+**DV01** gives the *dollar* amount, for the stock outstanding, the slice held by SOMA, and
+the rolling three-month flow of each. The flow series are deliberately **not** the change
+in the stock: they are per-CUSIP quantity changes priced at each security's own duration,
+so rolldown and rate moves on unchanged positions contribute nothing.
+
+What reaches production is narrower than the measurement. Only the **price-insensitive**
+holder compresses the premium — foreign official at −0.064 (t = −12.6) against foreign
+private at −0.029 (t = −1.2), the official coefficient within a whisker of the Fed's own —
+so `supply/price_insensitive.py` supplies the ownership driver in `model/tp_drivers.py`,
+and the Fed's balance sheet is carried as a **control** (keeping QE-era observations from
+contaminating the inflation coefficients) rather than as a forecastable driver. See
+**`supply/README.md`**.
+
 ## Repo structure
 
 ```
@@ -365,10 +388,16 @@ are the **mean-reversion-floor** numbers — see the note below.
 /uk
 /switzerland    # SNB CHF spot curve (5th market)
 /canada         # Bank of Canada fitted zero-coupon curve (6th market)
+/macro          # driver inputs: core CPI, fiscal projections, spliced TP history
+/supply         # duration risk: MSPD/SOMA + BoJ/MoF ladders, ten-year equivalents,
+                #   DV01 (us_dv01.py), and the price-insensitive ownership driver
+/scenarios      # macro paths in -> ten-year yield and bond return out (the sheet)
 /validation     # benchmarks (SF Fed / ACM / Kim-Wright / DKW), ATSIX survey anchor,
                 #   TIPS liquidity gauge (tips_liquidity.py), FRED API helper (fred_api.py)
 /scheduler      # cadence: weekly/monthly re-estimation, daily filter-forward, Supabase export
 /viz            # canonical daily dataset -> thinned payload -> self-contained Atlas artifact
+/presentation   # the deck and the two-page executive summary (+ PDF/PPTX exporters)
+/exports        # derived series handed to other repos (clone, not raw URL — this repo is private)
 ```
 
 ## Session guidance
