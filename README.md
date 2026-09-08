@@ -240,29 +240,70 @@ warehousing *institutional-scale* cash, which "digital cash" makes more, not les
 binding. Run each market at 2–3 values in its band and confirm the profile is stable in
 shape before treating a run as final. See `validation/FINDINGS_phase3.md`.
 
-## Pricing dislocation: the Hu-Pan-Wang noise measure
+## Pricing dislocation: the Hu-Pan-Wang noise gauges
 
-`validation/tips_liquidity.py` builds an **independent, non-circular, price-based**
-liquidity proxy: per date, fit a smooth real curve to the cross-section of individual
-outstanding TIPS and take the **RMS fitting residual** (Hu, Pan & Wang 2013, *J.
-Finance* — their market-wide "noise" statistic, restricted here to the TIPS
-cross-section). When TIPS-specific liquidity is scarce, individual issues scatter
-further from any smooth curve, so the noise rises.
+Per trading day, fit a smooth curve to the yields of the **individual outstanding
+securities** and take the residual dispersion (Hu, Pan & Wang 2013, *J. Finance*). When
+security-specific liquidity is scarce, individual issues scatter further from any smooth
+curve, so the "noise" rises. **Three** gauges, all free, all from public data:
 
-It peaks at **~45 bp in Dec-2008** (the post-Lehman TIPS freeze) and sits **~8 bp**
-now. Data is FRED's individual TIPS securities (`DTP*`, category 82) via the official
-API — no paid data.
+| gauge | cross-section | source | daily series stored at |
+|---|---|---|---|
+| **US nominal** (`validation/ust_liquidity.py`) | coupon Treasuries | TreasuryDirect **FedInvest** end-of-day *prices* (`us/fetch_fedinvest.py`) | **`us/data_store/ust_noise_daily.parquet`** (versioned) |
+| **US TIPS** (`validation/tips_liquidity.py`) | outstanding TIPS | FRED individual TIPS (`DTP*`, category 82), official API | `validation/data/tips_noise_daily.parquet` (cache) |
+| **Bund** (`validation/bund_liquidity.py`) | Bunds/Bobls/Schätze | Bundesbank per-ISIN workbooks (`germany/fetch_bund_prices.py`) | `validation/data/bund_noise_daily.parquet` (cache) |
 
-Why it exists: the joint model's inflation-risk premium needs the TIPS **liquidity
+The **US nominal gauge is HPW's original object** — their measure is a nominal Treasury
+one, and the other two are variations on it. It was the last one built because no free
+source publishes per-security Treasury *yields*: FedInvest publishes **prices**, so the
+price → yield step is ours (`model/bond_math.py` — coupon schedule, actual/actual
+accrual, and inversion to the semiannual bond-equivalent basis). It carries two residual
+definitions per day:
+
+* **`noise_gsw`** (headline) — RMS deviation from the *published* GSW Svensson curve.
+  The accurate one: on a synthetic cross-section priced exactly off a known curve (true
+  noise zero) it reads **0.2 bp**, because it fits nothing and so has no functional-form
+  error of its own. Also the stricter reading — GSW deliberately exclude on-the-run and
+  first-off-the-run issues, so a rich on-the-run shows up as a real residual rather than
+  being absorbed.
+* **`noise`** (comparability) — residual standard error of our own Svensson fit,
+  profiled over a grid of decay pairs. Fitting the level ourselves absorbs any constant
+  offset between FedInvest end-of-day prices and the quotes GSW was built from, so this
+  is the column that lines up with the Bund and TIPS gauges.
+
+The shared fit is `validation/noise_core.residual_se` — one implementation for all
+three, with the coupon regressed out and a degrees-of-freedom correction.
+
+**Why they exist.** The joint model's inflation-risk premium needs the TIPS **liquidity
 premium** identified separately from the real term premium, and that is a Q-side
 (pricing) object survey data cannot pin. DKW publish such a series, but using it to
-identify our model and then validating against DKW would be **circular**. The noise
-measure is free of that. It ships as its own Atlas panel and daily export.
+identify our model and then validating against DKW would be **circular**. These are free
+of that. The TIPS gauge peaks at ~45 bp in Dec-2008 (the post-Lehman freeze) and sits
+~8 bp now.
 
-Its limitation is stated honestly: it is a **crisis-frictions** measure, not the
-persistent liquidity *level*, so it does not by itself close the IRP gap (below). There
-is no nominal-UST analogue — FRED carries individual TIPS but only the *smooth* nominal
-curve; a nominal cross-section is CRSP/Bloomberg, i.e. paid.
+Limitation, stated honestly: this is a **crisis-frictions** measure, not the persistent
+liquidity *level*, so it does not by itself close the IRP gap (below).
+
+### Where the data lives, and why the three differ
+
+The storage split is driven by whether history can be **re-fetched**:
+
+* **US nominal** — FedInvest serves any past date, so the raw price panel
+  (`validation/data/ust_individual_prices.parquet`, ~25 MB) is a **rebuildable,
+  gitignored cache** and history is back-fillable over any window. Only the derived
+  daily series is **versioned** (`us/data_store/`, explicitly un-ignored), so the daily
+  CI job appends new days instead of re-crawling a decade every run.
+* **Bund** — the Bundesbank index exposes only the most recent ~5 monthly workbooks, and
+  its per-ISIN yield archive drops a security ~4 years after maturity. History therefore
+  **cannot be re-fetched, only retained**, so the raw per-ISIN cross-section itself is
+  the versioned store (`germany/data/bund_prices/individual_yields.parquet`); each run
+  unions the freshly scraped months in and CI commits it.
+* **TIPS** — FRED serves full history on demand, so both the raw and derived files are
+  ordinary caches.
+
+Note `treasurydirect.gov` is **egress-blocked from the dev sandbox**, so the US nominal
+fetcher is exercised on the GitHub runner (`python -m us.fetch_fedinvest --probe` dumps
+the endpoint that answers, the parsed columns and the reachable history depth).
 
 ---
 
