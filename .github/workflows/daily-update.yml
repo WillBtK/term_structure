@@ -121,3 +121,25 @@ jobs:
           done
           echo "::warning::Bund per-ISIN store could not be pushed after 3 attempts; it will be re-fetched on the next run"
           exit 0
+
+      - name: Assert the published data is actually fresh
+        # LAST on purpose, and for two reasons.
+        #
+        # After the PUBLISH, because every fetch falls back to cache by design: a dead
+        # source publishes silently and the run stays green -- which is how the SNB
+        # served a frozen cube for a year, and how the scenario sheet served a payload
+        # stamped 2026-08-19 for three weeks. Publishing the best data available is
+        # still right, so this must not gate the publish; it turns the RUN red
+        # afterwards and annotates each offending series in the run summary.
+        #
+        # After the BUND COMMIT, because a non-zero exit here aborts the job, and the
+        # Bundesbank per-ISIN cross-section is the one store whose history CANNOT be
+        # re-fetched (the index exposes ~5 recent workbooks; the SDMX archive drops a
+        # security ~4 years past maturity). Failing before that step would discard a
+        # trading day of it permanently, which is a far worse outcome than a stale feed.
+        #
+        # Each series is judged against its own recent cadence, so a slow publisher is
+        # not mistaken for a dead one.
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m scheduler.freshness --check

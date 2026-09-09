@@ -145,11 +145,22 @@ def run(fetch: bool = True) -> dict:
     status = refresh_sources() if fetch else {"(skipped fetch)": "ok"}
     rebuild_viz()
     stale = audit_staleness()
+    # Absolute freshness, against TODAY rather than against the freshest market —
+    # audit_staleness above is relative, so it cannot see a whole-pipeline freeze.
+    # Reported, never fatal: publishing the best data available beats publishing
+    # nothing. The CI gate that turns a breach red runs after the publish step.
+    try:
+        from scheduler import freshness
+        verdicts, n_stale = freshness.check()
+    except Exception as exc:                                   # noqa: BLE001
+        logger.warning("freshness audit skipped: %s", exc)
+        verdicts, n_stale = [], 0
     dt = time.time() - t0
     ok = sum(v == "ok" for v in status.values())
     logger.info("daily update done in %.0fs — %d/%d sources ok%s", dt, ok, len(status),
                 f", {len(stale)} STALE" if stale else "")
-    return {"elapsed_s": round(dt, 1), "sources": status, "stale": stale}
+    return {"elapsed_s": round(dt, 1), "sources": status, "stale": stale,
+            "freshness": verdicts, "n_stale": n_stale}
 
 
 def _main() -> None:
@@ -161,6 +172,11 @@ def _main() -> None:
     print("\n=== daily update summary ===")
     for k, v in summary["sources"].items():
         print(f"  {'OK ' if v == 'ok' else 'ERR'} {k}" + ("" if v == "ok" else f"  ({v})"))
+    if summary.get("freshness"):
+        from scheduler.freshness import report
+        print("\n=== data freshness ===")
+        print(report(summary["freshness"], annotate_ci=False))   # the gate step annotates
+        print(f"{summary['n_stale']}/{len(summary['freshness'])} series stale")
     print(f"elapsed {summary['elapsed_s']}s")
 
 

@@ -268,8 +268,14 @@ def _fresh_sheet_html() -> str:
                     ", unchanged from committed" if spliced == raw else "")
         return spliced
     except Exception as exc:                                        # noqa: BLE001
-        logger.warning("sheet payload rebuild failed (%s); uploading committed page",
-                       exc)
+        # Annotated, not just logged: this fallback publishes a page whose numbers are
+        # frozen at whenever the committed copy was built, and it stayed invisible for
+        # three weeks precisely because a warning at line 700 of a green run is not a
+        # signal. See scheduler/freshness.py.
+        from scheduler.freshness import annotate
+        annotate("warning",
+                 f"sheet payload rebuild FAILED ({exc}); publishing the COMMITTED page, "
+                 f"whose numbers are stale. The sheet is not tracking the dataset.")
     return raw
 
 
