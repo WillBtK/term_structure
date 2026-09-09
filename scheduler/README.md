@@ -108,13 +108,27 @@ questions, because they fail differently:
 * **Relative** — is this series behind the *other* markets? Catches one source dying
   while the rest keep moving.
 
-**The budget is derived, not declared.** Markets publish on different rhythms —
-Treasury same-day, the BoE and MoF at T+1, the SNB slower — and each takes its own
+**The budget is derived where it can be, stated where it cannot.** Markets publish on
+different rhythms — Treasury same-day, the BoE and MoF at T+1 — and each takes its own
 public holidays. A fixed "stale after N days" rule would either cry wolf on
-Switzerland or sleep through a dead US feed. So each series is allowed the longest
-quiet spell it has actually had lately, plus a grace margin: it is stale when it has
-gone quiet for materially longer than it normally does. No per-market table to
-maintain, and it adapts when a publisher changes cadence.
+Switzerland or sleep through a dead US feed. So by default each series is allowed the
+longest quiet spell it has actually had lately, plus a grace margin: it is stale when
+it has gone quiet for materially longer than it normally does.
+
+That default assumes a source publishes each day's data on that day, and **the first
+run of this check proved the assumption wrong for Switzerland.** Deriving the budget
+from *observation spacing* is not the same as knowing the *publication lag*, and for a
+batch publisher the two come apart completely: the SNB `rendoblim` cube contains every
+business day (spacing says "daily", budget ~5) but is refreshed roughly monthly,
+covering through the previous month end — verified against the source, which ended
+2026-07-31 on 19 Aug and 2026-08-31 on 9 Sep. Judged on spacing it read STALE for three
+weeks of every four, crying wolf on precisely the market the derived rule was meant to
+spare.
+
+Publication lag cannot be read off the observation dates, so for those sources it is
+stated explicitly in `BATCH_PUBLISHERS`: one publication period plus slack, which fires
+only if the source misses a whole further period. Such a series is also exempt from the
+relative check, since trailing the daily markets by up to a period is its normal state.
 
 ```bash
 python -m scheduler.freshness            # print the report

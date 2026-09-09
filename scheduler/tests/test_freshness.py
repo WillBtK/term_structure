@@ -65,7 +65,7 @@ def test_a_holiday_gap_is_not_stale():
 def test_a_dead_daily_source_is_stale():
     asof = date(2026, 9, 8)
     stopped = bdays(date(2026, 8, 14), 120)          # nothing for ~3.5 weeks
-    v = audit({"CH:nominal": stopped}, as_of=asof)[0]
+    v = audit({"JP:nominal": stopped}, as_of=asof)[0]
     assert v.stale and v.status == "STALE"
 
 
@@ -84,9 +84,9 @@ def test_global_freeze_is_caught():
 def test_one_dead_market_among_live_ones_is_flagged_both_ways():
     asof = date(2026, 9, 8)
     series = {"DE:nominal": bdays(asof, 120),
-              "CH:nominal": bdays(date(2026, 8, 3), 120)}
+              "JP:nominal": bdays(date(2026, 8, 3), 120)}
     by = {v.key: v for v in audit(series, as_of=asof)}
-    assert by["CH:nominal"].stale and by["CH:nominal"].lagging
+    assert by["JP:nominal"].stale and by["JP:nominal"].lagging
     assert by["DE:nominal"].status == "ok"
 
 
@@ -100,10 +100,43 @@ def test_verdicts_are_sorted_worst_first():
 
 def test_report_renders_every_series_and_its_status():
     asof = date(2026, 9, 8)
-    series = {"US:nominal": bdays(asof, 60), "CH:nominal": bdays(date(2026, 8, 3), 60)}
+    series = {"US:nominal": bdays(asof, 60), "JP:nominal": bdays(date(2026, 8, 3), 60)}
     text = report(audit(series, as_of=asof), annotate_ci=False)
-    assert "US:nominal" in text and "CH:nominal" in text and "STALE" in text
+    assert "US:nominal" in text and "JP:nominal" in text and "STALE" in text
 
 
 def test_report_handles_an_empty_dataset():
     assert "no series" in report([], annotate_ci=False)
+
+
+# --------------------------------------------------------------- batch publishers
+
+def test_a_monthly_batch_publisher_is_not_stale_between_releases():
+    """THE false alarm this check shipped with. The SNB cube holds every business day
+    (so observation spacing says "daily", budget ~5) but is refreshed monthly, covering
+    through the previous month end — verified 2026-08-19 ending 2026-07-31, and
+    2026-09-09 ending 2026-08-31. Judged on spacing it read STALE for most of every
+    month, which is exactly the market the derived budget was meant to spare."""
+    asof = date(2026, 9, 9)
+    snb = bdays(date(2026, 8, 31), 150)          # daily obs, but stopping at month end
+    v = {x.key: x for x in audit({"CH:nominal": snb, "DE:nominal": bdays(asof, 150)},
+                                 as_of=asof)}
+    assert v["CH:nominal"].behind == 7           # the number that tripped the gate
+    assert not v["CH:nominal"].stale             # ...and must not, on its own rhythm
+    assert v["CH:nominal"].basis != "cadence"
+
+
+def test_a_batch_publisher_that_misses_a_whole_period_is_still_caught():
+    """The override must not become a licence to go dark: skip a month and it fires."""
+    asof = date(2026, 10, 20)
+    snb = bdays(date(2026, 8, 31), 150)          # missed the September batch entirely
+    assert audit({"CH:nominal": snb}, as_of=asof)[0].stale
+
+
+def test_a_batch_publisher_is_not_flagged_merely_for_trailing_the_dailies():
+    """The relative check would otherwise fire on it every month-end for no reason."""
+    asof = date(2026, 9, 28)
+    series = {"CH:nominal": bdays(date(2026, 8, 31), 150),
+              "DE:nominal": bdays(asof, 150)}
+    ch = {x.key: x for x in audit(series, as_of=asof)}["CH:nominal"]
+    assert ch.behind_newest > 14 and not ch.lagging

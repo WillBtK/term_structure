@@ -55,6 +55,24 @@ GRACE_BUSINESS_DAYS = 2     # slack on top of its own worst recent gap
 MIN_BUDGET_DAYS = 3         # floor: never alarm on a normal weekend + one holiday
 RELATIVE_STALE_DAYS = 14    # calendar days behind the freshest series (the second check)
 
+# BATCH PUBLISHERS — where the derived budget is wrong, and why.
+#
+# Deriving the budget from observation spacing silently assumes a source publishes each
+# day's data on that day. For a source that publishes DAILY data in MONTHLY BATCHES the
+# two quantities come apart completely: the SNB `rendoblim` cube contains every business
+# day (so consecutive observations are one business day apart, giving a ~5-day budget)
+# but is refreshed roughly monthly, covering through the previous month end. Verified
+# against the source: on 2026-08-19 it ended 2026-07-31; on 2026-09-09 it ended
+# 2026-08-31. Judged on its observation spacing it is "stale" for three weeks out of
+# every four -- crying wolf on precisely the market the derived rule was meant to spare.
+#
+# Publication lag cannot be read off the observation dates, so for these it has to be
+# stated: one publication period plus slack. The value alarms only if the source misses
+# a whole further period, which is a real failure rather than its normal rhythm.
+BATCH_PUBLISHERS = {
+    "CH:nominal": (30, "SNB rendoblim cube: daily observations, refreshed ~monthly"),
+}
+
 
 def business_days_between(start: date, end: date) -> int:
     """Business days from ``start`` to ``end`` (weekends excluded, holidays not — the
@@ -89,10 +107,11 @@ class Verdict:
     key: str
     last: date
     behind: int          # business days behind as_of
-    budget: int          # its own derived allowance
+    budget: int          # its allowance: derived from cadence, or a stated batch period
     behind_newest: int   # calendar days behind the freshest series
     stale: bool          # absolute breach
     lagging: bool        # relative breach
+    basis: str = "cadence"   # where the budget came from, for the report
 
     @property
     def status(self) -> str:
@@ -123,13 +142,21 @@ def audit(series: dict, as_of: date | None = None,
         if not dates:
             continue
         last = dates[-1]
-        budget = cadence_budget(dates, **budget_kw)
+        if key in BATCH_PUBLISHERS:
+            budget, basis = BATCH_PUBLISHERS[key]
+        else:
+            budget, basis = cadence_budget(dates, **budget_kw), "cadence"
         behind = business_days_between(last, as_of)
         behind_newest = (newest - last).days
         out.append(Verdict(key=key, last=last, behind=behind, budget=budget,
                            behind_newest=behind_newest,
                            stale=behind > budget,
-                           lagging=behind_newest > relative_days))
+                           # A batch publisher is *expected* to trail the daily markets
+                           # by up to a full period, so the relative check would fire on
+                           # it every month for no reason. Its absolute budget above is
+                           # the meaningful test.
+                           lagging=(basis == "cadence") and behind_newest > relative_days,
+                           basis=basis))
     return sorted(out, key=lambda v: (-v.behind, v.key))
 
 
@@ -147,16 +174,18 @@ def report(verdicts: list, annotate_ci: bool = True) -> str:
     if not verdicts:
         return "freshness: no series found"
     width = max(len(v.key) for v in verdicts)
-    lines = [f"{'series'.ljust(width)}  last         behind  budget  vs newest  status",
-             "-" * (width + 44)]
+    lines = [f"{'series'.ljust(width)}  last         behind  budget  vs newest  status  basis",
+             "-" * (width + 54)]
     for v in verdicts:
         lines.append(f"{v.key.ljust(width)}  {v.last}  {v.behind:>6}  {v.budget:>6}"
-                     f"  {v.behind_newest:>9}  {v.status}")
+                     f"  {v.behind_newest:>9}  {v.status:<7} {v.basis}")
         if annotate_ci and v.stale:
+            why = ("its own recent cadence" if v.basis == "cadence"
+                   else f"its publication period ({v.basis})")
             annotate("error", f"STALE: {v.key} ends {v.last} — {v.behind} business days "
-                              f"behind today, against a {v.budget}-day budget derived from "
-                              f"its own recent cadence. The upstream source has probably "
-                              f"stopped publishing or changed shape.")
+                              f"behind today, against a {v.budget}-day budget from "
+                              f"{why}. The upstream source has probably stopped "
+                              f"publishing or changed shape.")
         elif annotate_ci and v.lagging:
             annotate("warning", f"LAGGING: {v.key} ends {v.last} — {v.behind_newest} days "
                                 f"behind the freshest market. Within its own cadence, so "
