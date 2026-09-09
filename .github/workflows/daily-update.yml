@@ -76,6 +76,13 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           SUPABASE_ATLAS_BUCKET: ${{ secrets.SUPABASE_ATLAS_BUCKET }}
           SUPABASE_SHEET_BUCKET: ${{ secrets.SUPABASE_SHEET_BUCKET }}
+          # REQUIRED, not optional: this step rebuilds the scenario-sheet payload, which
+          # pulls GDP and EXPINF10YR from FRED. Without the key those calls fall back to
+          # the keyless fredgraph CSV, which fails through the proxy ("curl 92: HTTP/2
+          # stream not closed cleanly"). The rebuild is guarded, so the failure is silent:
+          # the job stays green and uploads the COMMITTED page instead, which is how the
+          # live sheet came to serve a payload stamped 2026-08-19 for three weeks.
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: python -m scheduler.supabase_export
       - name: Commit the accumulating Bund per-ISIN store (if it grew)
         # The Bundesbank index publishes only the most recent ~5 monthly workbooks and
