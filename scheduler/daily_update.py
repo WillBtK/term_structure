@@ -43,6 +43,7 @@ def _refreshers():
     from validation.sf_fed import load_sf_fed_series
     from validation.tips_liquidity import build_noise
     from validation.bund_liquidity import build_noise as build_bund_noise
+    from supply.fetch_jp import fetch_boj
     from macro.shiller import refresh as shiller_refresh
     return [
         ("US GSW (nominal)", lambda: load_gsw_params(refresh=True)),
@@ -66,6 +67,12 @@ def _refreshers():
         # German Bund analogue: RMS deviation of individual Bund yields from a smooth
         # curve (Bundesbank per-ISIN monthly workbooks). Guarded; cache fallback.
         ("Bund noise (liquidity gauge)", lambda: build_bund_noise(refresh=True, freq="D")),
+        # BoJ JGB holdings by issue -- the Japanese leg of the ownership driver, and
+        # the reason the scenario sheet could not rebuild in CI: supply/price_insensitive
+        # reads this store, it was never built here, and the guarded rebuild fell back
+        # to publishing the committed page. The store is now versioned and this refresh
+        # is INCREMENTAL, so on most days it fetches an index page and nothing else.
+        ("Japan BoJ holdings (by issue)", lambda: fetch_boj(refresh=True)),
     ]
 
 

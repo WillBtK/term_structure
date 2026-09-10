@@ -67,7 +67,13 @@ scheduler/supabase_stage/
 !canada/data/anchors/**
 !switzerland/data/anchors/
 !switzerland/data/anchors/**
-supply/data/
+supply/data/*
+# ...except the BoJ per-issue store. Two reasons it is versioned rather than cached:
+# its history begins 2014-05 and CANNOT be pushed back (earlier months are indexed
+# under four-digit names in HTML and PDF only, which we do not parse), and the daily
+# job needs it to rebuild the scenario sheet -- without it the sheet silently fell
+# back to publishing its committed page. 165 KB, and it grows by one snapshot a month.
+!supply/data/jp_boj_raw.parquet
 
 # Rendered decks: regenerable from presentation/export_pdf.py
 presentation/dist/

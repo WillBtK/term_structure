@@ -1,7 +1,7 @@
 """Japan ladders: JGBs outstanding, and the Bank of Japan's holdings.
 
 Japan needs a join that the US did not. The BoJ publishes its holdings issue by issue
-(``mei`` files, three times a month back to 2001) but identifies each one only by
+(``mei`` files, three times a month, in this parseable form back to 2014-05) but identifies each one only by
 ORIGINAL TENOR and ISSUE NUMBER -- "10-Year JGB #348" -- with no maturity date and no
 coupon. The Ministry of Finance auction-results workbook supplies both, one sheet per
 tenor, keyed on the same issue number, so the two join cleanly.
@@ -21,6 +21,7 @@ import subprocess
 import time
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -149,7 +150,16 @@ def _parse_mei(blob: bytes, name: str) -> pd.DataFrame:
     if not left:
         raise ValueError(f"{name}: amount column has nothing to its left")
     issue_col = max(left)                       # issue number sits directly left
-    labels = {c: d[c].astype(str).str.strip().str.lower().map(_TYPE_MAP)
+    # Forward-fill the block HEADING, then map -- not the other way round. The current
+    # workbook names each bond type once and leaves the rows beneath it blank, so some
+    # ffill is required; filling the MAPPED label instead silently re-labels every block
+    # we do not recognise as the last one we did. "Floating-rate JGB" and the
+    # inflation-indexed block follow 40-year in the sheet and were being stamped
+    # "40-Year JGB", which both inflated the holdings total the ownership driver reads
+    # and collided with genuine 40-year issue numbers. Filling the text first leaves an
+    # unrecognised heading unmapped, so its rows drop out as intended.
+    labels = {c: d[c].astype(str).str.strip().replace({"nan": None}).ffill()
+                     .str.lower().map(_TYPE_MAP)
               for c in left if c != issue_col}
     if not labels:
         raise ValueError(f"{name}: no bond-type column")
@@ -157,19 +167,47 @@ def _parse_mei(blob: bytes, name: str) -> pd.DataFrame:
     if labels[type_col].notna().sum() == 0:
         raise ValueError(f"{name}: no recognised bond-type labels")
     out = pd.DataFrame({
-        "bond_type": labels[type_col].ffill(),
+        "bond_type": labels[type_col],      # already heading-filled; see above
         "issue": pd.to_numeric(d[issue_col], errors="coerce"),
         "amount": pd.to_numeric(d[amt_col], errors="coerce")}).dropna()
     out["issue"] = out["issue"].astype(int)
     return out[out["amount"] > 0]
 
 
-def fetch_boj(start: int = 2001, end: int = 2026, refresh: bool = False) -> pd.DataFrame:
-    """BoJ JGB holdings by issue, one snapshot per month (the last of each month)."""
-    if not refresh and BOJ_RAW_PARQUET.exists():
-        return pd.read_parquet(BOJ_RAW_PARQUET)
+def fetch_boj(start: int = 2001, end: int | None = None,
+              refresh: bool = False) -> pd.DataFrame:
+    """BoJ JGB holdings by issue, one snapshot per month (the last of each month).
+
+    INCREMENTAL. A cold build walks every year and takes a few minutes; once the store
+    exists, ``refresh=True`` fetches only the months missing from it, which on a daily
+    schedule is nothing at all on most days and one file after each month end. That is
+    what makes this cheap enough to sit in the daily job, and the daily job is what
+    keeps it moving.
+
+    The CURRENT month is always re-fetched, never treated as done. The BoJ posts three
+    files a month and this takes the last one available, so a snapshot captured
+    mid-month is not the month-end snapshot; accepting it as complete would freeze that
+    month at whatever partial figure happened to be up when it was first seen.
+
+    Effective history starts 2014-05: earlier years are indexed under four-digit names
+    in HTML and PDF only (see ``_year_files``), so the six-digit workbook series this
+    parses does not reach them.
+    """
+    end = end or pd.Timestamp.today().year
+    have = pd.read_parquet(BOJ_RAW_PARQUET) if BOJ_RAW_PARQUET.exists() else None
+    if have is not None and not refresh:
+        return have
+
+    now = pd.Timestamp.today()
+    if have is None:
+        years, done = range(start, end + 1), set()
+    else:
+        done = {(d.year, d.month) for d in pd.DatetimeIndex(have["asof"])}
+        done.discard((now.year, now.month))          # see the docstring
+        years = range(max(start, now.year - 1), end + 1)
+
     frames = []
-    for year in range(start, end + 1):
+    for year in years:
         try:
             names = _year_files(year)
         except Exception as exc:                                    # noqa: BLE001
@@ -178,7 +216,9 @@ def fetch_boj(start: int = 2001, end: int = 2026, refresh: bool = False) -> pd.D
         by_month = {}
         for n in names:
             by_month[n[3:7]] = n            # yymm -> last file that month (sorted)
-        for ym, name in sorted(by_month.items()):
+        wanted = {ym: n for ym, n in by_month.items()
+                  if (2000 + int(ym[:2]), int(ym[2:])) not in done}
+        for ym, name in sorted(wanted.items()):
             try:
                 f = _parse_mei(_curl(f"{BOJ_BASE}/{year}/{name}"), name)
             except Exception as exc:                                # noqa: BLE001
@@ -186,10 +226,27 @@ def fetch_boj(start: int = 2001, end: int = 2026, refresh: bool = False) -> pd.D
                 continue
             f["asof"] = pd.Timestamp(f"20{name[3:5]}-{name[5:7]}-{name[7:9]}")
             frames.append(f)
-        logger.info("BoJ %d: %d monthly snapshots", year, len(by_month))
+        logger.info("BoJ %d: %d monthly snapshots (%d already stored)",
+                    year, len(wanted), len(by_month) - len(wanted))
+
+    if not frames:
+        logger.info("BoJ store already current: %d snapshots to %s",
+                    have["asof"].nunique(), have["asof"].max().date())
+        return have
+
     df = pd.concat(frames, ignore_index=True)
+    if have is not None:
+        # A re-fetched month REPLACES its stored rows rather than doubling them --
+        # which is how the current month's partial snapshot gets promoted to the
+        # month-end one.
+        fresh = {(d.year, d.month) for d in pd.DatetimeIndex(df["asof"])}
+        kept = pd.DatetimeIndex(have["asof"]).map(lambda d: (d.year, d.month) not in fresh)
+        df = pd.concat([have[np.asarray(kept, bool)], df], ignore_index=True)
+    df = df.sort_values(["asof", "bond_type", "issue"]).reset_index(drop=True)
     DATA.mkdir(parents=True, exist_ok=True)
     df.to_parquet(BOJ_RAW_PARQUET)
+    logger.info("BoJ store: %d issue-months, %d snapshots, %s..%s", len(df),
+                df["asof"].nunique(), df["asof"].min().date(), df["asof"].max().date())
     return df
 
 
