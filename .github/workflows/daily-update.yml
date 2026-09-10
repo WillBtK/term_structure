@@ -28,10 +28,22 @@ name: Daily term-premium update
 # Cron is fixed-UTC while ET/CET/BST shift, so these sit ~1h late in winter — the offsets
 # are chosen with enough slack to absorb that plus GitHub's scheduler jitter (runs at :00
 # queue worst, hence :45/:15).
+# NOT seven days a week. Both slots exist to catch a publication and at the weekend
+# there is mostly nothing to catch, but the dead days are NOT simply Saturday and
+# Sunday, because both slots are T+1 catch-ups:
+#   00:45 Mon  clears the MoF post covering FRIDAY (09:30 JST Monday)      -> keep
+#   00:45 Sat  clears Friday's US CMT and Bundesbank, both same-day Friday -> keep
+#   00:45 Sun  nothing has published by either route                      -> DROP
+#   12:15 Mon  clears the BoE GLC covering FRIDAY (noon London Monday)     -> keep
+#   12:15 Sat  BoE does not post on a Saturday, and Friday's US/DE data
+#              was already taken by the 00:45 run that morning            -> DROP
+#   12:15 Sun  nothing                                                    -> DROP
+# Cutting Monday as well would have delayed Friday's JGB and gilt curves by a day,
+# which is the staleness this schedule was built to avoid.
 on:
   schedule:
-    - cron: "45 0 * * *"       # 00:45 UTC — after MoF JGB (09:30 JST, T+1)
-    - cron: "15 12 * * *"      # 12:15 UTC — after BoE GLC (noon London, T+1)
+    - cron: "45 0 * * 1-6"     # 00:45 UTC Mon-Sat — after MoF JGB (09:30 JST, T+1)
+    - cron: "15 12 * * 1-5"    # 12:15 UTC Mon-Fri — after BoE GLC (noon London, T+1)
   workflow_dispatch: {}         # manual trigger (any branch)
 
 permissions:
