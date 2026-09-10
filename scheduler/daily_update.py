@@ -79,7 +79,15 @@ def refresh_sources() -> dict:
             logger.info("refreshed %s", label)
         except Exception as exc:                                   # noqa: BLE001
             status[label] = f"error: {exc}"
-            logger.warning("refresh FAILED for %s: %s (using cache if present)", label, exc)
+            # Annotated, not merely logged. A failed fetch falls back to cache by design,
+            # so the run stays green and the only trace is one line in the middle of a
+            # ~900-line log. The freshness gate does catch the consequence, but not until
+            # the cache itself goes stale -- days later, and by then the cause has scrolled
+            # away. This puts the cause in the run summary on the day it happens.
+            from scheduler.freshness import annotate
+            annotate("warning", f"refresh FAILED for {label}: {exc} — falling back to its "
+                                f"cache, so the published data for this source is as old as "
+                                f"the last successful fetch.")
     return status
 
 

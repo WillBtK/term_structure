@@ -140,3 +140,25 @@ def test_a_batch_publisher_is_not_flagged_merely_for_trailing_the_dailies():
               "DE:nominal": bdays(asof, 150)}
     ch = {x.key: x for x in audit(series, as_of=asof)}["CH:nominal"]
     assert ch.behind_newest > 14 and not ch.lagging
+
+
+# ------------------------------------------------- a failed fetch must be visible
+
+def test_a_failed_source_refresh_is_annotated_not_just_logged(monkeypatch, capsys):
+    """Every fetch falls back to cache inside a try, so a dead source leaves one line in
+    the middle of a ~900-line log and a green run. The freshness gate catches the
+    consequence only once the cache itself goes stale — days later, by which point the
+    cause has scrolled away. The failure has to reach the run summary on the day it
+    happens."""
+    from scheduler import daily_update
+
+    monkeypatch.setattr(daily_update, "_refreshers",
+                        lambda: [("US GSW (nominal)", lambda: (_ for _ in ()).throw(
+                            RuntimeError("HTTP 503")))])
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    status = daily_update.refresh_sources()
+
+    assert status["US GSW (nominal)"].startswith("error:")
+    out = capsys.readouterr().out
+    assert out.startswith("::warning::")
+    assert "US GSW (nominal)" in out and "HTTP 503" in out
