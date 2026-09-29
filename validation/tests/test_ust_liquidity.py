@@ -206,3 +206,63 @@ def test_an_explicit_window_is_still_a_corrective_recompute(tmp_path, monkeypatc
     _no_fedinvest(monkeypatch)
     out = build_noise(refresh=True, freq="D", start="2026-09-01", end="2026-09-25")
     assert pd.to_datetime(out["date"]).max() < pd.Timestamp("2026-09-01")
+
+
+# ------------------------------------------------- FedInvest's 2026-09 form change
+
+_UNPUBLISHED_HTML = """
+<table>
+<tr><th>CUSIP</th><th>SECURITY TYPE</th><th>RATE</th><th>MATURITY DATE</th>
+    <th>CALL DATE</th><th>BUY</th><th>SELL</th><th>END OF DAY</th></tr>
+<tr><td>91282CJK8</td><td>MARKET BASED NOTE</td><td>4.125%</td><td>05/15/2034</td>
+    <td></td><td>0.000000</td><td>0.000000</td><td>0.000000</td></tr>
+<tr><td>912810TV0</td><td>MARKET BASED BOND</td><td>4.750%</td><td>11/15/2053</td>
+    <td></td><td>0.000000</td><td>0.000000</td><td>0.000000</td></tr>
+</table>
+"""
+
+
+def test_a_day_posted_before_its_prices_are_final_reads_as_empty():
+    """FedInvest lists the day's securities with every price zero until end-of-day
+    prices publish. Parsed as prices, the day is cached as fetched and never retried."""
+    assert parse_price_table(_UNPUBLISHED_HTML, pd.Timestamp("2026-09-28")).empty
+
+
+def test_the_post_carries_the_csrf_token_and_one_iso_date(monkeypatch):
+    """The form now takes priceDate=YYYY-MM-DD plus a session-bound _csrf token; the
+    old split month/day/year fields posted cold are answered 403."""
+    import us.fetch_fedinvest as fi
+    sent = {}
+
+    class Resp:
+        def __init__(self, text, code=200): self.text, self.status_code = text, code
+        def raise_for_status(self):
+            if self.status_code >= 400: raise RuntimeError(self.status_code)
+
+    class Sess:
+        headers = {}
+        def get(self, url, timeout=None):
+            return Resp('<input type="hidden" name="_csrf" value="tok-1" />')
+        def post(self, url, data=None, timeout=None):
+            sent.update(data)
+            return Resp('<table></table><input type="hidden" name="_csrf" value="tok-2" />')
+
+    import requests
+    monkeypatch.setattr(requests, "Session", Sess)
+    fi._SESSIONS.clear()
+    fi._post("https://example.invalid/form", pd.Timestamp("2026-09-25"))
+    assert sent["priceDate"] == "2026-09-25" and sent["_csrf"] == "tok-1"
+    assert not any(k.startswith("priceDate.") for k in sent)
+    assert fi._SESSIONS["https://example.invalid/form"][1] == "tok-2"   # rolled forward
+
+
+def test_a_run_of_days_with_no_table_raises_instead_of_passing_as_ok(tmp_path, monkeypatch):
+    """Three or more business days with no price table is the source failing, not a
+    holiday. It used to be a warning, which is how the daily refresh reported 'ok'
+    for six weeks behind the form change."""
+    import us.fetch_fedinvest as fi
+    from validation import config as cfg
+    monkeypatch.setattr(cfg, "UST_PRICES_PARQUET", tmp_path / "prices.parquet")
+    monkeypatch.setattr(fi, "fetch_day", lambda d: pd.DataFrame())
+    with pytest.raises(RuntimeError, match="no price table"):
+        fi.load_prices(start="2026-09-21", end="2026-09-25")

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 import time
 
 import pandas as pd
@@ -56,18 +57,50 @@ def _find_col(cols, keys):
     return None
 
 
-def _post(url: str, date: pd.Timestamp, timeout: int = 60) -> str:
-    """POST the date form and return the HTML body."""
+# One (session, CSRF token) per endpoint, reused across the days of a run.
+_SESSIONS: dict = {}
+_CSRF = re.compile(r'name="_csrf"\s+value="([^"]+)"')
+
+
+def _handshake(url: str, timeout: int = 60):
+    """GET the form page on a fresh session and return (session, csrf token).
+
+    Since 2026-09 FedInvest is a Spring app with CSRF protection: the form carries a
+    ``_csrf`` token tied to the session cookie, and a POST without both is answered
+    403 -- which the old fetcher, posting the date fields cold, received on every
+    request. The failure was invisible for weeks because an empty day is treated as a
+    non-trading day (see ``load_prices`` for why that is no longer silent)."""
     import requests
-    data = {
-        "priceDate.month": date.month,
-        "priceDate.day": date.day,
-        "priceDate.year": date.year,
-        "submit": "Show Prices",
-    }
-    r = requests.post(url, data=data, timeout=timeout,
-                      headers={"User-Agent": "Mozilla/5.0"})
+    sess = requests.Session()
+    sess.headers["User-Agent"] = "Mozilla/5.0"
+    r = sess.get(url, timeout=timeout)
     r.raise_for_status()
+    m = _CSRF.search(r.text)
+    if not m:
+        raise RuntimeError(f"FedInvest form at {url} carries no _csrf token; "
+                           "the page layout has changed")
+    _SESSIONS[url] = (sess, m.group(1))
+    return _SESSIONS[url]
+
+
+def _post(url: str, date: pd.Timestamp, timeout: int = 60) -> str:
+    """POST the date form and return the HTML body.
+
+    The form takes ONE ISO date field, ``priceDate=YYYY-MM-DD`` (an HTML date input);
+    the split ``priceDate.month/day/year`` fields it used to take are gone. A 403 means
+    the session or token lapsed mid-crawl: re-handshake once and retry."""
+    sess, token = _SESSIONS.get(url) or _handshake(url, timeout)
+    data = {"priceDate": pd.Timestamp(date).strftime("%Y-%m-%d"),
+            "_csrf": token, "submit": "Show Prices"}
+    r = sess.post(url, data=data, timeout=timeout)
+    if r.status_code == 403:
+        sess, token = _handshake(url, timeout)
+        data["_csrf"] = token
+        r = sess.post(url, data=data, timeout=timeout)
+    r.raise_for_status()
+    m = _CSRF.search(r.text)                      # the response carries the next token
+    if m:
+        _SESSIONS[url] = (sess, m.group(1))
     return r.text
 
 
@@ -124,7 +157,12 @@ def parse_price_table(html: str, date: pd.Timestamp) -> pd.DataFrame:
                           if c_call else pd.NaT),
             "price": pd.to_numeric(t[c_eod], errors="coerce"),
         })
-        return out.dropna(subset=["maturity", "price"]).reset_index(drop=True)
+        out = out.dropna(subset=["maturity", "price"])
+        # FedInvest posts a day's table BEFORE its prices are final, with every price
+        # zero (seen for 2026-09-28 the next morning). A zero is not a price: keep it
+        # and the day is cached as "fetched" and never re-requested. Dropped, the day
+        # comes back empty and is picked up on a later run once prices are published.
+        return out[out["price"] > 0].reset_index(drop=True)
     return pd.DataFrame(columns=cols)
 
 
@@ -229,6 +267,15 @@ def load_prices(start=None, end=None, refresh: bool = False,
         if i % 250 == 0:
             logger.info("  %d/%d days (%d without a table)", i, len(want), empty)
     if not got:
+        # A run of business days with NO price table is not a holiday -- the longest
+        # US market closure in the archive is two days. It is the source failing, and
+        # it used to be a warning that let the daily refresh report "ok": the noise
+        # store sat at 2026-08-18 for six weeks behind a form change nobody saw. Raise,
+        # so the refresher records an error and the CI run annotates it.
+        if len(want) >= 3:
+            raise RuntimeError(f"FedInvest returned no price table for any of {len(want)} "
+                               f"business days {want[0].date()}..{want[-1].date()}; the "
+                               "endpoint or its form has probably changed")
         logger.warning("FedInvest returned no data for any of %d requested days", len(want))
         return cached
     panel = (pd.concat([cached, *got], ignore_index=True)
