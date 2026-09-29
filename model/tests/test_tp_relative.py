@@ -5,9 +5,10 @@ import numpy as np
 import pandas as pd
 
 from model.tp_drivers import DriverModel
-from model.tp_relative import RelativeModel, _relative, fit_relative
+from model.tp_relative import (SPREAD_FISCAL_COEF, RelativeModel, _relative,
+                               fit_relative, spread_fiscal_coef)
 
-US_FISCAL_COEF = 0.52                 # the borrowed US projected-balance sensitivity
+US_FISCAL_COEF = 0.52                 # the US's own projected-balance sensitivity
 
 US = dict(expected_inflation=2.3, inflation_uncertainty=1.3,
           price_insensitive=27.0, debt_gdp=99.0, fiscal=5.9)
@@ -16,15 +17,16 @@ OWN = dict(expected_inflation=2.0, inflation_uncertainty=1.7,
 BASE = {**_relative(OWN, US), "fiscal": OWN["fiscal"] - US["fiscal"]}
 M = RelativeModel(country="XX", intercept=0.2, beta_us=0.9,
                   coef={"expected_inflation": 0.9, "price_insensitive": -0.05},
-                  adjust={"inflation_uncertainty": 0.39, "fiscal": US_FISCAL_COEF},
+                  adjust={"inflation_uncertainty": 0.39, "fiscal": SPREAD_FISCAL_COEF},
                   base=dict(BASE),
-                  borrowed=("inflation_uncertainty", "fiscal"))
+                  borrowed=("inflation_uncertainty",), pooled=("fiscal",))
 CAL = RelativeModel(country="YY", intercept=0.2, beta_us=0.7,
                     coef={"price_insensitive": -0.014},
                     adjust={"expected_inflation": 1.25, "inflation_uncertainty": 0.39,
-                            "fiscal": US_FISCAL_COEF},
+                            "fiscal": SPREAD_FISCAL_COEF},
                     base=dict(BASE),
-                    borrowed=("expected_inflation", "inflation_uncertainty", "fiscal"))
+                    borrowed=("expected_inflation", "inflation_uncertainty"),
+                    pooled=("fiscal",))
 
 
 def test_relative_drivers_kink_each_side_before_differencing():
@@ -58,14 +60,14 @@ def test_the_us_premium_carries_through_at_the_estimated_beta():
     assert abs(got - (1.39 + M.beta_us)) < 1e-12
 
 
-def test_the_borrowed_fiscal_channel_responds_to_the_relative_deficit():
+def test_the_fiscal_channel_responds_to_the_relative_deficit():
     """A deficit widening 2 points against the US must raise the premium by the
-    borrowed US sensitivity times two -- and a matched widening on both sides,
-    with the US premium held, must move nothing."""
+    pooled sensitivity times two -- and a matched widening on both sides, with the
+    US premium held, must move nothing."""
     wider = {**OWN, "fiscal": OWN["fiscal"] + 2.0}
     got = CAL.scenario(US, US, OWN, wider, tp_us_today=1.36, tp_us_scenario=1.36,
                        tp_today=1.36)
-    assert abs(got - (1.36 + 2.0 * US_FISCAL_COEF)) < 1e-12
+    assert abs(got - (1.36 + 2.0 * SPREAD_FISCAL_COEF)) < 1e-12
     us_wider = {**US, "fiscal": US["fiscal"] + 2.0}
     both = CAL.scenario(US, us_wider, OWN, wider, tp_us_today=1.36,
                         tp_us_scenario=1.36, tp_today=1.36)
@@ -163,3 +165,44 @@ def test_a_regime_start_that_would_gut_the_sample_is_ignored(monkeypatch, caplog
         m = tr.fit_relative("XX", pair, REF)
     assert m.n == len(pair)
     assert any("falling back to the full sample" in r.message for r in caplog.records)
+
+
+# ------------------------------------------------ the spread fiscal coefficient
+
+def test_a_bigger_own_deficit_never_lowers_the_premium():
+    """The objection that ruled out Germany's own deficit estimate (-4.3bp a point):
+    at a 10%-of-GDP deficit it would LOWER Bund yields. With the pooled coefficient a
+    deficit 6.5 points wider must raise the premium, by about a point and a half."""
+    ten = {**OWN, "fiscal": 10.0}
+    got = CAL.scenario(US, US, OWN, ten, tp_us_today=1.36, tp_us_scenario=1.36,
+                       tp_today=0.96)
+    assert got > 0.96
+    assert abs((got - 0.96) - SPREAD_FISCAL_COEF * (10.0 - OWN["fiscal"])) < 1e-12
+
+
+def test_a_us_deficit_spills_over_positively_but_less_than_one_for_one():
+    """US deficit +1pp, own held: the US premium moves by the US coefficient and passes
+    through beta; the relative term takes c back off. The result must be positive and
+    smaller than the US's own response."""
+    us_wider = {**US, "fiscal": US["fiscal"] + 1.0}
+    got = CAL.scenario(US, us_wider, OWN, OWN, tp_us_today=1.36,
+                       tp_us_scenario=1.36 + US_FISCAL_COEF, tp_today=0.96)
+    spill = got - 0.96
+    assert abs(spill - (CAL.beta_us * US_FISCAL_COEF - SPREAD_FISCAL_COEF)) < 1e-12
+    assert 0.0 < spill < US_FISCAL_COEF
+
+
+def test_the_coefficient_is_the_pooled_value_where_nothing_binds():
+    for beta in (0.964, 0.888, 0.482):          # DE, UK, JP as shipped
+        assert spread_fiscal_coef(beta, 0.5187) == SPREAD_FISCAL_COEF
+
+
+def test_a_low_beta_clips_the_coefficient_so_the_us_spillover_stays_non_negative():
+    c = spread_fiscal_coef(0.3, 0.5187)
+    assert c < SPREAD_FISCAL_COEF
+    assert 0.3 * 0.5187 - c >= -1e-12          # US deficits never LOWER this premium
+    assert c >= 0.0
+
+
+def test_a_negative_calibration_is_floored_at_zero():
+    assert spread_fiscal_coef(0.964, 0.5187, coef=-0.043) == 0.0

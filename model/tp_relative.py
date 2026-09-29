@@ -47,12 +47,13 @@ UK 0.888, Germany 0.964, Japan 0.482.
 The fiscal channel is the same object in every market: the FIVE-YEAR-AHEAD OFFICIAL
 projected deficit (CBO for the US, OBR / AMECO / Cabinet Office for the spreads --
 ``macro.fiscal_projections``), entering the spread as the relative (own minus US)
-projection. No spread market has the vintage archive that identified the US coefficient,
-so all three borrow it -- +0.52pp of premium per point of projected deficit -- as an
-adjustment measured from today's relative reading: worth nothing at the base case, alive
-in any scenario that moves one side's deficit path against the other's. Relative debt
-stock, which used to fill this slot, is gone: the flow-vs-stock evidence says the
-projected balance is the priced object, and running both would double-count one story.
+projection, as an adjustment measured from today's relative reading: worth nothing at
+the base case, alive in any scenario that moves one side's deficit path against the
+other's. The spread markets' coefficient is NOT the US one -- see
+``SPREAD_FISCAL_COEF`` for where it comes from, why it replaced the borrowed +0.52,
+and why a market-by-market estimate was rejected. Relative debt stock, which used to
+fill this slot, is gone: the flow-vs-stock evidence says the projected balance is the
+priced object, and running both would double-count one story.
 """
 from __future__ import annotations
 
@@ -75,6 +76,41 @@ SPREAD_MARKETS = tuple(c for c in MARKETS if c != "US")
 BETA_BOUNDS = (0.0, 1.5)
 MIN_T = 2.0
 MIN_OBS = 60          # below this a regime-trimmed sample is not worth the trade
+
+# --- The spread markets' fiscal sensitivity ----------------------------------------
+# Premium, in pp, per +1pp of GDP of five-year-ahead projected deficit. Until 2026-09
+# every spread market borrowed the US coefficient (+0.519, CBO vintages, post-2008).
+# That number is right for the US -- the imf_fiscal_sensitivity repo's own vintage
+# estimate is +0.656 -- and wrong to transfer: it made one borrowed parameter 85% of
+# the German baseline, dragging the Bund premium from 0.96 to 0.10 over ten years.
+#
+# The replacement is the imf_fiscal_sensitivity DEEP PANEL (US/UK/DE/JP/CA premia from
+# this repo, WEO five-year-ahead structural balance, 2007-11..2026-06), POOLED, 10y:
+# +23.5bp per point, t 7.9. The per-market estimates were rejected, not overlooked.
+# Net of the global factor they are DE -4.3 (t -1.6), UK +2.9, JP +2.7 at ten years --
+# none significant, and Germany's NEGATIVE, which in a scenario tool says a German
+# deficit of 10% of GDP LOWERS Bund yields. That is an identification failure, not
+# economics: German deficits widened in 2009 and 2020 exactly as Bunds rallied on
+# flight to quality; the WEO regressor updates in April and October, months after the
+# market reprices; and a German shock partly moves the global factor it is measured
+# net of.
+#
+# The one clean German experiment agrees with the pooled number. 4 -> 14 March 2025,
+# the debt-brake reform: Bund 10y +43bp, expected path -4bp, term premium +47bp, of
+# which +37bp beyond the US premium's own move -- against a five-year-ahead deficit
+# revised up roughly 1.5-2pp. That is +20..30bp per point. validation/
+# FINDINGS_fiscal_spread.md has the full record.
+#
+# It is applied to the RELATIVE deficit, which fixes BOTH partial effects:
+#     own deficit +1pp, US still         ->  c                 (0.235)
+#     US deficit +1pp, own still         ->  beta*c_US - c     (US premium passes
+#                                                              through beta, minus c)
+# With a positive c the spillover comes out at DE 0.265, UK 0.226, JP 0.015 -- below
+# the US's own 0.519, and for Germany close to what the CHANGES beta (~0.6, see
+# REGIME_START) implies, 0.31. Applied to the own deficit alone instead, US deficits
+# would pass through the LEVELS beta at 0.96 and move Bunds almost one-for-one with
+# Treasuries. ``spread_fiscal_coef`` keeps both partials non-negative.
+SPREAD_FISCAL_COEF = 0.235
 
 # --- Where each market's relative fit is allowed to start ------------------------
 # The rest of this repo estimates every market on ONE monetary-policy regime, so that
@@ -122,6 +158,7 @@ class RelativeModel:
     adjust: dict = field(default_factory=dict)
     base: dict = field(default_factory=dict)
     borrowed: tuple = ()             # channels whose coefficient is taken from the US
+    pooled: tuple = ()               # channels calibrated on the cross-market panel
     r2: float = float("nan")
     r2_recent: float = float("nan")
     rmse: float = float("nan")
@@ -230,8 +267,8 @@ def fit_relative(country: str, pair: pd.DataFrame | None = None,
     The fiscal channel is ALWAYS an adjustment, never fitted: the driver is the
     five-year-ahead official projected deficit relative to the US, no spread market
     has the vintage archive that would let its own history identify a coefficient,
-    and the borrowed US sensitivity (+0.52 per point) is applied from today's
-    relative reading. Relative debt stock no longer enters anywhere -- the projected
+    and the pooled cross-market sensitivity (``SPREAD_FISCAL_COEF``, +0.235 per point,
+    bounded by ``spread_fiscal_coef``) is applied from today's relative reading. Relative debt stock no longer enters anywhere -- the projected
     balance is the priced fiscal object, and carrying both would double-count.
     """
     p = build_pair(country) if pair is None else pair
@@ -256,25 +293,44 @@ def fit_relative(country: str, pair: pd.DataFrame | None = None,
         live = [k for k in CORE if k not in dead]
         coef, tstat, b_us, a = _solve(p, live, y)
 
-    adjust, borrowed = {}, []
+    adjust, borrowed, pooled = {}, [], []
     for k in dead:
         adjust[k] = us_model.coef[k]
         borrowed.append(k)
     fiscal = _relative_fiscal_base(country)
     if fiscal is not None and "fiscal" in us_model.adjust:
-        adjust["fiscal"] = us_model.adjust["fiscal"]
+        adjust["fiscal"] = spread_fiscal_coef(b_us, us_model.adjust["fiscal"])
         base["fiscal"] = fiscal
-        borrowed.append("fiscal")
+        pooled.append("fiscal")
 
     r = y - _hat(p, coef, b_us, a)
     recent = np.asarray(p.index >= "2010-01-01")
     return RelativeModel(
         country=country, intercept=a, beta_us=b_us, coef=coef, tstat=tstat,
-        adjust=adjust, base=base, borrowed=tuple(borrowed),
+        adjust=adjust, base=base, borrowed=tuple(borrowed), pooled=tuple(pooled),
         r2=float(1 - (r @ r) / ((y - y.mean()) ** 2).sum()),
         r2_recent=float(1 - (r[recent] ** 2).sum()
                         / ((y[recent] - y[recent].mean()) ** 2).sum()),
         rmse=float(np.sqrt((r ** 2).mean())), n=len(p))
+
+
+def spread_fiscal_coef(beta_us: float, us_fiscal: float,
+                       coef: float = SPREAD_FISCAL_COEF) -> float:
+    """The relative-deficit coefficient for one spread market, bounded so that
+    neither partial effect can turn negative.
+
+    Own deficit: ``c``, so ``c >= 0``. US deficit: ``beta * us_fiscal - c``, so
+    ``c <= beta * us_fiscal``. A market with a small enough beta would otherwise have
+    US deficits LOWERING its premium -- the same sign error, on the other side, that
+    ruled out Germany's own estimate. Neither bound binds today (Japan, the tightest,
+    has 0.015 of room); if a refit makes one bind it is logged, not silent."""
+    hi = max(float(beta_us) * float(us_fiscal), 0.0)
+    c = min(max(float(coef), 0.0), hi)
+    if c < coef:
+        logger.warning("fiscal coefficient %.3f clipped to %.3f: beta %.3f x US %.3f "
+                       "leaves no room for a non-negative US spillover",
+                       coef, c, beta_us, us_fiscal)
+    return c
 
 
 def _relative_fiscal_base(country: str) -> float | None:

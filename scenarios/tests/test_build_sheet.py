@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from macro.fetch_core_cpi import UNCERTAINTY_HALFLIFE as HL
+from model.tp_relative import spread_fiscal_coef
 from scenarios.build_sheet import OUT, annual
 
 MARKETS = ("US", "UK", "DE", "JP")
@@ -97,12 +98,15 @@ def test_the_committed_payload_carries_everything_the_page_reads():
             assert mod["kind"] == "spread" and 0.0 <= mod["beta_us"] <= 1.5
             assert not set(mod["coef"]) & set(mod["adjust"])   # fitted xor adjusted
             # the three core channels are fitted or borrowed; fiscal is always the
-            # borrowed US sensitivity on the relative projected deficit, and the
-            # debt stock enters nowhere
+            # POOLED cross-market sensitivity on the relative projected deficit
+            # (model.tp_relative.SPREAD_FISCAL_COEF), bounded so neither the own nor
+            # the US-spillover partial can be negative; the debt stock enters nowhere
             core = {"expected_inflation", "inflation_uncertainty", "price_insensitive"}
             assert set(mod["coef"]) | set(mod["adjust"]) == core | {"fiscal"}
             assert "fiscal" in mod["adjust"] and "fiscal" in mod["base"]
-            assert mod["adjust"]["fiscal"] == p["markets"]["US"]["model"]["adjust"]["fiscal"]
+            us_f = p["markets"]["US"]["model"]["adjust"]["fiscal"]
+            assert mod["adjust"]["fiscal"] == spread_fiscal_coef(mod["beta_us"], us_f)
+            assert 0.0 <= mod["adjust"]["fiscal"] <= mod["beta_us"] * us_f
             assert "debt_gdp" not in mod["coef"] and "debt_gdp" not in mod["adjust"]
 
 

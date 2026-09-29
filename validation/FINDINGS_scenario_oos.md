@@ -129,6 +129,10 @@ enthusiastic about reversion, and they are the ones to quote.
 
 # 2026-08: the projected-balance fiscal channel reaches every market
 
+> **Superseded 2026-09** for the spread markets' coefficient: they now carry the
+> pooled cross-market +0.235, not the borrowed US +0.519 — see
+> `FINDINGS_fiscal_spread.md`. The driver definition below is unchanged.
+
 The US fiscal driver — the five-year-ahead OFFICIAL projected total balance, measured
 post-2008 at vintage frequency with the common trend purged (+51.9bp per point of GDP,
 t +6.7; see FINDINGS_fiscal_handoff_v2.md) — was extended to the spread markets. Each
