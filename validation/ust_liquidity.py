@@ -172,6 +172,11 @@ def build_noise(refresh: bool = False, freq: str = "M",
     if not refresh and start is None and len(store):
         return store if freq == "D" else _to_monthly(store)
 
+    # Only a window the CALLER named is a corrective recompute. The daily run's start
+    # is derived here from the lookback, and must not trip the clear-the-window branch
+    # below: on a FedInvest outage that branch would delete the last ``lookback_days``
+    # from the versioned store and the CI commit step would commit the deletion.
+    explicit = start is not None
     if start is None and len(store):
         start = (pd.to_datetime(store["date"]).max()
                  - pd.Timedelta(days=lookback_days)).strftime("%Y-%m-%d")
@@ -195,7 +200,7 @@ def build_noise(refresh: bool = False, freq: str = "M",
         gsw = None
     fresh = noise_from_panel(raw, gsw_params=gsw)
 
-    if start is not None and len(store):
+    if explicit and len(store):
         # An explicit window is a CORRECTIVE recompute, not an append. Merging on
         # "fresh wins where present" silently keeps the OLD value on any day the fetch
         # failed to return -- which is how a methodology fix ended up applied to only

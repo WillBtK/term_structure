@@ -84,6 +84,26 @@ def _benchmarks_long() -> pd.DataFrame:
             frames.append(bz[["source", "date", "maturity", "metric", "value"]])
         except Exception:                                          # noqa: BLE001
             pass
+    # US NOMINAL Treasury noise -- HPW's original object, and the benchmark the two
+    # gauges above are variations on. Read from the VERSIONED store, which the daily job
+    # extends and commits. Two residuals, two metrics: ``rmse`` is the self-fit, the
+    # definition the TIPS and Bund rows use, so the three sit on one axis; ``rmse_gsw``
+    # is the stricter reading against the published GSW curve, lagging a week because
+    # GSW publish in batches. A failure is logged, not swallowed: the other rows still
+    # upsert, but a gauge that silently stops arriving is the failure this repo keeps
+    # being bitten by.
+    if vcfg.UST_NOISE_STORE.exists():
+        try:
+            from validation.ust_liquidity import build_noise as _ust_noise
+            uz = _ust_noise(refresh=False, freq="D")
+            for col, metric in (("noise", "rmse"), ("noise_gsw", "rmse_gsw")):
+                if col not in uz.columns:
+                    continue
+                m = uz[["date", col]].dropna().rename(columns={col: "value"})
+                m["source"] = "ust_noise"; m["maturity"] = 0.0; m["metric"] = metric
+                frames.append(m[["source", "date", "maturity", "metric", "value"]])
+        except Exception as exc:                                   # noqa: BLE001
+            logger.warning("UST noise not exported: %s", exc)
     return (pd.concat(frames, ignore_index=True) if frames
             else pd.DataFrame(columns=["source", "date", "maturity", "metric", "value"]))
 

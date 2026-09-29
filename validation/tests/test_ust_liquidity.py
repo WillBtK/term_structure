@@ -159,3 +159,50 @@ def test_an_unparseable_coupon_is_dropped_not_carried_into_the_bond_math():
         "maturity": [pd.Timestamp("2034-05-15"), pd.Timestamp("2053-11-15")],
         "price": [98.5, 99.1]})
     assert list(nominal_coupon_bonds(panel)["cusip"]) == ["91282CJK8"]
+
+
+# ------------------------------------------------------ the incremental daily refresh
+
+def _store(tmp_path, monkeypatch, days):
+    """Point the versioned store (and its cache twin) at a temp file holding ``days``."""
+    from validation import config as cfg
+    store = pd.DataFrame({"date": pd.to_datetime(days), "noise": 3e-4,
+                          "noise_gsw": 4e-4, "n_bonds": 290})
+    path = tmp_path / "ust_noise_daily.parquet"
+    store.to_parquet(path)
+    monkeypatch.setattr(cfg, "UST_NOISE_STORE", path)
+    monkeypatch.setattr(cfg, "UST_NOISE_PARQUET", tmp_path / "cache.parquet")
+    return path, store
+
+
+def _no_fedinvest(monkeypatch):
+    import us.fetch_fedinvest as fi
+    import us.fetch_gsw as gsw
+    empty = pd.DataFrame(columns=["date", "cusip", "maturity", "coupon", "price"])
+    monkeypatch.setattr(fi, "load_prices", lambda start=None, end=None: empty)
+    monkeypatch.setattr(fi, "nominal_coupon_bonds", lambda df: df)
+    monkeypatch.setattr(gsw, "load_gsw_params", lambda refresh=False: None)
+
+
+def test_an_outage_on_the_daily_run_leaves_the_versioned_store_intact(tmp_path, monkeypatch):
+    """THE regression. The daily run derives its start from the lookback; it used to be
+    treated as a corrective recompute, so a FedInvest outage deleted the last twenty
+    days from the committed store, and CI would have committed the deletion."""
+    from validation.ust_liquidity import build_noise
+    days = pd.bdate_range("2026-08-03", "2026-09-25")
+    path, store = _store(tmp_path, monkeypatch, days)
+    _no_fedinvest(monkeypatch)
+    out = build_noise(refresh=True, freq="D")
+    assert len(out) == len(store)
+    assert len(pd.read_parquet(path)) == len(store)
+
+
+def test_an_explicit_window_is_still_a_corrective_recompute(tmp_path, monkeypatch):
+    """The back-fill path keeps its documented behaviour: a named window is cleared, so
+    a day that cannot be re-derived shows as a gap rather than a stale number."""
+    from validation.ust_liquidity import build_noise
+    days = pd.bdate_range("2026-08-03", "2026-09-25")
+    path, store = _store(tmp_path, monkeypatch, days)
+    _no_fedinvest(monkeypatch)
+    out = build_noise(refresh=True, freq="D", start="2026-09-01", end="2026-09-25")
+    assert pd.to_datetime(out["date"]).max() < pd.Timestamp("2026-09-01")

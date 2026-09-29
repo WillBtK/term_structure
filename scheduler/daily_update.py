@@ -43,6 +43,7 @@ def _refreshers():
     from validation.sf_fed import load_sf_fed_series
     from validation.tips_liquidity import build_noise
     from validation.bund_liquidity import build_noise as build_bund_noise
+    from validation.ust_liquidity import build_noise as build_ust_noise
     from supply.fetch_jp import fetch_boj
     from macro.shiller import refresh as shiller_refresh
     return [
@@ -67,6 +68,12 @@ def _refreshers():
         # German Bund analogue: RMS deviation of individual Bund yields from a smooth
         # curve (Bundesbank per-ISIN monthly workbooks). Guarded; cache fallback.
         ("Bund noise (liquidity gauge)", lambda: build_bund_noise(refresh=True, freq="D")),
+        # US nominal Treasury noise (HPW's original gauge). INCREMENTAL: FedInvest serves
+        # one trading day per request, so this fetches only the days after the versioned
+        # store's end plus a short overlap (GSW's weekly batches back-fill the curve-
+        # referenced column). It used to exist only as a manual back-fill workflow, which
+        # is how the store stopped at 2026-08-18. The store is committed by the CI step.
+        ("UST noise (liquidity gauge)", lambda: build_ust_noise(refresh=True, freq="D")),
         # BoJ JGB holdings by issue -- the Japanese leg of the ownership driver, and
         # the reason the scenario sheet could not rebuild in CI: supply/price_insensitive
         # reads this store, it was never built here, and the guarded rebuild fell back
