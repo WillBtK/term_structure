@@ -407,7 +407,12 @@ def _one_market_setup():
     return m, st, official, baseline
 
 
-def test_a_growth_view_alone_now_moves_the_fiscal_driver():
+def test_a_growth_view_alone_no_longer_moves_the_priced_deficit():
+    """Slower growth still DERIVES a wider deficit (macro.fiscal_rules), but that
+    widening is cyclical, and the premium prices the structural deficit. With no other
+    channel in this model, the premium must not move at all. Before this, a hard
+    landing's recession deficit RAISED the US premium +0.65, against -0.30 from
+    inflation -- the opposite of 2008 and 2020."""
     from scenarios.engine import run
     m, st, official, baseline = _one_market_setup()
     on_base = Scenario("US", policy_rate={1: 3.5}, inflation={1: 2.3},
@@ -417,24 +422,59 @@ def test_a_growth_view_alone_now_moves_the_fiscal_driver():
               growth_defaults={"US": baseline})
     r_base = run(m, {}, {"US": st}, {"US": on_base}, **kw)["US"]
     r_slow = run(m, {}, {"US": st}, {"US": slower}, **kw)["US"]
-    tp = {r.horizon: r.tp for r in r_slow}
-    tp0 = {r.horizon: r.tp for r in r_base}
-    assert tp[3] > tp0[3]                          # slower growth -> wider deficit
-    assert tp[10] > tp[3]                          # gap still accumulating
+    for a, b in zip(r_slow, r_base):
+        assert a.tp == pytest.approx(b.tp, abs=1e-12)
 
 
-def test_an_explicit_deficit_override_switches_the_rule_off():
+def test_a_stated_recession_deficit_that_matches_the_cycle_prices_nothing_extra():
+    """Copying a forecaster's recession deficit alongside the matching recession
+    growth row is ALL cycle, so it must price exactly like the official path."""
+    from macro.fiscal_rules import adjusted_deficit
+    from scenarios.engine import run
+    m, st, official, baseline = _one_market_setup()
+    recession = adjusted_deficit("US", {1: 0.8}, baseline, official)
+    sc = Scenario("US", policy_rate={1: 3.5}, inflation={1: 2.3},
+                  real_growth={1: 0.8}, deficit=recession)
+    kw = dict(deficit_defaults={"US": official}, rho=1.0,
+              growth_defaults={"US": baseline})
+    r = run(m, {}, {"US": st}, {"US": sc}, **kw)["US"]
+    r0 = run(m, {}, {"US": st}, {"US": replace(sc, real_growth={1: 1.8},
+                                               deficit=dict(official))}, **kw)["US"]
+    for a, b in zip(r, r0):
+        assert a.tp == pytest.approx(b.tp, abs=1e-9)
+
+
+def test_a_stated_cut_the_growth_row_cannot_explain_is_priced_in_full():
+    """One point off the deficit everywhere, on the baseline growth path, is a
+    structural view: the premium moves by the full coefficient."""
+    from scenarios.engine import run
+    m, st, official, baseline = _one_market_setup()
+    sc = Scenario("US", policy_rate={1: 3.5}, inflation={1: 2.3},
+                  real_growth={1: 1.8}, deficit={k: v - 1.0 for k, v in official.items()})
+    kw = dict(deficit_defaults={"US": official}, rho=1.0, view_convergence=0.0,
+              growth_defaults={"US": baseline})
+    r = {x.horizon: x.tp for x in run(m, {}, {"US": st}, {"US": sc}, **kw)["US"]}
+    r0 = {x.horizon: x.tp for x in run(m, {}, {"US": st},
+                                       {"US": replace(sc, deficit=dict(official))},
+                                       **kw)["US"]}
+    assert r[3] - r0[3] == pytest.approx(-0.52, abs=1e-9)
+
+
+def test_an_explicit_deficit_still_switches_the_rule_off():
+    """A stated fiscal view is still the whole fiscal path -- the rule does not derive
+    over it. What changes is only that its cyclical part is not priced: the same
+    headline deficit in a slump is structurally BETTER, so it prices lower."""
     from scenarios.engine import run
     m, st, official, baseline = _one_market_setup()
     sc = Scenario("US", policy_rate={1: 3.5}, inflation={1: 2.3},
                   real_growth={1: 0.8}, deficit=dict(official))
     kw = dict(deficit_defaults={"US": official}, rho=1.0,
               growth_defaults={"US": baseline})
-    r = run(m, {}, {"US": st}, {"US": sc}, **kw)["US"]
-    r0 = run(m, {}, {"US": st},
-             {"US": replace(sc, real_growth={1: 1.8})}, **kw)["US"]
-    for a, b in zip(r, r0):                        # growth ignored: override rules
-        assert a.tp == pytest.approx(b.tp, abs=1e-12)
+    slump = {x.horizon: x.tp for x in run(m, {}, {"US": st}, {"US": sc}, **kw)["US"]}
+    trend = {x.horizon: x.tp for x in run(m, {}, {"US": st},
+                                          {"US": replace(sc, real_growth={1: 1.8})},
+                                          **kw)["US"]}
+    assert slump[10] < trend[10]
 
 
 def test_without_growth_defaults_behaviour_is_unchanged():
@@ -514,3 +554,19 @@ def test_the_view_flag_beats_the_inflation_classifier():
     hot = Scenario("US", policy_rate={1: 6.0},
                    inflation={y: 5.5 for y in range(1, 7)}, is_view=True)
     assert convergence_for(hot) == LEARNING["view"]
+
+
+def test_a_stated_deficit_is_keyed_by_calendar_year_like_the_official_path(tmp_path):
+    """Year-end keying put a stated 2027 at horizon 1.35, so the pricing read 2026 at
+    year one -- a year behind the official path, which is keyed by calendar-year index
+    (0 = this year)."""
+    import pandas as pd
+    from scenarios.engine import load_scenario
+    y0 = pd.Timestamp.today().year
+    f = tmp_path / "us.csv"
+    pd.DataFrame({"year": [y0, y0 + 1, y0 + 2], "policy_rate": [3.5] * 3,
+                  "inflation": [2.3] * 3, "real_growth": [1.8] * 3,
+                  "fiscal_balance": [-6.0, -6.5, -7.0]}).to_csv(f, index=False)
+    sc = load_scenario(f)
+    assert sc.deficit == {0: 6.0, 1: 6.5, 2: 7.0}
+    assert all(k > 0 for k in sc.policy_rate)          # the other rows are unchanged

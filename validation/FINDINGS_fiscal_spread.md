@@ -142,11 +142,9 @@ Checked for sense, market by market:
   to 6.46% and the JGB to 4.00%. Every preset is a common shock, which is the case the
   relative spec gets right. Germany sitting exactly on the hinge in the Baseline (2.0%)
   is the intended asymmetry, not an artefact: 2.2% would add 20bp, 1.8% nothing.
-- **Cyclical vs structural deficits.** Both the US coefficient and this one are measured
-  on five-year-ahead projections — effectively structural balances. The sheet's
-  endogenous deficit moves on the output gap, so cyclical widening is priced as if it
-  were structural. A persistent growth deviation makes that gap persistent too (steady
-  state = growth excess / 0.3), which is why the German baseline's 1.25% growth against
-  the official 0.65% consolidates the German deficit by about a point.
+- **Cyclical vs structural deficits — resolved.** The premium now prices the cyclically
+  adjusted deficit; see `FINDINGS_structural_deficit.md`. Hard Landing's Bund premium
+  falls from 1.09 to 0.87, and the German baseline no longer consolidates in the
+  premium on the strength of its growth row.
 - **Upgrade path** unchanged: AMECO's twice-yearly vintages and OBR's historical
   forecasts database would let each market identify its own coefficient.

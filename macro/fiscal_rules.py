@@ -65,12 +65,27 @@ from __future__ import annotations
 SEMI_ELASTICITY = {"US": 0.36, "UK": 0.70, "DE": 0.504, "JP": 0.45}
 GAP_CLOSURE = 0.30      # share of the output gap closing per year
 HORIZON = 15            # years ahead the derived path is produced for
+STRUCTURAL_HORIZON = 45  # ...and priced to: a thirty-year bond's window ten years out
 
 
 def _flat(path: dict, k: int) -> float:
     """Last value at or before k, engine convention: the last entered year holds."""
     keys = [x for x in path if x <= k]
     return float(path[max(keys)]) if keys else float(path[min(path)])
+
+
+def output_gap(growth: dict, growth_baseline: dict, last: int) -> dict:
+    """{years ahead: output gap, % of potential} for years 1..``last``.
+
+    Growth deviations against the deficit source's own baseline, cumulated and closed
+    at ``GAP_CLOSURE`` a year. One recursion, shared by the rule that DERIVES the
+    deficit and the adjustment that takes the cycle back OUT for pricing, so the two
+    cannot drift apart."""
+    out, gap = {}, 0.0
+    for k in range(1, last + 1):
+        gap = (1.0 - GAP_CLOSURE) * gap + (_flat(growth, k) - _flat(growth_baseline, k))
+        out[k] = gap
+    return out
 
 
 def adjusted_deficit(country: str, growth: dict, growth_baseline: dict,
@@ -85,16 +100,73 @@ def adjusted_deficit(country: str, growth: dict, growth_baseline: dict,
     if not growth or not growth_baseline or not official:
         return dict(official)
     eps = SEMI_ELASTICITY[country]
-    out, gap = {}, 0.0
-    last = max(max(official), HORIZON)
-    for k in range(1, last + 1):
-        gap = (1.0 - GAP_CLOSURE) * gap + (_flat(growth, k) - _flat(growth_baseline, k))
-        if k in official or k <= HORIZON:
-            out[k] = _flat(official, k) - eps * gap
+    # Derived to the same horizon the structural adjustment reads, so that taking the
+    # cycle back out returns EXACTLY the official path at every year a bond window can
+    # reach. Freezing the path at year 15 left the two out of step wherever the growth
+    # baseline keeps moving (the OBR's runs fifty years).
+    last = max(int(max(official)), STRUCTURAL_HORIZON)
+    gap = output_gap(growth, growth_baseline, last)
+    out = {k: _flat(official, k) - eps * gap[k] for k in range(1, last + 1)}
     # year 0 (the current, partly-elapsed year) is never adjusted: the gap needs a
     # full year of deviation to exist, and horizon averages sample from year 1 anyway.
     if 0 in official:
         out[0] = official[0]
+    return dict(sorted(out.items()))
+
+
+def extend_stated_deficit(stated: dict, derived: dict) -> dict:
+    """A STATED deficit path carried past its last year along the derived one.
+
+    A stated row covers the years someone typed -- the sheet's grid is six -- while
+    the official projection runs on (CBO eleven years, rising). Holding the last
+    stated LEVEL flat threw those out-years away, so merely taking a row manual,
+    without changing a number, moved the US premium -30bp. What is held instead is
+    the DEVIATION from the derived path at the last stated year: a copy of the derived
+    row prices exactly like the derived row, and "one point wider" stays one point
+    wider for the whole of a bond's life. Both paths keyed by calendar-year index."""
+    if not stated or not derived:
+        return dict(stated)
+    last = max(stated)
+    dev = float(stated[last]) - _flat(derived, last)
+    out = dict(stated)
+    for k in sorted(derived):
+        if k > last:
+            out[k] = float(derived[k]) + dev
+    return dict(sorted(out.items()))
+
+
+def structural_deficit(country: str, deficit: dict, growth: dict,
+                       growth_baseline: dict) -> dict:
+    """The CYCLICALLY ADJUSTED deficit: ``deficit + epsilon * gap``, integer-keyed.
+
+    This is what the premium prices. The fiscal coefficients -- the US +0.519 and the
+    spread markets' pooled +0.235 -- were both estimated on FIVE-YEAR-AHEAD official
+    projections, which assume the output gap has closed: structural objects. Pricing
+    the rule's cyclical widening at that rate made a recession RAISE term premia (US
+    Hard Landing: +0.65 from fiscal against -0.30 from inflation), the opposite of
+    2008 and 2020, and made growth-driven deficit shrinkage compress them.
+
+    The adjustment is the same arithmetic the institutions use for their own structural
+    balances, with the same semi-elasticities, and it needs no new data:
+
+    * deficit DERIVED by the rule -> exactly the official path: a growth view alone
+      never moves the priced fiscal driver;
+    * deficit STATED by the user -> the statement relative to what the cycle implies.
+      A recession deficit copied alongside a recession growth row prices nothing
+      extra; a cut the growth row cannot explain prices in full.
+
+    The one thing no cyclical adjustment can do is tell a positive output gap from
+    higher potential growth: growth above the official baseline is read as cyclical.
+    A structural-gain view is entered on the deficit row.
+    """
+    if not deficit or not growth or not growth_baseline:
+        return dict(deficit)
+    eps = SEMI_ELASTICITY[country]
+    last = max(int(max(deficit)), STRUCTURAL_HORIZON)
+    gap = output_gap(growth, growth_baseline, last)
+    out = {k: _flat(deficit, k) + eps * gap[k] for k in range(1, last + 1)}
+    if 0 in deficit:
+        out[0] = float(deficit[0])
     return dict(sorted(out.items()))
 
 

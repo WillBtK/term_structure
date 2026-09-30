@@ -422,7 +422,8 @@ contaminating the inflation coefficients) rather than as a forecastable driver. 
 The scenario engine takes annual macro paths — policy rate, inflation, growth — and
 returns a ten-year yield and a total return at three- and ten-year horizons for the US,
 UK, Germany and Japan. The premium leg is driven by expected inflation and the volatility
-it brings, the projected deficit, and price-insensitive ownership; the spread markets are
+it brings, the projected deficit (cyclically adjusted: a growth view moves the
+deficit row but not the premium), and price-insensitive ownership; the spread markets are
 priced as **the US plus a difference** (relative inflation, relative ownership, relative
 fiscal position) on regime-fitted betas. Both legs converge from **today's market
 pricing** rather than jumping to fair value, at a learning speed fitted from event-study

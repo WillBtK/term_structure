@@ -395,28 +395,59 @@ const flatAt = (path, k) => {
   const ks = Object.keys(path).map(Number).filter(x => x <= k);
   return ks.length ? path[Math.max(...ks)] : path[Math.min(...Object.keys(path).map(Number))];
 };
+const STRUCTURAL_HORIZON = 45;   // mirrors macro/fiscal_rules.STRUCTURAL_HORIZON
+function outputGap(c, last){
+  // ports macro/fiscal_rules.output_gap: growth deviations vs the DEFICIT SOURCE's own
+  // baseline, cumulated and closed ~30%/yr. ONE recursion, shared by the rule that
+  // derives the deficit and the adjustment that takes the cycle back out for pricing.
+  const m = D.markets[c], base = m.growth_base || {};
+  const growth = asPath(c, "real_growth");
+  if(!Object.keys(base).length || !Object.keys(growth).length) return null;
+  const close = (D.fiscal_rule || {}).closure ?? 0.3, baseN = {};
+  // the baseline is keyed by CALENDAR YEAR in the payload; key it exactly like the
+  // scenario paths (year-end fractional horizons) so the deviation aligns year by year
+  for(const k in base) baseN[(+k) + 1 - D.year_frac] = base[k];
+  const out = {}; let gap = 0;
+  for(let k = 1; k <= last; k++){
+    gap = (1 - close) * gap + (flatAt(growth, k) - flatAt(baseN, k));
+    out[k] = gap;
+  }
+  return out;
+}
 function ruleDeficitFull(c){
   // the FULL derived path, integer-keyed like the engine's (ports adjusted_deficit):
   // a growth view held flat keeps feeding the gap beyond the grid, so the driver
   // must see the whole path, not the grid's first six years held flat
-  const m = D.markets[c], off = m.deficit_proj || {}, base = m.growth_base || {};
-  const eps = (D.fiscal_rule || {}).eps?.[c], close = (D.fiscal_rule || {}).closure ?? 0.3;
-  const growth = asPath(c, "real_growth");
-  if(eps === undefined || !Object.keys(off).length || !Object.keys(base).length ||
-     !Object.keys(growth).length) return null;
-  const offN = {}, baseN = {};
+  const m = D.markets[c], off = m.deficit_proj || {};
+  const eps = (D.fiscal_rule || {}).eps?.[c];
+  if(eps === undefined || !Object.keys(off).length) return null;
+  const offN = {};
   for(const k in off) offN[+k] = off[k];
-  // the baseline is keyed by CALENDAR YEAR in the payload; key it exactly like the
-  // scenario paths (year-end fractional horizons) so the deviation aligns year by year
-  for(const k in base) baseN[(+k) + 1 - D.year_frac] = base[k];
-  let gap = 0; const adj = {};
+  // derived to the horizon the structural adjustment reads, so the two cancel exactly
+  const last = Math.max(...Object.keys(offN).map(Number), STRUCTURAL_HORIZON);
+  const gap = outputGap(c, last);
+  if(!gap) return null;
+  const adj = {};
   if(0 in offN) adj[0] = offN[0];
-  const last = Math.max(...Object.keys(offN).map(Number), 15);
-  for(let k = 1; k <= last; k++){
-    gap = (1 - close) * gap + (flatAt(growth, k) - flatAt(baseN, k));
-    adj[k] = flatAt(offN, k) - eps * gap;
-  }
+  for(let k = 1; k <= last; k++) adj[k] = flatAt(offN, k) - eps * gap[k];
   return adj;
+}
+function structuralDeficit(c, path){
+  /* ports macro/fiscal_rules.structural_deficit: what the premium PRICES is the
+     deficit with the cycle taken back out, deficit + eps * gap -- the institutions'
+     own cyclical adjustment, same semi-elasticities. The coefficients were estimated
+     on five-year-ahead projections, which assume the gap has closed; pricing the
+     cycle made a recession RAISE premia. Derived row -> exactly the official path.
+     Stated row -> the statement relative to what the cycle implies. */
+  const eps = (D.fiscal_rule || {}).eps?.[c];
+  if(eps === undefined || !path || !Object.keys(path).length) return path;
+  const last = Math.max(Math.ceil(Math.max(...Object.keys(path).map(Number))), STRUCTURAL_HORIZON);
+  const gap = outputGap(c, last);
+  if(!gap) return path;
+  const out = {};
+  if(0 in path) out[0] = path[0];
+  for(let k = 1; k <= last; k++) out[k] = flatAt(path, k) + eps * gap[k];
+  return out;
 }
 function ruleDeficit(c){
   const m = D.markets[c], off = m.deficit_proj || {};
@@ -447,8 +478,27 @@ const scenarioFor = c => ({policy_rate: asPath(c,"policy_rate"),
                            // the grid shows the BALANCE; the engine's paths stay
                            // deficit-positive, so manual rows negate on the way in
                            deficit: (!DEFEDIT[c] && ruleDeficitFull(c))
-                                    || Object.fromEntries(Object.entries(
-                                         asPath(c,"deficit")).map(([k,v]) => [k,-v]))});
+                                    || statedDeficit(c)});
+function statedDeficit(c){
+  /* ports macro/fiscal_rules.extend_stated_deficit. A manual row is keyed by
+     CALENDAR-YEAR INDEX (Y - Y0), as the official and derived paths are -- year-end
+     keying read each stated year a year late -- and carried past its last year along
+     the derived path, holding the DEVIATION rather than the level. Holding the level
+     threw away the official out-years (CBO rises to 6.6% by year 11), so taking a row
+     manual without changing a number moved the US premium -30bp. The grid shows the
+     BALANCE, so rows negate on the way in. */
+  const out = {};
+  for(const Y of YEARS){ out[Y - Y0] = -S[c].deficit[Y]; if(Y >= FLAT[c]) break; }
+  const off = D.markets[c].deficit_proj || {};
+  const derived = ruleDeficitFull(c)
+    || Object.fromEntries(Object.entries(off).map(([k, v]) => [+k, v]));
+  if(!Object.keys(derived).length) return out;
+  const last = Math.max(...Object.keys(out).map(Number));
+  const dev = out[last] - flatAt(derived, last);
+  for(const k of Object.keys(derived).map(Number).sort((a, b) => a - b))
+    if(k > last) out[k] = derived[k] + dev;
+  return out;
+}
 
 /* --------------------------- named scenarios -----------------------------------
    The sheet used to hold ONE state. It now holds five, switched by the bar above the
@@ -638,8 +688,9 @@ function driversAt(c, sc, h){
   // contributes exactly nothing and a genuinely wider path registers at once.
   const dref = (M.deficit_proj && Object.keys(M.deficit_proj).length)
     ? M.deficit_proj : sc.deficit;
+  // what is PRICED is the structural deficit -- see structuralDeficit
   out.fiscal = (sc.deficit && Object.keys(sc.deficit).length)
-    ? M.drivers.fiscal + fwdAvg(sc.deficit, h) - fwdAvg(dref, 0)
+    ? M.drivers.fiscal + fwdAvg(structuralDeficit(c, sc.deficit), h) - fwdAvg(dref, 0)
     : M.drivers.fiscal;
   return out;
 }
@@ -1187,6 +1238,9 @@ function render(){
     + "yield row for the term-premium split; whatever year you hold flat from becomes your "
     + "long-run view.";
   const bp = (100*D.markets.US.model.adjust.fiscal).toFixed(0);
+  const sm = market === "US" ? null : D.markets[market].model;
+  const bpOwn = sm ? (100*sm.adjust.fiscal).toFixed(0) : bp;
+  const bpSpill = sm ? (100*(sm.beta_us*D.markets.US.model.adjust.fiscal - sm.adjust.fiscal)).toFixed(0) : bp;
   const DEF_SRC = {US:"CBO's baseline", UK:"the OBR forecast",
                    DE:"the European Commission's, extended to t+5 with the IMF WEO shape",
                    JP:"the Cabinet Office baseline"};
@@ -1198,9 +1252,18 @@ function render(){
   document.getElementById("note").innerHTML = (market === "US"
     ? `The fiscal balance row opens on ${DEF_SRC.US} (deficit shown negative); a ten-year holder
        prices your long-run deficit at ${bp}bp of premium per point of GDP, measured post-2008 only. `
-    : `The fiscal balance row opens on ${DEF_SRC[market]} (deficit shown negative); what matters is
-       your balance RELATIVE to the US path, at the US-measured ${bp}bp per point of GDP — moving
-       both together moves nothing. `)
+    : `The fiscal balance row opens on ${DEF_SRC[market]} (deficit shown negative). A point of
+       deficit here adds ${bpOwn}bp to this market's premium — the pooled five-market estimate,
+       not the US's ${bp}bp, which no spread market's history can identify — and a point of US
+       deficit adds ${bpSpill}bp through the US premium. `)
+    + `The premium prices the <em>cyclically adjusted</em> balance: whatever your growth row
+       explains is taken back out, using the same semi-elasticity the rule applies, because every
+       fiscal coefficient here was estimated on five-year-ahead projections that assume the
+       output gap has closed. So a growth view alone never moves the premium through the deficit,
+       and a number you type is priced relative to what your growth row implies — a recession
+       deficit entered with a recession growth row prices nothing extra; a cut your growth row
+       cannot explain prices in full. Past the last year of the grid the row follows the
+       official projection's shape, holding your deviation from it. `
     + (eps !== undefined
       ? `While untouched, the row is <em>derived</em>: the growth row opens on the WEO baseline,
          and the balance is the official projection re-aligned to it — growth entered below

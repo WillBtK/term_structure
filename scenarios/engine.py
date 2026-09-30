@@ -192,6 +192,9 @@ class Scenario:
     price_insensitive: dict = field(default_factory=dict)   # optional override, % GDP
     debt_gdp: dict = field(default_factory=dict)            # optional override, % GDP
     deficit: dict = field(default_factory=dict)             # optional override, % GDP
+    # The deficit the premium PRICES: ``deficit`` with the cycle taken out
+    # (macro.fiscal_rules.structural_deficit). Set by ``run``; empty = price ``deficit``.
+    deficit_priced: dict = field(default_factory=dict)
     # True for the house forecast, False for a conditional "if the world is X" state.
     # It selects the convergence rate and nothing else -- see convergence_for.
     is_view: bool = False
@@ -376,7 +379,7 @@ def drivers_at(state: MarketState, scenario: Scenario, horizon: int,
         # first year: entering a deficit two points wider than the baseline everywhere
         # is a real fiscal view and must register, while running the baseline unchanged
         # must contribute exactly nothing.
-        path = scenario.deficit or deficit_default
+        path = scenario.deficit_priced or scenario.deficit or deficit_default
         ref = deficit_default or scenario.deficit
         today = state.drivers_today["fiscal"]
         out["fiscal"] = (today + forward_average(path, horizon) - forward_average(ref, 0)
@@ -466,20 +469,33 @@ def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dic
     projection via each market's semi-elasticity. An explicit ``deficit`` on the
     scenario switches the rule off for that market -- a stated fiscal view is the
     whole fiscal path (policy-driven growth is entered that way, never rule-plus-
-    override). The premium reference stays the OFFICIAL path either way.
+    override). The premium reference stays the OFFICIAL path either way, and what
+    the premium prices is the STRUCTURAL deficit -- the path with the cycle taken back
+    out (``macro.fiscal_rules.structural_deficit``).
     """
     debt_defaults = debt_defaults or {}
     deficit_defaults = deficit_defaults or {}
     if growth_defaults:
         from dataclasses import replace as _replace
 
-        from macro.fiscal_rules import adjusted_deficit
+        from macro.fiscal_rules import (adjusted_deficit, extend_stated_deficit,
+                                        structural_deficit)
         scenarios = dict(scenarios)
         for c, sc in scenarios.items():
-            if (not sc.deficit and sc.real_growth
-                    and growth_defaults.get(c) and deficit_defaults.get(c)):
-                scenarios[c] = _replace(sc, deficit=adjusted_deficit(
-                    c, sc.real_growth, growth_defaults[c], deficit_defaults[c]))
+            derived = (adjusted_deficit(c, sc.real_growth, growth_defaults[c],
+                                        deficit_defaults[c])
+                       if sc.real_growth and growth_defaults.get(c)
+                       and deficit_defaults.get(c) else deficit_defaults.get(c))
+            if not sc.deficit and derived and sc.real_growth and growth_defaults.get(c):
+                sc = _replace(sc, deficit=derived)
+            elif sc.deficit and derived:
+                sc = _replace(sc, deficit=extend_stated_deficit(sc.deficit, derived))
+            # Price the STRUCTURAL deficit, derived or stated alike: the coefficients
+            # were estimated on projections that assume the gap has closed.
+            if sc.deficit and sc.real_growth and growth_defaults.get(c):
+                sc = _replace(sc, deficit_priced=structural_deficit(
+                    c, sc.deficit, sc.real_growth, growth_defaults[c]))
+            scenarios[c] = sc
     us_state, us_scen = states["US"], scenarios["US"]
     # Each market's own scenario sets its own learning speed, unless the caller pins
     # one (the sheet's dial, and every test that wants a fixed weight).
@@ -545,6 +561,12 @@ def load_scenario(path: "Path | str") -> Scenario:
     # deficit-positive convention the coefficient was measured on.
     deficit = ({k: -v for k, v in col("fiscal_balance").items()}
                if "fiscal_balance" in df else col("deficit"))
+    # ...but the deficit is keyed by CALENDAR-YEAR INDEX (0 = this year), the way the
+    # official projections it is compared against are. Year-end keying put a stated
+    # 2027 at horizon 1.35, so the pricing read 2026 at year 1 -- a year behind the
+    # official path it is measured against.
+    if calendar:
+        deficit = {int(round(k - 1 + today_frac)) - now.year: v for k, v in deficit.items()}
     return Scenario(country=path.stem.upper(),
                     policy_rate=col("policy_rate"), inflation=col("inflation"),
                     real_growth=col("real_growth"),
