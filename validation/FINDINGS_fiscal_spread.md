@@ -112,14 +112,19 @@ is unchanged by construction.
 Checked for sense, market by market:
 
 - **Germany** now ends the baseline at 0.46 rather than 0.10, and the 10y spread to the
-  US at about 90bp rather than 126bp (today 67bp). The remaining decline is the US channel
-  (−0.27), the inflation kink (−0.20, below) and a German deficit that consolidates from
-  3.5% to 2.3% of GDP in the baseline (−0.33 relative to the US path, before the
-  0.89 view weight).
-- **Hard Landing, Germany** rises 0.75 → 1.09 and sits above its own baseline. The
-  fiscal channel is not the cause: it still pulls the Bund *down* (−0.28, as the US
-  deficit balloons to 7.1% while Germany's barely moves) — just less than the borrowed
-  coefficient did (−0.61). What lifts it is the inflation kink, +0.30: see below.
+  US at about 90bp rather than 126bp (today 67bp). Netted across both channels, the
+  inflation kink contributes nothing (−0.01); the remaining decline is the US premium's
+  own fall passing through beta, and the fiscal channel (−0.19): a German deficit that
+  consolidates from 3.5% to 2.3% of GDP while the US path widens. That consolidation is
+  itself cyclical — see "Cyclical vs structural deficits".
+- **Hard Landing, Germany** rises 0.75 → 1.09 and sits above its own baseline. Netting
+  each driver across BOTH channels (through beta, and the relative term) the effects on
+  the Bund at ten years are: inflation **+0.01**, inflation uncertainty +0.10, fiscal
+  **+0.36** (Baseline: −0.01, +0.03, −0.19). The gap to Baseline is fiscal: the US
+  deficit jumps from 5.9% to 7.1% of GDP on the recession, lifts the US premium, and
+  spills into Bunds. See "Cyclical vs structural deficits" below. *(An earlier version
+  of this note blamed the inflation kink; that read the relative inflation term without
+  netting it against the beta channel, which carries the same move in reverse.)*
 - **UK** falls 0.1–0.4 across scenarios, most in Hard Landing (2.29 → 1.87), where a
   cyclically widening UK deficit (the highest semi-elasticity of the four, 0.70) had
   been priced at the US rate.
@@ -128,12 +133,15 @@ Checked for sense, market by market:
 
 ## Open, not changed here
 
-- **The inflation kink on the spread markets.** Expected inflation enters as
-  `max(pi − 2, 0)` on each side before differencing, with Germany's coefficient borrowed
-  from the US. The German baseline sits *exactly* on the kink (2.0%), so it contributes
-  nothing while the US at 2.5% contributes; and when US inflation drops below target (Hard
-  Landing) the relative reading jumps from −0.30 to 0 and lifts the Bund premium 30bp.
-  Pre-existing, affects every spread market, and deserves its own review.
+- **The inflation kink is neutral for the spread markets.** Expected inflation enters
+  as `max(pi − 2, 0)` on each side before differencing, so the US inflation premium
+  stays with the US: it passes into Bunds through beta and comes straight back off
+  through the relative term (net −0.01 Baseline, +0.01 Hard Landing). Responding to
+  own inflation only, with US inflation through beta, was tested and rejected: the model
+  is linear, so it double-counts any common shock — Stagflation takes the Bund premium
+  to 6.46% and the JGB to 4.00%. Every preset is a common shock, which is the case the
+  relative spec gets right. Germany sitting exactly on the hinge in the Baseline (2.0%)
+  is the intended asymmetry, not an artefact: 2.2% would add 20bp, 1.8% nothing.
 - **Cyclical vs structural deficits.** Both the US coefficient and this one are measured
   on five-year-ahead projections — effectively structural balances. The sheet's
   endogenous deficit moves on the output gap, so cyclical widening is priced as if it
