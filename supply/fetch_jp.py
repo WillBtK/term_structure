@@ -184,7 +184,8 @@ def fetch_boj(start: int = 2001, end: int | None = None,
     what makes this cheap enough to sit in the daily job, and the daily job is what
     keeps it moving.
 
-    The CURRENT month is always re-fetched, never treated as done. The BoJ posts three
+    The CURRENT month, and the one just closed, are always re-fetched, never treated
+    as done. The BoJ posts three
     files a month and this takes the last one available, so a snapshot captured
     mid-month is not the month-end snapshot; accepting it as complete would freeze that
     month at whatever partial figure happened to be up when it was first seen.
@@ -203,7 +204,12 @@ def fetch_boj(start: int = 2001, end: int | None = None,
         years, done = range(start, end + 1), set()
     else:
         done = {(d.year, d.month) for d in pd.DatetimeIndex(have["asof"])}
-        done.discard((now.year, now.month))          # see the docstring
+        # See the docstring. The month just CLOSED is re-fetched too: its final file
+        # posts a few days into the next month, so on the 1st the latest September
+        # snapshot was the 18th -- and once marked done it would never be replaced.
+        prev = now - pd.offsets.MonthBegin(1)
+        for ym in ((now.year, now.month), (prev.year, prev.month)):
+            done.discard(ym)
         years = range(max(start, now.year - 1), end + 1)
 
     frames = []
@@ -240,8 +246,25 @@ def fetch_boj(start: int = 2001, end: int | None = None,
         # which is how the current month's partial snapshot gets promoted to the
         # month-end one.
         fresh = {(d.year, d.month) for d in pd.DatetimeIndex(df["asof"])}
-        kept = pd.DatetimeIndex(have["asof"]).map(lambda d: (d.year, d.month) not in fresh)
-        df = pd.concat([have[np.asarray(kept, bool)], df], ignore_index=True)
+        kept = np.asarray(pd.DatetimeIndex(have["asof"]).map(
+            lambda d: (d.year, d.month) not in fresh), bool)
+        # Column by column, not pd.concat. The stored ``asof`` reads back from parquet
+        # at one datetime resolution and a fresh Timestamp column arrives at another,
+        # and pandas 2.1's block concat fails on that mix ("all the input array
+        # dimensions ... must match exactly") -- which is how the first real month-end
+        # append, on 2026-10-01, failed. Normalising each column first sidesteps it.
+        old, new = have[kept], df
+        df = pd.DataFrame({
+            "bond_type": np.concatenate([old["bond_type"].astype(object).to_numpy(),
+                                         new["bond_type"].astype(object).to_numpy()]),
+            "issue": np.concatenate([old["issue"].to_numpy(np.int64),
+                                     new["issue"].to_numpy(np.int64)]),
+            "amount": np.concatenate([old["amount"].to_numpy(float),
+                                      new["amount"].to_numpy(float)]),
+            "asof": pd.to_datetime(np.concatenate([
+                pd.to_datetime(old["asof"]).to_numpy("datetime64[ns]"),
+                pd.to_datetime(new["asof"]).to_numpy("datetime64[ns]")])),
+        })
     df = df.sort_values(["asof", "bond_type", "issue"]).reset_index(drop=True)
     DATA.mkdir(parents=True, exist_ok=True)
     df.to_parquet(BOJ_RAW_PARQUET)

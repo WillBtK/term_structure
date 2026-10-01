@@ -46,7 +46,7 @@ def _download_tsdb(series_key: str, timeout: int = 60) -> str:
         return resp.read().decode("utf-8-sig")
 
 
-def _download_csv(series_key: str, timeout: int = 60) -> str:
+def _download_csv(series_key: str, timeout: int = 60, attempts: int = 3) -> str:
     """GET one BBSIS series as CSV (English).
 
     Tries the SDMX API first, then the time-series-database mirror. The API host
@@ -58,20 +58,41 @@ def _download_csv(series_key: str, timeout: int = 60) -> str:
     url = f"{cfg.BUNDESBANK_API}/{series_key}"
     params = {"format": "csv", "lang": "en"}
     headers = {"Accept": "text/csv"}
-    try:
-        import requests
-        r = requests.get(url, params=params, headers=headers, timeout=timeout)
-        r.raise_for_status()
-        text = r.content.decode("utf-8-sig")
-        if _has_observations(text):
-            return text
-        logger.warning("SDMX API returned no observations for %s "
-                       "(bot challenge?); falling back to the TSDB mirror",
-                       series_key)
-    except Exception as exc:
-        logger.warning("SDMX API failed for %s (%s); falling back to the "
-                       "TSDB mirror", series_key, exc)
+    # The API is retried before the mirror is touched. The mirror LAGS: on 2026-10-01
+    # one dropped connection ("Response ended prematurely") sent BETA0 to it, it ended
+    # 2026-08-03, and one stale parameter cut the whole German curve back two months.
+    import time
+    for i in range(attempts):
+        try:
+            import requests
+            r = requests.get(url, params=params, headers=headers, timeout=timeout)
+            r.raise_for_status()
+            text = r.content.decode("utf-8-sig")
+            if _has_observations(text):
+                return text
+            reason = "no observations (bot challenge?)"
+        except Exception as exc:                                    # noqa: BLE001
+            reason = str(exc)
+        logger.warning("SDMX API attempt %d/%d for %s: %s", i + 1, attempts,
+                       series_key, reason)
+        if i + 1 < attempts:
+            time.sleep(2.0 * 2 ** i)
+    logger.warning("SDMX API exhausted for %s; falling back to the TSDB mirror, "
+                   "which lags", series_key)
     return _download_tsdb(series_key, timeout=timeout)
+
+
+# A parameter whose last observation trails the others by more than this is stale,
+# not merely a holiday the others skipped.
+MAX_PARAM_LAG_DAYS = 3
+
+
+def _lagging(params: pd.DataFrame) -> dict:
+    """{param: its last valid date} for every parameter trailing the freshest one."""
+    last = {c: params[c].last_valid_index() for c in params.columns}
+    newest = max(d for d in last.values() if d is not None)
+    return {c: d for c, d in last.items()
+            if d is None or (newest - d).days > MAX_PARAM_LAG_DAYS}
 
 
 def parse_series(csv_text: str, freq: str = "M") -> pd.Series:
@@ -121,6 +142,27 @@ def load_params(freq: str = "M", refresh: bool = True) -> pd.DataFrame:
             (cfg.RAW_DIR / f"{name}_{freq}.csv").write_text(text, encoding="utf-8")
             series[name] = parse_series(text, freq)
         params = pd.DataFrame(series)[cfg.PARAM_COLUMNS]
+        # The six parameters define ONE curve: a curve exists only on dates all six
+        # cover, so a single lagging parameter silently truncates every yield. Re-fetch
+        # any laggard from the API with more patience; if it still lags, fail loudly --
+        # the refresh is then reported as an error rather than publishing a curve that
+        # quietly stops early.
+        stale = _lagging(params)
+        for name in list(stale):
+            text = _download_csv(cfg.param_series_key(name, freq), attempts=5)
+            (cfg.RAW_DIR / f"{name}_{freq}.csv").write_text(text, encoding="utf-8")
+            series[name] = parse_series(text, freq)
+        if stale:
+            params = pd.DataFrame(series)[cfg.PARAM_COLUMNS]
+            still = _lagging(params)
+            if still:
+                newest = max(params[c].last_valid_index() for c in params.columns)
+                raise RuntimeError(
+                    "Bundesbank parameters out of step: "
+                    + ", ".join(f"{c} ends {d.date() if d is not None else 'empty'}"
+                                for c, d in still.items())
+                    + f" while the others reach {newest.date()}")
+            logger.info("re-fetched %s; all six parameters now aligned", sorted(stale))
         cfg.DATA_DIR.mkdir(parents=True, exist_ok=True)
         params.to_parquet(pq)
         logger.info("Bundesbank params %s: %d rows %s..%s", freq, len(params),
