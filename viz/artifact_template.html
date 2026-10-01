@@ -131,6 +131,22 @@ a { color: var(--blue); }
 .rail-nav a:hover{ color:var(--ink); background:var(--surface-2); }
 .main{ flex:1; min-width:0; padding: 40px 48px 120px; max-width: 1180px; display:flex; flex-direction:column; }
 section.panel{ margin-bottom: 66px; scroll-margin-top: 24px; }
+/* narrow screens: the rail stacks above the content instead of beside it */
+@media (max-width: 760px){
+  .app{ flex-direction:column; }
+  .rail{ width:auto; position:static; height:auto; overflow:visible;
+         border-right:none; border-bottom:1px solid var(--line); padding:20px 16px 18px; }
+  .rail-brand{ margin-bottom:10px; }
+  .rail-group{ margin-top:12px; padding-top:12px; }
+  .rail-nav{ flex-direction:row; flex-wrap:wrap; gap:4px 6px; }
+  .rail-nav a{ padding:4px 8px; border:1px solid var(--line-2); }
+  footer.rail-foot{ margin-top:14px; padding-top:12px; }
+  .main{ padding:22px 16px 80px; max-width:none; }
+  section.panel{ margin-bottom:44px; }
+  .anchor-badge{ white-space:normal; }
+  .infodot .pop{ left:auto; right:-8px; transform:none; }
+  .infodot .pop::before{ left:auto; right:12px; transform:rotate(45deg); }
+}
 /* side-by-side explorer cards; stack below 980px */
 .dual{ display:grid; grid-template-columns:1fr; gap:14px; }
 @media(min-width:980px){ .dual{ grid-template-columns:1fr 1fr; align-items:stretch; } }
@@ -217,6 +233,7 @@ section.panel{ margin-bottom: 66px; scroll-margin-top: 24px; }
   font-size:12px; line-height:1.5; color:var(--ink-2); text-align:left;
   opacity:0; visibility:hidden; transition:opacity .12s; pointer-events:none;
 }
+.infodot .pop{ white-space:normal; }          /* never inherit a nowrap label */
 .infodot .pop b{ color:var(--ink); }
 .infodot:hover .pop, .infodot:focus .pop{ opacity:1; visibility:visible; }
 .infodot .pop::before{
