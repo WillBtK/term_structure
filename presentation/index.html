@@ -352,7 +352,8 @@ function figtable(caption, head, rows){
 const SLIDES=[];
 const Q=["The problem","Measurement","One factor, four markets",
          "What drives the US premium","The observable check","Fiscal",
-         "Official ownership","Putting it together","Across markets","What it is not"];
+         "Official ownership","Putting it together","Across markets",
+         "Fiscal across markets","The cycle","The scenarios","What it is not"];
 
 /* ---------------------------------------------------------------- 1 - title */
 SLIDES.push({steps:0, render(st,k,anim){
@@ -764,10 +765,10 @@ SLIDES.push({steps:3, render(st,k,anim){
   const ch=P.chain;
   const o=shell(Q[7],"Three inputs, three channels",
     "Each macro input drives a distinct part of the answer, which is what makes this "
-    +"usable rather than a black box. Growth is the one that works indirectly: it moves "
-    +"the deficit, and the deficit moves the premium. We use each fiscal authority's "
-    +"<i>own</i> published sensitivity for that - the CBO's for the US, the OBR's for the "
-    +"UK, the European Commission's for Germany - rather than inventing one. Ownership is "
+    +"usable rather than a black box. Growth works through the deficit, using each fiscal "
+    +"authority's <i>own</i> published sensitivity - the CBO's for the US, the OBR's for the "
+    +"UK, the European Commission's for Germany - but that widening is cyclical, and only "
+    +"the <i>structural</i> deficit is priced. A fiscal view is stated directly. Ownership is "
     +"held flat, because forecasting central-bank balance sheets is a different job.");
   st.appendChild(o.s);
   o.wrap.style.gap="30px";
@@ -776,9 +777,9 @@ SLIDES.push({steps:3, render(st,k,anim){
     ["Inflation","to the term premium",
      "Through long-run expectations and the volatility they bring. The largest single "
      +"channel.", "var(--us)"],
-    ["Growth","to the deficit, then the premium",
+    ["Growth","to the deficit - shown, not priced",
      "A sustained point of weaker growth widens the US deficit by about a point of GDP "
-     +"after five years.", "var(--de)"],
+     +"after five years. That part is the cycle, so the premium does not price it.", "var(--de)"],
     ["Policy rate","to the expected rate path",
      "The other half of the yield - the average policy rate expected over the bond's "
      +"life.", "var(--jp)"],
@@ -818,10 +819,11 @@ SLIDES.push({steps:3, render(st,k,anim){
 SLIDES.push({steps:3, render(st,k,anim){
   const o=shell(Q[8],"Each market: the US anchor, plus what differs",
     "Every other market is priced as a beta on the US premium plus three differentials - "
-    +"relative inflation, relative official ownership, relative fiscal position. Moving "
-    +"all four markets together moves nothing; only genuine divergence does. Japan's beta "
-    +"is the loosest and we treat it as <i>directional only</i>: the relationship holds "
-    +"over decades, not over quarters.");
+    +"relative inflation, relative official ownership, relative fiscal position, the last "
+    +"at a sensitivity pooled across five markets rather than borrowed from the US. Moving "
+    +"all four markets together moves nothing through the differentials; only genuine "
+    +"divergence does. Japan's beta is the loosest and we treat it as <i>directional "
+    +"only</i>: the relationship holds over decades, not over quarters.");
   st.appendChild(o.s);
   o.wrap.style.flexDirection="column"; o.wrap.style.gap="24px";
 
@@ -867,10 +869,175 @@ SLIDES.push({steps:3, render(st,k,anim){
     o.wrap.appendChild(reveal(row,k===2,anim)); }
 }});
 
+
+/* ============================================ SCENARIO FRAMEWORK, 2026-09 REVISION
+   Numbers on the next three slides are the scenario engine's own output (the sheet's
+   committed payload, as of X.asof), and the fiscal sensitivities are the shipped model
+   coefficients -- computed, then embedded here, not typed. */
+const X = {"asof":"2026-08-19","fiscal":{"US":{"own":51.9},"UK":{"own":23.5,"spill":22.6,"beta":0.89},"DE":{"own":23.5,"spill":26.5,"beta":0.96},"JP":{"own":23.5,"spill":1.5,"beta":0.48}},"bund_mar25":[["26 Feb",-3,0.14,1.15],["27 Feb",-2,0.15,1.18],["28 Feb",-1,0.1,1.14],["3 Mar",3,0.17,1.06],["4 Mar",4,0.17,1.12],["5 Mar",5,0.38,1.18],["6 Mar",6,0.56,1.2],["7 Mar",7,0.53,1.23],["10 Mar",10,0.52,1.13],["11 Mar",11,0.6,1.19],["12 Mar",12,0.64,1.23],["13 Mar",13,0.64,1.18],["14 Mar",14,0.64,1.22]],"hl":{"before":{"US":{"fb":0.11,"fh":0.65,"tb":1.35,"th":1.53},"DE":{"fb":-0.19,"fh":0.36,"tb":0.46,"th":1.09}},"now":{"US":{"fb":0.29,"fh":0.33,"tb":1.54,"th":1.2},"DE":{"fb":0.12,"fh":0.13,"tb":0.77,"th":0.87}},"us_infl":-0.3,"us_unc":0.17},"de_journey":[0.1,0.46,0.77],"today":{"US":{"tp":1.632,"y":4.745},"UK":{"tp":1.453,"y":5.151},"DE":{"tp":0.962,"y":3.325},"JP":{"tp":1.37,"y":2.894}},"scen":{"Baseline":{"US":[{"tp":1.55,"y":4.82},{"tp":1.54,"y":5.15}],"UK":[{"tp":1.24,"y":4.53},{"tp":1.02,"y":4.07}],"DE":[{"tp":0.86,"y":2.89},{"tp":0.77,"y":2.57}],"JP":[{"tp":1.11,"y":2.76},{"tp":0.87,"y":2.61}]},"Goldilocks":{"US":[{"tp":1.35,"y":5.27},{"tp":1.12,"y":5.12}],"UK":[{"tp":1.26,"y":5},{"tp":0.91,"y":4.66}],"DE":[{"tp":0.85,"y":3.33},{"tp":0.83,"y":3.33}],"JP":[{"tp":1.3,"y":2.9},{"tp":1.12,"y":2.72}]},"High Growth High Inflation":{"US":[{"tp":2.4,"y":7.26},{"tp":2.33,"y":7.33}],"UK":[{"tp":1.79,"y":5.99},{"tp":1.58,"y":5.83}],"DE":[{"tp":1.6,"y":4.55},{"tp":1.44,"y":4.44}],"JP":[{"tp":1.5,"y":3.48},{"tp":1.22,"y":3.21}]},"Stagflation":{"US":[{"tp":4.08,"y":8.72},{"tp":4.74,"y":10.18}],"UK":[{"tp":2.48,"y":6.84},{"tp":2.6,"y":7.32}],"DE":[{"tp":2.79,"y":6.24},{"tp":3.29,"y":7.24}],"JP":[{"tp":0.69,"y":2.66},{"tp":0.93,"y":2.93}]},"Hard Landing":{"US":[{"tp":1.52,"y":2.63},{"tp":1.2,"y":2.2}],"UK":[{"tp":1.5,"y":1.73},{"tp":1.02,"y":1.02}],"DE":[{"tp":1.06,"y":1.21},{"tp":0.87,"y":0.87}],"JP":[{"tp":1.22,"y":1.32},{"tp":1.08,"y":1.08}]}}};
+const bpf = v => (v>=0?"+":"")+v.toFixed(1)+"bp";
+const sg = v => (v>=0?"+":"")+v.toFixed(2);
+
+/* ------------------------------- 11 - a fiscal shock travels two ways across markets */
+SLIDES.push({steps:2, render(st,k,anim){
+  const F=X.fiscal;
+  const o=shell(Q[9],"A fiscal shock reaches each market two ways",
+    "Germany, the UK and Japan used to borrow the US sensitivity - right for the US, "
+    +"estimated for no one else, and on its own it drove the German baseline premium "
+    +"to zero. Each now carries the <span class='hi'>pooled five-market estimate</span>, "
+    +"applied to its deficit relative to the US. That one choice fixes both routes a "
+    +"fiscal shock can take: through the market's own deficit, and through the US premium.");
+  st.appendChild(o.s);
+  o.wrap.style.gap="34px"; o.wrap.style.alignItems="flex-start"; o.wrap.style.marginTop="14px";
+  const left=div(""); left.style.cssText="display:flex;flex-direction:column;gap:22px;flex:none";
+  const t=figtable("Ten-year term premium, per point of GDP of projected deficit",
+    ["","Own deficit","US deficit","beta on US"],
+    [["United States","<b style=\"color:var(--ink)\">"+bpf(F.US.own)+"</b>","",""],
+     ["-","United Kingdom",bpf(F.UK.own),bpf(F.UK.spill),F.UK.beta.toFixed(2)],
+     ["Germany",bpf(F.DE.own),bpf(F.DE.spill),F.DE.beta.toFixed(2)],
+     ["Japan",bpf(F.JP.own),bpf(F.JP.spill),F.JP.beta.toFixed(2)]]);
+  left.appendChild(t);
+  const foot=div(null,"<div style=\"font:400 13px/1.5 var(--serif);color:var(--ink2);max-width:46ch\">"
+    +"A US deficit reaches the others at <i>beta x US sensitivity, less their own</i>: "
+    +"about half the US response for the Bund, close to what the Bund's month-to-month "
+    +"co-movement with Treasuries implies, and almost nothing for Japan, which has largely "
+    +"decoupled. Neither route can turn negative.</div>");
+  left.appendChild(foot);
+  o.wrap.appendChild(left);
+
+  if(k>=1){
+    const d=X.bund_mar25, de=d.map(r=>[r[1],r[2]]), us=d.map(r=>[r[1],r[3]]);
+    const box=div(""); box.style.cssText="display:flex;flex-direction:column;flex:none";
+    box.appendChild(div(null,"<div style=\"font-variant-caps:small-caps;letter-spacing:.07em;"
+      +"font-size:12.5px;color:var(--muted);margin-bottom:4px\">The one clean German test: "
+      +"the March 2025 debt-brake reform</div>"));
+    const yb=bounds([de,us],{zero:true});
+    const c=chart(470,258,-3,14.5,yb,{l:40,r:96,t:16,b:40});
+    c.axis(40,254,"Day of March 2025 (negative = late February)");
+    c.el("line",{x1:c.X(4.5),x2:c.X(4.5),y1:c.Y(yb[0]),y2:c.Y(yb[1]),
+      stroke:"var(--muted)","stroke-dasharray":"4 4"});
+    c.note(4.7,yb[1]-yb[2]*0.35,"announced","var(--muted)");
+    c.path(us,{stroke:MC.US,class:"series thin"});
+    drawIn(c.path(de,{stroke:MC.DE}),1.0,!(anim&&k===1));
+    c.endLabel(de,"Bund premium",MC.DE); c.endLabel(us,"US premium",MC.US);
+    c.track(de,"Bund 10y term premium",MC.DE,v=>v.toFixed(2)+"%");
+    c.track(us,"US 10y term premium",MC.US,v=>v.toFixed(2)+"%");
+    const lab={}; d.forEach(r=>lab[r[1]]=r[0]);
+    c.hover({head:v=>{ const keys=Object.keys(lab).map(Number);
+      const n=keys.reduce((a,b)=>Math.abs(b-v)<Math.abs(a-v)?b:a); return lab[n]+" 2025"; }});
+    c.flush();
+    box.appendChild(c.svg);
+    box.appendChild(div(null,"<div style=\"font:400 13px/1.45 var(--serif);color:var(--ink2);"
+      +"max-width:58ch;margin-top:4px\">Bund premium <b style=\"color:var(--ink)\">+0.47</b> "
+      +"in eight sessions, <b style=\"color:var(--ink)\">+0.37</b> beyond the US move, against "
+      +"a five-year deficit revised up roughly 1.5 to 2 points: <b style=\"color:var(--ink)\">"
+      +"20 to 30bp a point</b>, bracketing the pooled 23.5.</div>"));
+    o.wrap.appendChild(reveal(box,k===1,anim));
+  }
+  if(k>=2) sidenotes(o.wrap,[
+    ["Why not each market's own estimate",
+     "Net of the global factor none is significant at ten years, and Germany's is "
+     +"<b>negative</b> - which would say a 10%-of-GDP German deficit <i>lowers</i> Bund "
+     +"yields. That is identification failing, not economics: German deficits widened in "
+     +"2009 and 2020 exactly as Bunds rallied on safe-haven demand, the survey regressor "
+     +"lags the market by months, and a German shock moves the global factor it is measured "
+     +"against."]], 1, anim);
+}});
+
+/* ------------------------------------------ 12 - a recession should not raise premia */
+SLIDES.push({steps:2, render(st,k,anim){
+  const B=X.hl.before, N=X.hl.now;
+  const o=shell(Q[10],"A recession should not raise term premia",
+    "Every fiscal sensitivity here was estimated on <i>five-year-ahead</i> projections, which "
+    +"assume the output gap has closed. A slump widens the deficit for cyclical reasons, and "
+    +"that part was being priced as if it were structural - so a hard landing "
+    +"<i>raised</i> the US premium, the opposite of 2008 and 2020. The premium now prices "
+    +"the deficit <span class='hi'>with the cycle taken out</span>.");
+  st.appendChild(o.s);
+  o.wrap.style.gap="40px"; o.wrap.style.alignItems="flex-start";
+  o.wrap.style.justifyContent="flex-start"; o.wrap.style.marginTop="14px";
+  const gap=(a,b)=>sg(b-a);
+  const t=figtable("Ten-year term premium at the ten-year horizon",
+    ["","Baseline","Hard landing","Gap"],
+    [["<i>Before</i>","","",""],
+     ["US fiscal contribution",sg(B.US.fb),sg(B.US.fh),"<b style=\"color:var(--ink)\">"+gap(B.US.fb,B.US.fh)+"</b>"],
+     ["US term premium",B.US.tb.toFixed(2),B.US.th.toFixed(2),gap(B.US.tb,B.US.th)],
+     ["Bund fiscal contribution",sg(B.DE.fb),sg(B.DE.fh),"<b style=\"color:var(--ink)\">"+gap(B.DE.fb,B.DE.fh)+"</b>"],
+     ["Bund term premium",B.DE.tb.toFixed(2),B.DE.th.toFixed(2),gap(B.DE.tb,B.DE.th)],
+     ["-","<i>Now</i>","","",""],
+     ["US fiscal contribution",sg(N.US.fb),sg(N.US.fh),"<b style=\"color:var(--ink)\">"+gap(N.US.fb,N.US.fh)+"</b>"],
+     ["US term premium",N.US.tb.toFixed(2),N.US.th.toFixed(2),gap(N.US.tb,N.US.th)],
+     ["Bund fiscal contribution",sg(N.DE.fb),sg(N.DE.fh),"<b style=\"color:var(--ink)\">"+gap(N.DE.fb,N.DE.fh)+"</b>"],
+     ["Bund term premium",N.DE.tb.toFixed(2),N.DE.th.toFixed(2),gap(N.DE.tb,N.DE.th)]]);
+  const tl=div(""); tl.style.cssText="display:flex;flex-direction:column;gap:12px;flex:none";
+  tl.appendChild(t);
+  tl.appendChild(div(null,"<div style=\"font:400 13px/1.45 var(--serif);color:var(--ink2);max-width:52ch\">"
+    +"The fiscal term now separates the two scenarios by almost nothing. What remains in "
+    +"both is the official projections' own path - the CBO's rising deficit - which is "
+    +"structural and belongs in every scenario. In the hard landing, falling inflation "
+    +"(<b style=\"color:var(--ink)\">"+sg(X.hl.us_infl)+"</b> on the US premium) now leads; "
+    +"inflation uncertainty adds "+sg(X.hl.us_unc)+".</div>"));
+  o.wrap.appendChild(tl);
+  if(k>=1) sidenotes(o.wrap,[
+    ["How the structural deficit is found",
+     "The sheet already derives the deficit from your growth row, using each authority's "
+     +"own sensitivity - CBO, OBR, the European Commission, the OECD for Japan. Reversing "
+     +"that arithmetic is the cyclical adjustment those institutions publish. Untouched, "
+     +"it returns the official path exactly; a growth view alone no longer moves the "
+     +"premium through the deficit."],
+    ["What you type is priced against the cycle",
+     "A recession deficit typed with a recession growth row prices nothing extra; a cut "
+     +"the growth row cannot explain prices in full. What no cyclical adjustment can do is "
+     +"tell a boom from higher potential growth - a structural gain is stated on the "
+     +"deficit row."]], k, anim);
+}});
+
+/* --------------------------------------------- 13 - five scenarios, four markets */
+SLIDES.push({steps:1, render(st,k,anim){
+  const h=k>=1?1:0, H=h?"ten":"three";
+  const o=shell(Q[11],"Five scenarios, four markets",
+    "The ten-year term premium and ten-year yield each scenario implies, as the sheet "
+    +"prices it. The US sets the direction; each market's own inflation, ownership and "
+    +"fiscal position set how far it travels. Both legs converge from today's market "
+    +"pricing rather than jumping to the model's answer.");
+  st.appendChild(o.s);
+  o.wrap.style.gap="36px"; o.wrap.style.alignItems="flex-start";
+  o.wrap.style.justifyContent="flex-start"; o.wrap.style.marginTop="14px";
+  const mk=["US","UK","DE","JP"];
+  const cell=(tp,y)=>"<b style=\"color:var(--ink)\">"+tp.toFixed(2)+"</b>"
+    +"<span style=\"color:var(--muted)\"> &middot; "+y.toFixed(2)+"</span>";
+  const rows=[["Today"].concat(mk.map(c=>cell(X.today[c].tp,X.today[c].y)))];
+  rows.push(["-"].concat(["<i>At "+H+" years</i>","","","",""]).slice(0,6));
+  Object.keys(X.scen).forEach(s=>rows.push([s].concat(mk.map(c=>cell(X.scen[s][c][h].tp,X.scen[s][c][h].y)))));
+  const t=figtable("Ten-year term premium &middot; ten-year yield, per cent - at "+H+" years",
+    ["",MN.US,MN.UK,MN.DE,MN.JP], rows);
+  t.querySelector("caption").innerHTML="Ten-year term premium &middot; ten-year yield, per cent, at the "
+    +H+"-year horizon";
+  const tw=div(""); tw.style.cssText="display:flex;flex-direction:column;gap:10px;flex:none";
+  tw.appendChild(t);
+  tw.appendChild(div(null,"<div style=\"font:400 12.5px/1.45 var(--serif);color:var(--muted);max-width:66ch\">"
+    +"Scenario sheet as of "+X.asof+". Hard landing holds the BoE, ECB and BoJ at 0% for "
+    +"the decade and the Fed at 1%, so outside the US its yield is the premium alone."
+    +(h?"":" Step forward for the ten-year horizon.")+"</div>"));
+  o.wrap.appendChild(tw);
+  sidenotes(o.wrap,[
+    ["Hard landing",
+     "At ten years the US premium ends below its baseline and the UK's level with it. Germany and Japan "
+     +"end a little above, on inflation uncertainty and the US channel - no longer on a "
+     +"cyclical deficit. The yield falls everywhere because policy rates do."],
+    ["Germany",
+     "Its baseline premium has moved from <b>"+X.de_journey[0].toFixed(2)+"</b> to <b>"
+     +X.de_journey[1].toFixed(2)+"</b> with the pooled fiscal sensitivity, and to <b>"
+     +X.de_journey[2].toFixed(2)+"</b> once the cycle is taken out of the deficit."],
+    ["Goldilocks",
+     "Its compression came almost entirely from a cyclically shrinking deficit; what is "
+     +"left is the inflation and uncertainty channels."]], 3, false);
+}});
+
 /* ------------------------------------------ 11 - what it is not, and where it runs */
 SLIDES.push({steps:2, render(st,k,anim){
-  const o=shell(Q[9],"What to hold against this - and where it runs",
-    "Three things a sceptical reader should know before using any of it.");
+  const o=shell(Q[12],"What to hold against this - and where it runs",
+    "Four things a sceptical reader should know before using any of it.");
   st.appendChild(o.s);
   o.wrap.style.flexDirection="column"; o.wrap.style.gap="22px";
   o.wrap.classList.add("top"); o.wrap.style.paddingTop="6px";
@@ -886,7 +1053,11 @@ SLIDES.push({steps:2, render(st,k,anim){
    ["Some parameters are judgements, and are exposed as dials",
     "How fast today's unexplained premium fades, and how fast a stated rate view gets "
     +"priced into the curve, are settings rather than measurements. Both are visible in "
-    +"the tool and honest use means showing more than one."]]
+    +"the tool and honest use means showing more than one."],
+   ["A growth view is read as the cycle",
+    "Growth above the official baseline is treated as a boom, never as higher potential "
+    +"growth, so it does not lower the priced deficit. A structural fiscal view is "
+    +"stated on the deficit row."]]
    .forEach((c,i)=>{
      const row=div(""); row.style.cssText="display:flex;gap:24px;align-items:baseline;"
        +"padding:12px 0;"+(i?"border-top:1px solid var(--rule);":"");
