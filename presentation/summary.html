@@ -185,7 +185,7 @@ SLIDES.push(function(st){
    ["Three drivers explain the US","<b>inflation</b> and the volatility it brings, the <b>projected "
     + "deficit</b>, and how much is held by <b>price-insensitive buyers</b>"],
    ["Other markets are the US plus a difference","relative inflation, relative ownership, relative "
-    + "fiscal position"],
+    + "fiscal position - the last at a sensitivity pooled across five markets, not the US's"],
    ["Your macro path prices out","the deficit follows your growth view, but only its structural "
     + "part is priced; both legs converge from today's market pricing, never jumping to the answer"]]
    .forEach((r,i)=>{ const s=div("step");
@@ -221,7 +221,7 @@ SLIDES.push(function(st){
   const o=shell("Executive summary - 2 of 2",
     "What it rests on, and what it does not claim",
     "Four pieces of evidence, each measured on our own data across the four markets and forty years "
-    + "- and three things we would not want inferred from it.");
+    + "- and four things we would not want inferred from it.");
   st.appendChild(o.s);
   const g=div("grid2");
   const ev=[
@@ -233,8 +233,9 @@ SLIDES.push(function(st){
      "Below roughly 1 to 1.5% inflation, volatility does not respond to the level. Above it, it "
      + "does - Okun's 1970 result, still holding across six markets and sixty years.", "var(--jp)"],
     ["~"+bp+"bp", "Deficits price, but only since 2008",
-     "A point of GDP on the projected deficit is worth roughly "+bp+" basis points of term premium "
-     + "post-2008. Before 2008 the market ignored it.", "var(--uk)"],
+     "A point of GDP on the projected US deficit is worth roughly "+bp+"bp of term premium post-2008; "
+     + "elsewhere about 24bp, pooled across five markets and confirmed by the March 2025 Bund "
+     + "repricing. Only the structural deficit is priced, so a recession does not raise premia.", "var(--uk)"],
     ["observable", "The chain can be checked",
      "Inflation volatility drives the stock-bond correlation across six markets - a link we can "
      + "verify against something the market prices directly, rather than only against our own "
@@ -252,7 +253,9 @@ SLIDES.push(function(st){
     + "three years it does no better than assuming yields stay put, which is the honest result. "
     + "<b style=\"color:var(--ink)\">Japan is directional only.</b> And the speed at which the market "
     + "converges to a stated view is a <b style=\"color:var(--ink)\">judgement we expose as a dial</b>, "
-    + "not a number we measured. Present it as a sensitivity, never as a point forecast."
+    + "not a number we measured. <b style=\"color:var(--ink)\">A growth view is read as the "
+    + "cycle</b>, so a structural fiscal view is stated on the deficit row. Present it as a "
+    + "sensitivity, never as a point forecast."
     + "</div>";
   o.b.appendChild(foot);
 });
