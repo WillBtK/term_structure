@@ -22,12 +22,21 @@ def anchors(tmp_path, monkeypatch):
                         "fwd_2_10": [2.70, 2.80, 3.00, 3.10, 3.30]})
     sme.to_csv(tmp_path / "sme_ffr.csv", index=False)
     monkeypatch.setattr(A, "ANCHOR_DIR", tmp_path)
+    monkeypatch.setattr(A, "SPF_TO_MODEL_PCT", 0.0)     # bridge logic tested on raw levels
     return tmp_path
 
 
 def test_spf_reads_are_window_forwards(anchors):
     r = A.spf_forward_reads()
     assert r.round(4).tolist() == [(30 - 7) / 8, (32 - 7) / 8]
+
+
+def test_spf_reads_move_onto_the_model_basis(anchors, monkeypatch):
+    monkeypatch.setattr(A, "SPF_TO_MODEL_PCT", 0.126)
+    r = A.spf_forward_reads()
+    assert r.round(4).tolist() == [round((30 - 7) / 8 + 0.126, 4), round((32 - 7) / 8 + 0.126, 4)]
+    reads, _ = A.bridged_forward_reads()                  # the SME inherits it via the bridge
+    assert reads[pd.Timestamp("2025-06-09")] == pytest.approx(3.325 + 0.126)
 
 
 def test_bridge_pins_spf_level_and_carries_sme_moves(anchors):

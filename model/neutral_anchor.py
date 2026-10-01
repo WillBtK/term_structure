@@ -70,6 +70,11 @@ class AnchorSpec:
     # badge) and are asserted by tests, so each market names its own rungs.
     survey_label: str = "survey"
     shortrate_ext_label: str = "rate_ext"
+    # Survey rate -> the bond curve's own short rate (percent, added to the primary survey
+    # reads). Surveys forecast a money-market rate (3m interbank, T-bill); the model's
+    # short rate is the government curve's. Measured as the average gap between the two
+    # over the survey era (validation/survey_basis.py); 0.0 = no conversion.
+    basis_pct: float = 0.0
     rstar_label: str = "rstar"
     target_label: str = "cb_target"
     extender_label: str = "extender"
@@ -365,6 +370,8 @@ def build_survey_neutral(index, spec: AnchorSpec, dir: "Path | None" = None,
     index = pd.DatetimeIndex(pd.to_datetime(index))
     sr = load_series(spec, "shortrate", dir)
     sr_ext = load_series(spec, "shortrate_ext", dir)
+    if sr is not None and spec.basis_pct:
+        sr = sr + float(spec.basis_pct)       # the living rung is level-bridged onto this
 
     ext_src = None
     if sr is not None and sr_ext is not None:
@@ -418,6 +425,7 @@ def build_survey_neutral(index, spec: AnchorSpec, dir: "Path | None" = None,
             "stale_after": str(stale_cut.date()),
             "stale": bool(index.max() > stale_cut),
             "pass_through": float(beta) if use_driver else 0.0,
+            "basis_pct": float(spec.basis_pct),
             "terminal_pct": terminal_pct, "terminal_band": terminal_band,
             "coverage": int(np.isfinite(vals).sum()), "n": len(index),
             "src_by_date": src}

@@ -146,3 +146,15 @@ def test_survey_neutral_with_driver_tracks_past_staleness(tmp_path):
     s = pd.Series(v * 100, idx)
     assert meta["stale"] and meta["pass_through"] == 0.16
     assert s.iloc[-1] == pytest.approx(2.16, abs=0.01)   # not frozen at 2.0
+
+
+def test_basis_moves_the_survey_and_the_bridged_extension_together(tmp_path):
+    from dataclasses import replace
+    spec = _spec(tmp_path)
+    _write(tmp_path, "sr.csv", [("2017-01-31", 2.5), ("2020-01-31", 2.5), ("2022-01-31", 2.5)])
+    _write(tmp_path, "ext.csv", [("2019-01-31", 3.0), ("2021-01-31", 3.0), ("2023-01-31", 3.5)])
+    idx = pd.date_range("2017-01-31", "2023-06-30", freq="M")
+    a, _ = build_survey_neutral(idx, spec, dir=tmp_path)
+    b, meta = build_survey_neutral(idx, replace(spec, basis_pct=-0.24), dir=tmp_path)
+    assert meta["basis_pct"] == -0.24
+    assert np.allclose(b - a, -0.0024, equal_nan=True)   # decimals; a pure level shift

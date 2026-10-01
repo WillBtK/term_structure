@@ -52,4 +52,5 @@ def test_no_kof_file_still_works_frozen(tmp_path):
     idx = pd.date_range("2025-06-30", "2030-12-31", freq="M")
     vals, meta = na.build_nominal_neutral(idx, dir=tmp_path)
     assert meta["source"] == "consensus_shortrate" and meta["stale"] is True
-    assert pd.Series(vals * 100, index=idx).loc["2030-12-31"] == pytest.approx(0.7, abs=1e-9)
+    assert pd.Series(vals * 100, index=idx).loc["2030-12-31"] == pytest.approx(
+        0.7 + na.BASIS_PCT, abs=1e-9)

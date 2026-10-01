@@ -68,6 +68,12 @@ FWD_START = 2.0                          # strip the surveyed near years (TBILLA
 FWD_END = 10.0
 
 
+# SPF T-bill forecast -> the model's short rate. The model is fitted to the Treasury
+# COUPON curve (GSW), whose short end runs above bills, which carry extra safety/liquidity
+# value: +0.126pp on average over 2016-19 and 2022H2-26, ample reserves and off the lower
+# bound (validation/survey_basis.py; 0.11-0.15 in every regime since 1992). The SME, bridged
+# onto the SPF level, inherits the conversion. Not converting books the gap as premium.
+SPF_TO_MODEL_PCT = 0.126
 SME_FILE = "sme_ffr.csv"
 # Read noise by source. SPF keeps the project-wide 0.15. The SME 2-10y forward's round-to-
 # round changes are a pure random walk (lag-1 autocorrelation 0.02, 2023-26) and the
@@ -79,7 +85,8 @@ SME_MATCH_DAYS = 60                      # an SME round "matches" a Q1 SPF round
 
 
 def spf_forward_reads() -> "pd.Series | None":
-    """SPF 2-10y forward reads in PERCENT, one per Q1 round (BILL10 is asked in Q1 only):
+    """SPF 2-10y forward reads in PERCENT on the model's short-rate basis, one per Q1
+    round (BILL10 is asked in Q1 only):
 
         fwd_2_10 = (10*BILL10 - y1 - y2) / 8
 
@@ -90,7 +97,8 @@ def spf_forward_reads() -> "pd.Series | None":
         return None
     grid = bill.index
     a = y1.reindex(grid).ffill(); b = y2.reindex(grid).ffill()
-    return ((FWD_END * bill - a - b) / (FWD_END - FWD_START)).dropna()
+    fwd = ((FWD_END * bill - a - b) / (FWD_END - FWD_START)).dropna()
+    return fwd + SPF_TO_MODEL_PCT                      # onto the model's short-rate basis
 
 
 def _load_sme() -> "pd.Series | None":
@@ -242,5 +250,6 @@ def avg_matched_endpoint(prod, frame_unanchored: pd.DataFrame, instrument: str,
             "first": str(svy.dropna().index.min().date()),
             "asof": binfo.get("last_read"), "sme_basis": binfo.get("basis"),
             "pass_through": PASS_THROUGH_BETA if driver is not None else 0.0,
+            "basis_pct": SPF_TO_MODEL_PCT,
             "coverage": int(ep.notna().sum()), "n": len(index)}
     return ep.to_numpy(dtype=float), meta

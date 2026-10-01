@@ -36,11 +36,16 @@ FILES = {
 }
 
 
+# Survey 3m rate -> this curve's short rate: the average gap between the model's shortest
+# fitted tenor and the survey's instrument over 2017-26 (validation/survey_basis.py).
+BASIS_PCT = -0.009
+
+
 def _spec(dir: "Path | None" = None) -> AnchorSpec:
     return AnchorSpec(market="CH", dir=Path(dir) if dir is not None else ANCHOR_DIR,
                       files=FILES, target_pct=1.0, staleness_days=STALENESS_DAYS,
                       smooth=SMOOTH, obs_std=SMOOTH_OBS_STD, drift_std=SMOOTH_DRIFT_STD,
-                      survey_label="consensus",
+                      basis_pct=BASIS_PCT, survey_label="consensus",
                       shortrate_ext_label="kof_cpi5y+const_real")
 
 

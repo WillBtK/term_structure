@@ -46,7 +46,8 @@ def test_spf_rate_extends_the_survey(tmp_path):
     vals, meta = na.build_nominal_neutral(idx, dir=tmp_path)
     assert meta["source"] == "consensus_shortrate+ecb_spf_rate"
     s = pd.Series(vals * 100, index=idx)
-    assert s.loc["2027-03-31"] == pytest.approx(2.4, abs=0.15)   # smoothed toward the SPF
+    # smoothed toward the SPF, on the Bund curve's basis (the survey is a Euribor forecast)
+    assert s.loc["2027-03-31"] == pytest.approx(2.4 + na.BASIS_PCT, abs=0.15)
 
 
 def test_activation_is_a_decision_not_a_side_effect(tmp_path, monkeypatch):
