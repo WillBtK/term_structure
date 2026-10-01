@@ -1,9 +1,11 @@
 """Fetch the US endpoint surveys — Philadelphia Fed SPF ``BILL10`` and ``CPI10``.
 
 These are the same inputs Kim-Wright uses to anchor expectations: the median 10-year
-annual-average 3-month T-bill return forecast (1992Q1+) and the median 10-year CPI
-forecast (1991Q4+), both public, quarterly, and maintained by the Philadelphia Fed
-indefinitely — so unlike the other markets the US never needs a proprietary seed or a
+annual-average 3-month T-bill return forecast (1992+) and the median 10-year CPI
+forecast (1991Q4+), both public and maintained by the Philadelphia Fed indefinitely.
+CPI10 is quarterly; BILL10 is asked in the FIRST-QUARTER round only, so the nominal
+anchor is bridged between Februaries by the NY Fed SME (``us.fetch_sme``,
+``us.anchor.bridged_forward_reads``) — so unlike the other markets the US never needs a proprietary seed or a
 hand-off; the living survey IS the rung.
 
 One caveat carried through to the wiring (``viz/export_daily``): both are 0-10y
@@ -56,7 +58,7 @@ def _fetch_spf_level(var: str, out_name: str, out_dir: "Path | None" = None) -> 
             raise ValueError(f"implausible parse: n={len(s)} median={s.median()}")
         out.mkdir(parents=True, exist_ok=True)
         s.rename("value").rename_axis("date").round(4).to_csv(out / out_name)
-        logger.info("SPF %s: %d quarterly obs %s..%s (latest %.2f%%)", var.upper(),
+        logger.info("SPF %s: %d obs %s..%s (latest %.2f%%)", var.upper(),
                     len(s), s.index.min().date(), s.index.max().date(), s.iloc[-1])
         return True
     except Exception as exc:                                        # noqa: BLE001
@@ -88,7 +90,7 @@ def fetch_spf_tbill_annuals(out_dir: "Path | None" = None) -> bool:
                 raise ValueError(f"implausible {var}: n={len(sv)} median={sv.median()}")
             out.mkdir(parents=True, exist_ok=True)
             sv.rename("value").rename_axis("date").round(4).to_csv(out / name)
-            logger.info("SPF %s: %d quarterly obs %s..%s (latest %.2f%%)", var,
+            logger.info("SPF %s: %d obs %s..%s (latest %.2f%%)", var,
                         len(sv), sv.index.min().date(), sv.index.max().date(), sv.iloc[-1])
             ok += 1
         return ok == 2

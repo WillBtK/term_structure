@@ -154,7 +154,7 @@ That asymmetry is the point: the expensive input can lapse and the anchor still 
 
 | market | survey era (frozen snapshot) | living carry-forward |
 |---|---|---|
-| US | SPF 2-10y forward, nominal `(10·BILL10 − y1 − y2)/8`, real net of the ATSIX forward — **1992+/2004+, living and maintained** | itself (quarterly) |
+| US | SPF 2-10y forward, nominal `(10·BILL10 − y1 − y2)/8`, real net of the ATSIX forward — **1992+/2004+, living and maintained** | itself (BILL10 Q1-only; bridged by the NY Fed SME, 8 rounds/yr) |
 | DE | EA 3m 6-10y, 2016-10+ | ECB SPF longer-term rate (hand-off −0.01pp) |
 | UK | UK 3m 6-10y, 2017-01+ | BoE MPS neutral / 5y Bank Rate median (monthly) |
 | CA | CA 3m T-bill 6-10y, 2017-01+ | BoC MPS long-term nominal neutral median (quarterly) |

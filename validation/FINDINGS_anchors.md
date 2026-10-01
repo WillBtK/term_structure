@@ -29,7 +29,7 @@ Two reviews produced this rule:
 | CA | CA 3m T-bill 6-10y, **2017-01+** | BoC MPS long-term nominal neutral median (2023+, quarterly) | follows MPS |
 | JP | JP 3m 6-10y, **2017-01+** | none public (ESP is membership-gated) | **glides to the BoJ-communicated corridor 1.75–2.25%, midpoint 2.0%** across the staleness window (no step) |
 | CH | CH 3m 6-10y, **2017-01+** | **KOF pi_5y (public API, no account) + constant real (-0.14pp, 114-month overlap)** | follows KOF inflation; real component held constant |
-| US | SPF 2-10y forward: nominal `(10*BILL10 - y1 - y2)/8`, real net of the same-window ATSIX forward — **1992+/2004+, living** | itself (quarterly, maintained) | — |
+| US | SPF 2-10y forward: nominal `(10*BILL10 - y1 - y2)/8`, real net of the same-window ATSIX forward — **1992+/2004+, living** | itself (BILL10 Q1-only; SME-bridged, 8 rounds/yr) | — |
 
 Endpoints are RW-smoothed (no release-day staircase, no look-ahead at the edge);
 NaN before each market's first survey observation, so pre-survey history is never
@@ -112,3 +112,46 @@ neutral question preferred, the Bank-Rate-path sheet identified by its MPC-dated
 after an early fallback bug read a gilt-stock 400 as a rate), BoC MPS (quarterly HTML),
 SPF BILL10/CPI10 (Philly Fed xlsx). KOF requires an account (API v2 auth) — wire
 `switzerland` `shortrate_ext` to it the day one exists.
+
+## US nominal anchor: SME bridge between SPF rounds (2026-10-01)
+
+**Problem.** The SPF asks BILL10 (10y-average T-bill) in its **Q1 round only** (Philadelphia
+Fed file: Q1 filled every year, Q2-Q4 never). TBILLA/B and CPI10 are quarterly, ATSIX
+monthly, but the nominal 2-10y forward could only move each February — it was frozen at
+2.95% from Feb-2026 through the Iran conflict and the Fed-chair change.
+
+**Fix.** The NY Fed Survey of Market Expectations (8 rounds/yr, 2023+) asks the same object
+for fed funds: the 10y-average rate plus the modal path. `us.fetch_sme` computes
+`fwd_2_10 = (10*avg10 - near-2y path average)/8` per round. `us.anchor.bridged_forward_reads`
+puts each SME read on the SPF T-bill basis using the SPF-minus-SME gap at the latest Q1
+(nearest SME round within 60 days; causal): 2024 −0.32, 2025 −0.05, 2026 −0.15pp. The SPF
+stays the level authority; the SME carries timing. Both feed the same `rw_smooth`.
+
+**What the SME says since February 2026:**
+
+| SME round | 10y avg FF | near-2y path | 2-10y fwd |
+|---|---|---|---|
+| 2026-01-20 | 3.13 | 3.26 | 3.10 |
+| 2026-03-09 | 3.13 | 3.26 | 3.10 |
+| 2026-06-08 | 3.20 | 3.50 | 3.13 |
+| 2026-07-20 | 3.22 | 3.58 | 3.13 |
+
+The near-term path moved up ~0.3pp; the 2-10y forward moved **+3bp**. The rise in
+long-horizon expectations was concentrated in the next two years.
+
+**Effect on the US 10y term premium (bridged − SPF-only, month-end, bp):**
+
+| | Dec-23 | Jun-24 | Jun-25 | Dec-25 | Feb-26 | Sep-26 |
+|---|---|---|---|---|---|---|
+| Nominal | +2 | −1 | −8 | −6 | −3 | −3 |
+| Real | −2 | −4 | −13 | −10 | −8 | −10 |
+
+Latest (Sep-2026): nominal 2.14 → **2.11%**, real 1.99 → **1.89%**. The surveys say
+professional long-horizon rate expectations barely moved this year, so the rise in
+10y yields shows up mostly as term premium in either construction. The 2025 gap comes from
+the SME carrying a slightly higher forward through 2025 than the smoother's
+interpolation between the 3.00 (Feb-25) and 2.95 (Feb-26) SPF reads.
+
+Cross-check: the FOMC SEP longer-run median (FRED FEDTARMDLR) rose 3.0 → 3.2 over
+Dec-25 → Sep-26, a similar small upward drift. Refreshed weekly in `refresh-anchors.yml`;
+the September SME round posts in early October.

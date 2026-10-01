@@ -68,8 +68,74 @@ FWD_START = 2.0                          # strip the surveyed near years (TBILLA
 FWD_END = 10.0
 
 
+SME_FILE = "sme_ffr.csv"
+SME_MATCH_DAYS = 60                      # an SME round "matches" a Q1 SPF round within this
+
+
+def spf_forward_reads() -> "pd.Series | None":
+    """SPF 2-10y forward reads in PERCENT, one per Q1 round (BILL10 is asked in Q1 only):
+
+        fwd_2_10 = (10*BILL10 - y1 - y2) / 8
+
+    with y1/y2 the same round's TBILLA/TBILLB (current- and next-year T-bill)."""
+    bill = _load("spf_bill10.csv")
+    y1, y2 = _load("spf_tbill_y1.csv"), _load("spf_tbill_y2.csv")
+    if bill is None or y1 is None or y2 is None:
+        return None
+    grid = bill.index
+    a = y1.reindex(grid).ffill(); b = y2.reindex(grid).ffill()
+    return ((FWD_END * bill - a - b) / (FWD_END - FWD_START)).dropna()
+
+
+def _load_sme() -> "pd.Series | None":
+    f = ANCHOR_DIR / SME_FILE
+    if not f.exists():
+        return None
+    df = pd.read_csv(f, parse_dates=["date"])
+    s = pd.Series(pd.to_numeric(df["fwd_2_10"], errors="coerce").to_numpy(),
+                  index=pd.DatetimeIndex(df["date"])).dropna().sort_index()
+    return s if len(s) else None
+
+
+def bridged_forward_reads() -> "tuple[pd.Series | None, dict]":
+    """SPF Q1 reads + NY Fed SME reads (eight a year) on the SPF's T-bill basis.
+
+    The SME asks the same 10y-average question about the FED FUNDS rate, which sits
+    above the 3-month bill and is asked of a different panel, so its LEVEL is put on
+    the SPF basis while its TIMING is used as-is: each SME read is shifted by the
+    SPF-minus-SME gap measured at the most recent Q1 round with an SME round within
+    ``SME_MATCH_DAYS`` (nearest round). The SPF stays the level authority, re-pinning
+    each February; the SME carries the anchor through the other ten months. The basis
+    is causal (latest past Q1); SME rounds before the first overlap use the first one."""
+    spf = spf_forward_reads()
+    info = {"sme_rounds": 0, "basis": None, "basis_by_q1": {}}
+    if spf is None:
+        return None, info
+    sme = _load_sme()
+    if sme is None:
+        return spf, info
+    basis = {}
+    for d, v in spf.items():
+        gap = (sme.index - d).days
+        near = np.abs(gap) <= SME_MATCH_DAYS
+        if near.any():
+            j = int(np.argmin(np.where(near, np.abs(gap), 10**9)))
+            basis[d] = float(v - sme.iloc[j])
+    if not basis:
+        return spf, info
+    b = pd.Series(basis).sort_index()
+    b_on = b.reindex(b.index.union(sme.index)).sort_index().ffill().bfill().reindex(sme.index)
+    shifted = sme + b_on
+    # where an SPF read and an SME read share a date the SPF wins (it is the level authority)
+    reads = pd.concat([spf, shifted[~shifted.index.isin(spf.index)]]).sort_index()
+    info = {"sme_rounds": int(len(sme)), "basis": round(float(b.iloc[-1]), 4),
+            "basis_by_q1": {str(k.date()): round(v, 4) for k, v in b.items()},
+            "last_read": str(reads.index.max().date())}
+    return reads, info
+
+
 def survey_forward(instrument: str, index: pd.DatetimeIndex) -> "pd.Series | None":
-    """The SPF-implied **2-10y forward average** expectation in PERCENT (RW-smoothed).
+    """The survey-implied **2-10y forward average** expectation in PERCENT (RW-smoothed).
 
     BILL10 is a 0-10y average, and matching on it forces the model's near path onto
     survey-release timing — the mechanism that failed the first gates. The SPF also
@@ -78,17 +144,17 @@ def survey_forward(instrument: str, index: pd.DatetimeIndex) -> "pd.Series | Non
 
         fwd_2_10 = (10*BILL10 - y1 - y2) / 8
 
-    No model, no convergence assumption — every term is a surveyed median from the
-    same round. For the real curve the inflation leg comes off the ATSIX curve
-    (Aruoba, Philadelphia Fed — already the joint model's anchor): the same-window
-    forward  (10*pi10 - 2*pi2)/8,  CPI-basis like TIPS, monthly 1998+."""
-    bill = _load("spf_bill10.csv")
-    y1, y2 = _load("spf_tbill_y1.csv"), _load("spf_tbill_y2.csv")
-    if bill is None or y1 is None or y2 is None:
+    BILL10 is asked in the Q1 round only, so on its own the anchor moves once a year.
+    The NY Fed SME supplies the same 2-10y object eight times a year (see
+    ``bridged_forward_reads``); both feed the same random-walk smoother.
+
+    For the real curve the inflation leg comes off the ATSIX curve (Aruoba,
+    Philadelphia Fed — already the joint model's anchor, monthly 1998+): the
+    same-window forward  (10*pi10 - 2*pi2)/8,  CPI-basis like TIPS."""
+    fwd, _ = bridged_forward_reads()
+    if fwd is None:
         return None
-    grid = bill.index                                   # annual (Q1) survey rounds
-    a = y1.reindex(grid).ffill(); b = y2.reindex(grid).ffill()
-    fwd = ((FWD_END * bill - a - b) / (FWD_END - FWD_START)).dropna()
+    grid = fwd.index
     if instrument == "real":
         try:
             from validation.benchmarks import load_atsix
@@ -97,7 +163,8 @@ def survey_forward(instrument: str, index: pd.DatetimeIndex) -> "pd.Series | Non
             return None
         p10 = at[at.maturity == 10.0].set_index("date")["expected_inflation"]
         p2 = at[at.maturity == 2.0].set_index("date")["expected_inflation"]
-        pi_fwd = ((FWD_END * p10 - FWD_START * p2) / (FWD_END - FWD_START)) * 100.0             if p10.max() < 1.0 else (FWD_END * p10 - FWD_START * p2) / (FWD_END - FWD_START)
+        pi_fwd = ((FWD_END * p10 - FWD_START * p2) / (FWD_END - FWD_START)) * 100.0 \
+            if p10.max() < 1.0 else (FWD_END * p10 - FWD_START * p2) / (FWD_END - FWD_START)
         pi_on_grid = pi_fwd.reindex(pi_fwd.index.union(grid)).sort_index().ffill().reindex(grid)
         fwd = (fwd - pi_on_grid).dropna()
     return rw_smooth(fwd, index, SMOOTH_OBS_STD, SMOOTH_DRIFT_STD)
@@ -150,8 +217,11 @@ def avg_matched_endpoint(prod, frame_unanchored: pd.DataFrame, instrument: str,
     th = prod.theta_for_expectations()
     theta_lr = float(th[0] + th[1])                                 # decimal
     ep = theta_lr + (svy / 100.0 - model_fwd) / w                   # decimal
-    meta = {"source": "spf_fwd_2_10" + ("-atsix" if instrument == "real" else ""),
+    _, binfo = bridged_forward_reads()
+    src = "spf_fwd_2_10" + ("+sme" if binfo.get("sme_rounds") else "")
+    meta = {"source": src + ("-atsix" if instrument == "real" else ""),
             "object": "2-10y forward average (window-matched)", "w": round(float(w), 4),
             "first": str(svy.dropna().index.min().date()),
-            "asof": None, "coverage": int(ep.notna().sum()), "n": len(index)}
+            "asof": binfo.get("last_read"), "sme_basis": binfo.get("basis"),
+            "coverage": int(ep.notna().sum()), "n": len(index)}
     return ep.to_numpy(dtype=float), meta

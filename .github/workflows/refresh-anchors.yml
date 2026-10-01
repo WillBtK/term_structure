@@ -45,6 +45,10 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m us.fetch_neutral
+      - name: Fetch NY Fed SME 10y-average fed funds (US anchor bridge, 8 rounds/yr)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m us.fetch_sme
       - name: Fetch BoE MPS neutral/5y Bank Rate (UK carry-forward)
         env:
           PYTHONPATH: ${{ github.workspace }}
@@ -69,6 +73,7 @@ jobs:
           git add germany/data/anchors/ecb_spf_rate_lt.csv 2>/dev/null || true
           git add us/data/anchors/spf_bill10.csv us/data/anchors/spf_cpi10.csv 2>/dev/null || true
           git add us/data/anchors/spf_tbill_y1.csv us/data/anchors/spf_tbill_y2.csv 2>/dev/null || true
+          git add us/data/anchors/sme_ffr.csv 2>/dev/null || true
           git add uk/data/anchors/boe_mps_neutral.csv 2>/dev/null || true
           git add canada/data/anchors/boc_mps_neutral.csv 2>/dev/null || true
           git add switzerland/data/anchors/kof_cpi_5y.csv switzerland/data/anchors/kof_3m_12m.csv 2>/dev/null || true
