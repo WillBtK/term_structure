@@ -81,3 +81,25 @@ def test_parse_round_forward():
     assert r["avg10"] == pytest.approx(3.2) and r["longer_run"] == pytest.approx(3.1)
     assert r["near2"] == pytest.approx(3.5, abs=0.01)    # one year at 4, one at 3
     assert r["fwd_2_10"] == pytest.approx((32 - 7) / 8, abs=0.01)
+
+
+def test_central_is_interquartile_mean_not_median():
+    df = pd.DataFrame({"value_tag": ["fftr_modalpe_10yravg"] * 3 + ["fftr_pathofmodes_2027"],
+                       "aggregation": ["pctl25", "pctl50", "pctl75", "pctl50"],
+                       "aggregation_value": [0.030, 0.0313, 0.035, 0.03]})
+    c = F._central(df)
+    assert c["fftr_modalpe_10yravg"] == pytest.approx((0.030 + 0.0313 + 0.035) / 3)
+    assert c["fftr_pathofmodes_2027"] == pytest.approx(0.03)     # median fallback
+
+
+def test_precise_reads_pull_the_smoother_harder(anchors):
+    from model.neutral_anchor import rw_smooth
+    s = pd.Series([3.0, 3.0, 3.3], pd.to_datetime(["2025-01-01", "2025-06-01", "2025-07-01"]))
+    idx = pd.bdate_range("2025-07-01", "2025-07-02")
+    loose = rw_smooth(s, idx, 0.15, 0.28).iloc[-1]
+    tight = rw_smooth(s, idx, pd.Series([0.15, 0.15, 0.03], s.index), 0.28).iloc[-1]
+    assert tight > loose and tight == pytest.approx(3.3, abs=0.03)
+    reads, _ = A.bridged_forward_reads()
+    sd = reads.attrs["obs_std"]
+    assert set(sd[A.spf_forward_reads().index]) == {A.SMOOTH_OBS_STD}
+    assert (sd.drop(A.spf_forward_reads().index) == A.SME_OBS_STD).all()

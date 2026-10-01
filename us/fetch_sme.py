@@ -16,8 +16,13 @@ round by round, with no model:
 
 Data: the per-round tidy ``<mon>-<year>-data.xlsx`` files the NY Fed links from the
 survey's landing page (2023 onward, when the survey took its current form). Combined
-panel (dealers + market participants), median (``pctl50``). Values are converted from
-decimals to percent. The fed funds rate sits above the 3-month bill on average; the
+panel (dealers + market participants). Values are converted from decimals to percent.
+
+Central estimate: the INTERQUARTILE MEAN, (p25 + p50 + p75)/3, not the median. The
+SME publishes no cross-respondent mean for these questions (only quartiles; its
+averaged probability distributions stop at next year-end), and the median is a step
+function: it sat at 3.13 for seven rounds (Jul-25 to Apr-26) while both quartiles
+moved. Averaging the three quartiles is the closest published object to a mean. The fed funds rate sits above the 3-month bill on average; the
 basis is calibrated against the SPF in ``us.anchor`` rather than assumed here.
 
 Best-effort like every anchor fetcher: never raises, never overwrites a good committed
@@ -75,6 +80,22 @@ def _horizon_date(tag: str, release: pd.Timestamp):
     return None
 
 
+QUARTILES = ("pctl25", "pctl50", "pctl75")
+
+
+def _central(d: pd.DataFrame) -> pd.Series:
+    """value_tag -> interquartile mean (percent-decimal); the median where a quartile
+    is missing."""
+    w = d.pivot_table(index="value_tag", columns="aggregation",
+                      values="aggregation_value", aggfunc="first")
+    w.index = w.index.astype(str)
+    full = w.reindex(columns=list(QUARTILES)).notna().all(axis=1)
+    out = w.reindex(columns=list(QUARTILES)).mean(axis=1)
+    if "pctl50" in w:
+        out[~full] = w.loc[~full, "pctl50"]
+    return out.dropna()
+
+
 def parse_round(blob: bytes) -> dict | None:
     """One round -> {date, avg10, longer_run, near2, fwd_2_10} in percent, or None.
 
@@ -86,18 +107,19 @@ def parse_round(blob: bytes) -> dict | None:
             "survey_due_date"}
     if not need <= set(df.columns):
         return None
-    d = df[(df["subject"] == "fed_funds_target_range") & (df["aggregation"] == "pctl50")
+    d = df[(df["subject"] == "fed_funds_target_range")
+           & df["aggregation"].isin(QUARTILES)
            & (df["panel_type"].astype(str).str.lower() == "combined")]
     if d.empty:
         return None
-    tag = d["value_tag"].astype(str)
-    avg10 = d.loc[tag.str.endswith("_10yravg"), "aggregation_value"]
-    lr = d.loc[tag.str.endswith("_longerrun") & tag.str.contains("modalpe"), "aggregation_value"]
+    central = _central(d)
+    avg10 = central[central.index.str.endswith("_10yravg")]
+    lr = central[central.index.str.endswith("_longerrun") & central.index.str.contains("modalpe")]
     if avg10.empty:
         return None
     asof = pd.Timestamp(df["survey_due_date"].dropna().iloc[0])
     path = []
-    for t, v in zip(tag, d["aggregation_value"]):
+    for t, v in central.items():
         if "pathofmodes" in t:
             hd = _horizon_date(t, asof)
             if hd is not None and pd.notna(v):
@@ -147,7 +169,7 @@ def fetch(out: Path = OUT) -> pd.DataFrame | None:
         if out.exists():
             have = pd.read_csv(out, parse_dates=["date"])
             df = pd.concat([have, df], ignore_index=True)
-        df = df.sort_values("date").drop_duplicates("date", keep="last")
+        df = df.sort_values("date", kind="mergesort").drop_duplicates("date", keep="last")
         out.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(out, index=False, date_format="%Y-%m-%d")
         last = df.iloc[-1]

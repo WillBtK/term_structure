@@ -106,7 +106,7 @@ def locf(s: pd.Series, index: pd.DatetimeIndex) -> pd.Series:
 
 
 def rw_smooth(s: pd.Series, index: pd.DatetimeIndex,
-              obs_std: float = 0.15, drift_std: float = 0.28) -> pd.Series:
+              obs_std: "float | pd.Series" = 0.15, drift_std: float = 0.28) -> pd.Series:
     """Random-walk local-level Kalman filter + RTS smoother of an intermittent survey series
     onto ``index``. The latent neutral follows ``x_t = x_{t-1} + w`` (``Var(w)=drift_std**2``
     per YEAR); each release is a noisy read ``y = x + v`` (``Var(v)=obs_std**2``). Returns the
@@ -114,6 +114,9 @@ def rw_smooth(s: pd.Series, index: pd.DatetimeIndex,
     and, because the RTS recursion adds no information beyond the last read, the CAUSAL FILTER
     value at/after the last release — so the current edge uses only past reads (no look-ahead)
     and still tracks the latest survey. Dates before the first release stay NaN (constant-theta).
+
+    ``obs_std`` may be a Series indexed like ``s`` to give each read its own noise (a
+    survey mixing sources of different precision); missing entries take its median.
 
     Falls back to plain carry-forward for a degenerate series (<2 reads)."""
     obs = s.dropna().sort_index()
@@ -124,12 +127,22 @@ def rw_smooth(s: pd.Series, index: pd.DatetimeIndex,
     y = pd.Series(np.nan, index=grid)
     y.loc[obs.index] = obs.to_numpy()
     yv = y.to_numpy()
+    if isinstance(obs_std, pd.Series):
+        sd = obs_std.reindex(obs.index)
+        sd = sd.fillna(float(obs_std.median()))
+        rv = pd.Series(np.nan, index=grid)
+        rv.loc[obs.index] = (sd ** 2).to_numpy()
+        rv = rv.to_numpy()
+        r0 = float(sd.iloc[0]) ** 2
+    else:
+        rv = None
+        r0 = float(obs_std) ** 2
     t_years = grid.view("int64") / 8.64e13 / 365.25                 # ns -> days -> years
-    q, r = float(drift_std) ** 2, float(obs_std) ** 2
+    q, r = float(drift_std) ** 2, r0
     n = len(grid)
     xp = np.empty(n); Pp = np.empty(n)                              # one-step-ahead prediction
     xf = np.empty(n); Pf = np.empty(n)                              # filtered
-    x, P = float(obs.iloc[0]), r                                    # init at the first read
+    x, P = float(obs.iloc[0]), r0                                   # init at the first read
     prev = t_years[0]
     for i in range(n):
         dt = t_years[i] - prev if i else 0.0
@@ -137,6 +150,7 @@ def rw_smooth(s: pd.Series, index: pd.DatetimeIndex,
         xp[i], Pp[i] = x_pred, P_pred
         yi = yv[i]
         if np.isfinite(yi):                                         # update on a release
+            r = rv[i] if rv is not None else r
             K = P_pred / (P_pred + r)
             x, P = x_pred + K * (yi - x_pred), (1.0 - K) * P_pred
         else:

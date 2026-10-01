@@ -1,6 +1,6 @@
 """Fetch the US endpoint surveys — Philadelphia Fed SPF ``BILL10`` and ``CPI10``.
 
-These are the same inputs Kim-Wright uses to anchor expectations: the median 10-year
+These are the same inputs Kim-Wright uses to anchor expectations: the 10-year
 annual-average 3-month T-bill return forecast (1992+) and the median 10-year CPI
 forecast (1991Q4+), both public and maintained by the Philadelphia Fed indefinitely.
 CPI10 is quarterly; BILL10 is asked in the FIRST-QUARTER round only, so the nominal
@@ -12,6 +12,12 @@ One caveat carried through to the wiring (``viz/export_daily``): both are 0-10y
 AVERAGES, not 6-10y-ahead readings, so they discipline the model's expected 10y
 AVERAGE rate rather than its terminal endpoint. The export applies them through an
 average-matching transform instead of substituting them for theta directly.
+
+MEANS, not medians. The SPF median clusters on round numbers (BILL10's median sat at
+2.50 for 2014-17 and lands on 3.00 in 2011 and 2026), so it steps when enough
+forecasters cross a round number and ignores movement either side of it. The cross-
+forecaster mean moves continuously with the panel. Mean minus median on the 2-10y
+forward: -0.05pp on average since 1992, sd 0.15pp per round.
 
 Best-effort like the other anchor fetchers: never raises, never overwrites a good
 committed file with a bad parse.
@@ -27,13 +33,14 @@ logger = logging.getLogger(__name__)
 
 ANCHOR_DIR = Path(__file__).resolve().parent / "data" / "anchors"
 _BASE = ("https://www.philadelphiafed.org/-/media/frbp/assets/surveys-and-data/"
-         "survey-of-professional-forecasters/data-files/files/median_{var}_level.xlsx")
+         "survey-of-professional-forecasters/data-files/files/{stat}_{var}_level.xlsx")
+STAT = "mean"                    # cross-forecaster mean; see module docstring
 FILES = {"bill10": "spf_bill10.csv", "cpi10": "spf_cpi10.csv",
          "tbill_y1": "spf_tbill_y1.csv", "tbill_y2": "spf_tbill_y2.csv"}
 
 
 def _fetch_spf_level(var: str, out_name: str, out_dir: "Path | None" = None) -> bool:
-    """One SPF median-level file -> committed date,value CSV (percent).
+    """One SPF mean-level file -> committed date,value CSV (percent).
 
     The workbook is (YEAR, QUARTER, <VAR>); the survey is fielded mid-quarter, so the
     observation is dated to the quarter's middle month's 15th — close enough to the
@@ -42,7 +49,7 @@ def _fetch_spf_level(var: str, out_name: str, out_dir: "Path | None" = None) -> 
     out = Path(out_dir) if out_dir is not None else ANCHOR_DIR
     try:
         import requests
-        r = requests.get(_BASE.format(var=var), timeout=60,
+        r = requests.get(_BASE.format(stat=STAT, var=var), timeout=60,
                          headers={"User-Agent": "Mozilla/5.0"})
         r.raise_for_status()
         import io
@@ -74,7 +81,7 @@ def fetch_spf_tbill_annuals(out_dir: "Path | None" = None) -> bool:
     out = Path(out_dir) if out_dir is not None else ANCHOR_DIR
     try:
         import requests, io
-        r = requests.get(_BASE.format(var="tbill"), timeout=60,
+        r = requests.get(_BASE.format(stat=STAT, var="tbill"), timeout=60,
                          headers={"User-Agent": "Mozilla/5.0"})
         r.raise_for_status()
         df = pd.read_excel(io.BytesIO(r.content))

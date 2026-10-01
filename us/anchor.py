@@ -69,6 +69,12 @@ FWD_END = 10.0
 
 
 SME_FILE = "sme_ffr.csv"
+# Read noise by source. SPF keeps the project-wide 0.15. The SME 2-10y forward's round-to-
+# round changes are a pure random walk (lag-1 autocorrelation 0.02, 2023-26) and the
+# exact Kalman likelihood puts its read noise at <=0.02pp; 0.03 is a conservative floor.
+# At 0.15 the smoother would discount eight reads a year as if each were the lone SPF
+# read, and the anchor would barely follow them.
+SME_OBS_STD = 0.03
 SME_MATCH_DAYS = 60                      # an SME round "matches" a Q1 SPF round within this
 
 
@@ -104,7 +110,8 @@ def bridged_forward_reads() -> "tuple[pd.Series | None, dict]":
     above the 3-month bill and is asked of a different panel, so its LEVEL is put on
     the SPF basis while its TIMING is used as-is: each SME read is shifted by the
     SPF-minus-SME gap measured at the most recent Q1 round with an SME round within
-    ``SME_MATCH_DAYS`` (nearest round). The SPF stays the level authority, re-pinning
+    ``SME_MATCH_DAYS`` (nearest round). Reads carry their own noise (``attrs["obs_std"]``:
+    SPF 0.15, SME 0.03) for ``rw_smooth``. The SPF stays the level authority, re-pinning
     each February; the SME carries the anchor through the other ten months. The basis
     is causal (latest past Q1); SME rounds before the first overlap use the first one."""
     spf = spf_forward_reads()
@@ -128,6 +135,8 @@ def bridged_forward_reads() -> "tuple[pd.Series | None, dict]":
     shifted = sme + b_on
     # where an SPF read and an SME read share a date the SPF wins (it is the level authority)
     reads = pd.concat([spf, shifted[~shifted.index.isin(spf.index)]]).sort_index()
+    reads.attrs["obs_std"] = pd.Series(
+        np.where(reads.index.isin(spf.index), SMOOTH_OBS_STD, SME_OBS_STD), index=reads.index)
     info = {"sme_rounds": int(len(sme)), "basis": round(float(b.iloc[-1]), 4),
             "basis_by_q1": {str(k.date()): round(v, 4) for k, v in b.items()},
             "last_read": str(reads.index.max().date())}
@@ -155,6 +164,7 @@ def survey_forward(instrument: str, index: pd.DatetimeIndex) -> "pd.Series | Non
     if fwd is None:
         return None
     grid = fwd.index
+    obs_std = fwd.attrs.get("obs_std", SMOOTH_OBS_STD)
     if instrument == "real":
         try:
             from validation.benchmarks import load_atsix
@@ -167,7 +177,7 @@ def survey_forward(instrument: str, index: pd.DatetimeIndex) -> "pd.Series | Non
             if p10.max() < 1.0 else (FWD_END * p10 - FWD_START * p2) / (FWD_END - FWD_START)
         pi_on_grid = pi_fwd.reindex(pi_fwd.index.union(grid)).sort_index().ffill().reindex(grid)
         fwd = (fwd - pi_on_grid).dropna()
-    return rw_smooth(fwd, index, SMOOTH_OBS_STD, SMOOTH_DRIFT_STD)
+    return rw_smooth(fwd, index, obs_std, SMOOTH_DRIFT_STD)
 
 
 def survey_avg(instrument: str, index: pd.DatetimeIndex) -> "pd.Series | None":
