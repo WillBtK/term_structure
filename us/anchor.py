@@ -29,7 +29,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from model.neutral_anchor import rw_smooth
+from model.neutral_anchor import PASS_THROUGH_BETA, rw_smooth
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +143,8 @@ def bridged_forward_reads() -> "tuple[pd.Series | None, dict]":
     return reads, info
 
 
-def survey_forward(instrument: str, index: pd.DatetimeIndex) -> "pd.Series | None":
+def survey_forward(instrument: str, index: pd.DatetimeIndex,
+                   driver: "pd.Series | None" = None) -> "pd.Series | None":
     """The survey-implied **2-10y forward average** expectation in PERCENT (RW-smoothed).
 
     BILL10 is a 0-10y average, and matching on it forces the model's near path onto
@@ -156,6 +157,11 @@ def survey_forward(instrument: str, index: pd.DatetimeIndex) -> "pd.Series | Non
     BILL10 is asked in the Q1 round only, so on its own the anchor moves once a year.
     The NY Fed SME supplies the same 2-10y object eight times a year (see
     ``bridged_forward_reads``); both feed the same random-walk smoother.
+
+    ``driver`` (the market Treasury 2-10y forward, percent) adds the survey pass-through
+    (``PASS_THROUGH_BETA``): between rounds the anchor moves by that share of the
+    forward's change. The nominal forward drives the real anchor too: its survey leg is
+    a nominal-rate survey, and the inflation leg (ATSIX) is already monthly.
 
     For the real curve the inflation leg comes off the ATSIX curve (Aruoba,
     Philadelphia Fed — already the joint model's anchor, monthly 1998+): the
@@ -177,7 +183,8 @@ def survey_forward(instrument: str, index: pd.DatetimeIndex) -> "pd.Series | Non
             if p10.max() < 1.0 else (FWD_END * p10 - FWD_START * p2) / (FWD_END - FWD_START)
         pi_on_grid = pi_fwd.reindex(pi_fwd.index.union(grid)).sort_index().ffill().reindex(grid)
         fwd = (fwd - pi_on_grid).dropna()
-    return rw_smooth(fwd, index, obs_std, SMOOTH_DRIFT_STD)
+    return rw_smooth(fwd, index, obs_std, SMOOTH_DRIFT_STD,
+                     driver=driver, beta=PASS_THROUGH_BETA if driver is not None else 0.0)
 
 
 def survey_avg(instrument: str, index: pd.DatetimeIndex) -> "pd.Series | None":
@@ -212,9 +219,10 @@ def endpoint_weight(K_bc: np.ndarray, a: float = 0.0, b: float = 10.0) -> float:
 
 
 def avg_matched_endpoint(prod, frame_unanchored: pd.DataFrame, instrument: str,
-                         index: pd.DatetimeIndex, T: float = 10.0):
+                         index: pd.DatetimeIndex, T: float = 10.0,
+                         driver: "pd.Series | None" = None):
     """(endpoint decimal array on ``index``, meta) or (None, None) when no survey."""
-    svy = survey_forward(instrument, index)
+    svy = survey_forward(instrument, index, driver=driver)
     if svy is None or not svy.notna().any():
         return None, None
     fr = frame_unanchored
@@ -233,5 +241,6 @@ def avg_matched_endpoint(prod, frame_unanchored: pd.DataFrame, instrument: str,
             "object": "2-10y forward average (window-matched)", "w": round(float(w), 4),
             "first": str(svy.dropna().index.min().date()),
             "asof": binfo.get("last_read"), "sme_basis": binfo.get("basis"),
+            "pass_through": PASS_THROUGH_BETA if driver is not None else 0.0,
             "coverage": int(ep.notna().sum()), "n": len(index)}
     return ep.to_numpy(dtype=float), meta

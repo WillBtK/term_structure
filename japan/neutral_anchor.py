@@ -11,12 +11,14 @@ Construction (survey-only — see ``model.neutral_anchor.build_survey_neutral``)
   * 2017-01 .. last release: Consensus Economics 3m-rate 6-10y survey (frozen one-off
     snapshot, RW-smoothed). NaN before 2017 -> constant-theta, so published history
     before the survey era is NOT rewritten.
-  * beyond the staleness window: the endpoint GLIDES to the **BoJ-communicated
-    nominal neutral corridor, 1.75-2.25% (midpoint 2.0%)** — a policy-communication
-    number, not a model estimate. Japan has no public long-horizon rate survey (the
-    ESP Forecast is membership-gated), so this is the honest carry-forward until one
-    exists; the glide is implemented by handing the smoother the terminal as one more
-    observation at the staleness cut, so nothing steps on the day the survey lapses.
+  * after the last release (2026-07): carried forward by the survey PASS-THROUGH rule
+    shared by every market: the endpoint moves by 0.16 of the change in the JGB 5-10y
+    forward (the share forecasters' long-horizon expectations absorb, pooled across
+    seven surveys). Japan has no public long-horizon rate survey (ESP Forecast is
+    membership-gated; the BoJ Bond Market Survey measures the 2-5y path, see
+    validation/FINDINGS_anchors.md), so this replaces the earlier glide to the
+    BoJ-communicated 1.75-2.25% corridor, which stays as a cross-check and as the
+    fallback when no forward is supplied.
 
 Retired from construction (files kept on disk for research): the Ferreira r* rung and
 the CPI/Tankan bridge. A model-filtered r* rewrote pre-survey history with paths no
@@ -51,8 +53,15 @@ def _spec(dir: "Path | None" = None) -> AnchorSpec:
                       survey_label="consensus")
 
 
-def build_nominal_neutral(index, dir: Path = ANCHOR_DIR):
-    """Per-date neutral short rate (DECIMAL); NaN before the survey era."""
+def build_nominal_neutral(index, dir: Path = ANCHOR_DIR, driver=None):
+    """Per-date neutral short rate (DECIMAL); NaN before the survey era.
+
+    With ``driver`` (the JGB 5-10y forward, percent) the endpoint follows the same rule
+    as every market: the last Consensus read carried forward by the survey pass-through
+    (``model.neutral_anchor.PASS_THROUGH_BETA`` of the forward's moves). The BoJ corridor
+    is then a cross-check, not an input. Without a driver it falls back to the glide."""
+    if driver is not None:
+        return _build(index, _spec(dir), dir=dir, driver=driver)
     return _build(index, _spec(dir), dir=dir,
                   terminal_pct=TERMINAL_PCT, terminal_band=TERMINAL_BAND)
 

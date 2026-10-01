@@ -44,9 +44,10 @@ def _spec(dir: "Path | None" = None) -> AnchorSpec:
                       shortrate_ext_label="kof_cpi5y+const_real")
 
 
-def build_nominal_neutral(index, dir: Path = ANCHOR_DIR):
-    """Per-date neutral short rate (DECIMAL); NaN before the survey era."""
-    return _build(index, _spec(dir), dir=dir)
+def build_nominal_neutral(index, dir: Path = ANCHOR_DIR, driver=None):
+    """Per-date neutral short rate (DECIMAL); NaN before the survey era. ``driver`` is
+    the market 5-10y forward (percent) for the survey pass-through."""
+    return _build(index, _spec(dir), dir=dir, driver=driver)
 
 
 def has_anchor(dir: Path = ANCHOR_DIR) -> bool:

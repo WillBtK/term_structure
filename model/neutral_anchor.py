@@ -105,8 +105,33 @@ def locf(s: pd.Series, index: pd.DatetimeIndex) -> pd.Series:
     return s.reindex(s.index.union(index)).sort_index().ffill().reindex(index)
 
 
+# Survey PASS-THROUGH: the share of a move in market forward rates that professional
+# forecasters' long-horizon rate expectations absorb between survey rounds. Estimated by
+# pooling 237 round-to-round changes from seven surveys (US SME and SPF; Consensus UK,
+# euro area, Japan and Canada; BoE Market Participants Survey) against the matching market
+# forward (US 2-10y; elsewhere 5-10y), with survey fixed effects: 0.160, s.e. 0.036.
+# Dropping any one survey leaves 0.154-0.167; single-survey estimates run 0.07-0.22.
+# Yield-only models sit far outside that range (Kim-Wright's implied expectations absorb
+# ~0.6 of daily 10y moves since 2022), and holding expectations flat between rounds (0.0)
+# sits below it. See validation/FINDINGS_passthrough.md.
+PASS_THROUGH_BETA = 0.16
+
+
+def forward_driver(panel: pd.DataFrame, a: float, b: float) -> "pd.Series | None":
+    """The market a-to-b-year forward rate in PERCENT from a daily zero-curve panel
+    (decimal yields, float tenor columns): ``(b*y_b - a*y_a)/(b - a)``. None when either
+    tenor is missing."""
+    cols = {float(c): c for c in panel.columns}
+    if float(a) not in cols or float(b) not in cols:
+        return None
+    ya, yb = panel[cols[float(a)]], panel[cols[float(b)]]
+    f = (b * yb - a * ya) / (b - a) * 100.0
+    return f.dropna().sort_index()
+
+
 def rw_smooth(s: pd.Series, index: pd.DatetimeIndex,
-              obs_std: "float | pd.Series" = 0.15, drift_std: float = 0.28) -> pd.Series:
+              obs_std: "float | pd.Series" = 0.15, drift_std: float = 0.28,
+              driver: "pd.Series | None" = None, beta: float = 0.0) -> pd.Series:
     """Random-walk local-level Kalman filter + RTS smoother of an intermittent survey series
     onto ``index``. The latent neutral follows ``x_t = x_{t-1} + w`` (``Var(w)=drift_std**2``
     per YEAR); each release is a noisy read ``y = x + v`` (``Var(v)=obs_std**2``). Returns the
@@ -117,6 +142,13 @@ def rw_smooth(s: pd.Series, index: pd.DatetimeIndex,
 
     ``obs_std`` may be a Series indexed like ``s`` to give each read its own noise (a
     survey mixing sources of different precision); missing entries take its median.
+
+    ``driver``/``beta``: a known input to the latent state. Between reads the state moves
+    by ``beta`` times the change in ``driver`` (a market forward rate, percent), so
+    ``x_t = x_{t-1} + beta*dF_t + w``. Each read still corrects it, and the RTS smoother
+    is unchanged in form (the prediction already carries the input). At the edge the value
+    is the last filtered read plus ``beta`` times the forward's change since. beta=0 or no
+    driver reproduces the plain random walk exactly.
 
     Falls back to plain carry-forward for a degenerate series (<2 reads)."""
     obs = s.dropna().sort_index()
@@ -138,6 +170,13 @@ def rw_smooth(s: pd.Series, index: pd.DatetimeIndex,
         rv = None
         r0 = float(obs_std) ** 2
     t_years = grid.view("int64") / 8.64e13 / 365.25                 # ns -> days -> years
+    u = np.zeros(len(grid))
+    if driver is not None and beta:
+        dv = driver.dropna().sort_index()
+        dv = dv[~dv.index.duplicated(keep="last")]
+        on = dv.reindex(dv.index.union(grid)).sort_index().ffill().reindex(grid).to_numpy()
+        du = np.diff(on, prepend=np.nan)
+        u = np.where(np.isfinite(du), float(beta) * du, 0.0)
     q, r = float(drift_std) ** 2, r0
     n = len(grid)
     xp = np.empty(n); Pp = np.empty(n)                              # one-step-ahead prediction
@@ -146,7 +185,7 @@ def rw_smooth(s: pd.Series, index: pd.DatetimeIndex,
     prev = t_years[0]
     for i in range(n):
         dt = t_years[i] - prev if i else 0.0
-        x_pred, P_pred = x, P + q * max(dt, 0.0)                    # RW predict
+        x_pred, P_pred = x + (u[i] if i else 0.0), P + q * max(dt, 0.0)   # RW predict
         xp[i], Pp[i] = x_pred, P_pred
         yi = yv[i]
         if np.isfinite(yi):                                         # update on a release
@@ -285,7 +324,9 @@ def build_nominal_neutral(index, spec: AnchorSpec, dir: "Path | None" = None):
 
 def build_survey_neutral(index, spec: AnchorSpec, dir: "Path | None" = None,
                          terminal_pct: "float | None" = None,
-                         terminal_band: "tuple[float, float] | None" = None):
+                         terminal_band: "tuple[float, float] | None" = None,
+                         driver: "pd.Series | None" = None,
+                         beta: float = PASS_THROUGH_BETA):
     """Per-date neutral short rate (DECIMAL) from SURVEYS ONLY — no model r*, no
     pre-survey bridge.
 
@@ -312,6 +353,11 @@ def build_survey_neutral(index, spec: AnchorSpec, dir: "Path | None" = None,
                                                  observation dated at the staleness
                                                  cut-off, so there is no step on the day
                                                  the survey lapses.
+
+    ``driver`` (the market's matching forward rate, percent) adds the survey pass-
+    through: between and after releases the endpoint moves by ``beta`` times the change in
+    that forward (``PASS_THROUGH_BETA``). With a driver the endpoint keeps tracking it past
+    the staleness cut instead of freezing; ``stale`` is still reported.
 
     ``build_nominal_neutral`` (the r*+pi^e bridge) is retained above for research and
     for ``bridge_fidelity``, but no market's published series uses it.
@@ -348,12 +394,15 @@ def build_survey_neutral(index, spec: AnchorSpec, dir: "Path | None" = None,
         sr_aug = pd.concat([sr, pd.Series([float(terminal_pct)], index=[stale_cut])])
         terminal_src = "terminal"
 
-    n = rw_smooth(sr_aug, index, spec.obs_std, spec.drift_std) if spec.smooth         else locf(sr_aug, index)
+    use_driver = driver is not None and bool(beta) and spec.smooth
+    n = (rw_smooth(sr_aug, index, spec.obs_std, spec.drift_std,
+                   driver=driver if use_driver else None, beta=beta if use_driver else 0.0)
+         if spec.smooth else locf(sr_aug, index))
     # beyond the staleness cut the endpoint holds: at the terminal when one is set,
     # else frozen at the last smoothed value (a slow object, approximately right for
     # years — and visibly labelled, unlike a silently wrong sample mean).
     beyond = index > stale_cut
-    if beyond.any():
+    if beyond.any() and not use_driver:
         hold = float(terminal_pct) if terminal_pct is not None else             float(n[~beyond].dropna().iloc[-1]) if n[~beyond].notna().any() else np.nan
         n[beyond] = hold
 
@@ -368,6 +417,7 @@ def build_survey_neutral(index, spec: AnchorSpec, dir: "Path | None" = None,
             "first": str(sr.index.min().date()), "asof": str(sr.index.max().date()),
             "stale_after": str(stale_cut.date()),
             "stale": bool(index.max() > stale_cut),
+            "pass_through": float(beta) if use_driver else 0.0,
             "terminal_pct": terminal_pct, "terminal_band": terminal_band,
             "coverage": int(np.isfinite(vals).sum()), "n": len(index),
             "src_by_date": src}

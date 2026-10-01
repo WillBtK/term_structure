@@ -52,7 +52,8 @@ def run_japan_production(start: str = cfg.SAMPLE_START, end=None,
     # Neutral-rate shifting endpoint (japan.neutral_anchor); inert until the survey/r*
     # CSVs are committed. Aligned to the monthly estimation dates.
     from japan.neutral_anchor import build_nominal_neutral
-    endpoint, _ = build_nominal_neutral(panel.index)
+    from model.neutral_anchor import forward_driver
+    endpoint, _ = build_nominal_neutral(panel.index, driver=forward_driver(panel, 5, 10))
     return run_production_tp(start=start, end=end, panel=panel, elb=elb,
                              estimate_elb=estimate_elb, maxiter=maxiter,
                              n_boot=n_boot, seed=seed, var_mult_fn=var_mult_fn,

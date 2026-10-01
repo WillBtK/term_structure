@@ -145,6 +145,8 @@ def build_canonical() -> pd.DataFrame:
     """Decompose every market/instrument daily; return the long-form canonical frame."""
     parts = []
     meta = {"names": NAMES, "order": ORDER, "instruments": {}}
+    from model.neutral_anchor import forward_driver
+    drivers = {}                     # market -> nominal forward (percent), for pass-through
     for cc, inst, pfile, kind, vm, m in SPECS:
         prod = ProductionParams.from_json(PARAMS / pfile)
         panel = _panel_daily(kind)
@@ -163,6 +165,13 @@ def build_canonical() -> pd.DataFrame:
             from canada.fetch_benchmark import nowcast_extend as ca_nowcast
             panel, nc_dates = ca_nowcast(panel)
             nc_src = "BoC benchmark bond yields (Valet)"
+        # Survey pass-through driver: the nominal forward matching each market's survey
+        # window (US SPF/SME ask about years 2-10; the others' surveys about 6-10, for
+        # which 5-10 is the nearest pair of fitted tenors). Taken after the nowcast
+        # splice so the edge moves with today's curve; the US real anchor reuses the
+        # nominal forward (its survey leg is a nominal-rate survey).
+        if inst == "nominal":
+            drivers[cc] = forward_driver(panel, *((2, 10) if cc == "US" else (5, 10)))
         if nc_dates:
             meta.setdefault("nowcast", {})[f"{cc}:{inst}"] = {
                 "source": nc_src, "from": nc_dates[0],
@@ -187,7 +196,8 @@ def build_canonical() -> pd.DataFrame:
             mod = __import__(_NOMINAL_ANCHORS[cc] + ".neutral_anchor",
                              fromlist=["build_nominal_neutral"])
             if getattr(mod, "is_enabled", lambda: True)():
-                endpoint, ameta = mod.build_nominal_neutral(panel.index)
+                endpoint, ameta = mod.build_nominal_neutral(panel.index,
+                                                            driver=drivers.get(cc))
                 meta.setdefault("anchor", {})[f"{cc}:{inst}"] = {
                     k: v for k, v in ameta.items() if k != "src_by_date"}
         frame = filter_forward(prod, panel, dt=DT_DAILY, var_mult_fn=var_mult_fn,
@@ -196,7 +206,8 @@ def build_canonical() -> pd.DataFrame:
             from us import anchor as us_anchor
             on = us_anchor.REAL_ACTIVATED if inst == "real" else us_anchor.NOMINAL_ACTIVATED
             if on:
-                ep, ameta = us_anchor.avg_matched_endpoint(prod, frame, inst, panel.index)
+                ep, ameta = us_anchor.avg_matched_endpoint(prod, frame, inst, panel.index,
+                                                           driver=drivers.get("US"))
                 if ep is not None:
                     frame = filter_forward(prod, panel, dt=DT_DAILY,
                                            var_mult_fn=var_mult_fn, endpoint=ep)

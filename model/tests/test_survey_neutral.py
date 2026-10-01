@@ -99,3 +99,50 @@ def test_no_files_is_inert(tmp_path):
     v, meta = build_survey_neutral(pd.date_range("2020-01-31", periods=6, freq="M"),
                                    _spec(tmp_path), dir=tmp_path)
     assert meta["source"] == "none" and np.all(np.isnan(v))
+
+
+# --- survey pass-through (driver) --------------------------------------------------
+
+def test_passthrough_zero_beta_is_plain_random_walk():
+    from model.neutral_anchor import rw_smooth
+    reads = pd.Series([2.0, 2.5], pd.to_datetime(["2024-01-15", "2024-07-15"]))
+    idx = pd.date_range("2024-01-31", "2025-06-30", freq="M")
+    drv = pd.Series(np.linspace(3, 5, len(idx)), idx)
+    a = rw_smooth(reads, idx)
+    b = rw_smooth(reads, idx, driver=drv, beta=0.0)
+    assert np.allclose(a.to_numpy(), b.to_numpy(), equal_nan=True)
+
+
+def test_passthrough_moves_the_edge_by_beta_times_forward():
+    from model.neutral_anchor import rw_smooth
+    reads = pd.Series([2.0, 2.0, 2.0],
+                      pd.to_datetime(["2024-01-15", "2024-04-15", "2024-07-15"]))
+    idx = pd.bdate_range("2024-01-15", "2024-12-31")
+    drv = pd.Series(4.0, idx)
+    drv[drv.index > "2024-07-15"] = 5.0                  # forward +1pp after the last read
+    out = rw_smooth(reads, idx, driver=drv, beta=0.16)
+    flat = rw_smooth(reads, idx)
+    assert out.iloc[-1] - flat.iloc[-1] == pytest.approx(0.16, abs=1e-6)
+    # causal: nothing before the forward moved is touched
+    assert np.allclose(out[:"2024-07-15"], flat[:"2024-07-15"])
+
+
+def test_passthrough_reads_still_pin_the_level():
+    """A forward move between reads that the next read does NOT confirm is undone there."""
+    from model.neutral_anchor import rw_smooth
+    reads = pd.Series([2.0, 2.0], pd.to_datetime(["2024-01-15", "2024-07-15"]))
+    idx = pd.bdate_range("2024-01-15", "2024-07-15")
+    drv = pd.Series(np.where(idx > "2024-03-01", 6.0, 4.0), idx)
+    out = rw_smooth(reads, idx, obs_std=0.03, driver=drv, beta=0.16)
+    assert out.iloc[-1] == pytest.approx(2.0, abs=0.02)
+
+
+def test_survey_neutral_with_driver_tracks_past_staleness(tmp_path):
+    spec = _spec(tmp_path, smooth=True)
+    _write(tmp_path, spec.files["shortrate"], [("2020-01-15", 2.0), ("2020-07-15", 2.0)])
+    idx = pd.date_range("2020-01-31", "2024-12-31", freq="M")
+    drv = pd.Series(np.where(idx > "2023-01-01", 5.0, 4.0), idx)
+    v, meta = build_survey_neutral(idx, spec, dir=tmp_path, driver=drv, beta=0.16)
+    s = pd.Series(v * 100, idx)
+    assert meta["stale"] and meta["pass_through"] == 0.16
+    assert s.iloc[-1] == pytest.approx(2.16, abs=0.01)   # not frozen at 2.0
