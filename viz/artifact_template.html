@@ -657,7 +657,7 @@ document.getElementById('footCredit').textContent = 'Model: AFNS + Christensen�
 (function(){
   const n=h('div',{class:'page-notes',id:'notes'});
   n.appendChild(h('p',{html:'<b>Notes.</b> Expected rates are anchored to surveys of professional forecasters. Between survey rounds they move by <b>0.16</b> of the change in the matching market forward rate (US 2–10y, elsewhere 5–10y): the share forecasters’ long-horizon rate expectations have absorbed historically, pooled across seven surveys. Single-survey estimates range from 0.07 to 0.22; across that range today’s 10-year premia move by at most about ±5bp.'}));
-  n.appendChild(h('p',{html:'US expectations are measured on a <b>Treasury-bill</b> basis, consistent with a model fitted to the Treasury curve and with the Kim–Wright and ACM benchmarks. Measured against the fed funds rate instead, the US 10-year premium would be about 0.2pp lower.'}));
+  n.appendChild(h('p',{html:'Surveys forecast <b>money-market</b> rates (3-month interbank rates; T-bill rates in the US and Canada), while each premium is measured against that government curve’s <b>own short rate</b>. Each survey is converted by the average gap between the two since 2017: Germany −0.24pp, UK −0.23, Japan −0.14, Canada +0.02, Switzerland −0.01, US +0.13. The US level comes from the Philadelphia Fed’s panel of economists; the New York Fed’s panel of market participants expects long-run rates about 0.25pp higher, which would put the US 10-year premium about 0.2pp lower.'}));
   M.appendChild(n);
 })();
 
