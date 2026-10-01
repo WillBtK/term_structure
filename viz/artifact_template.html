@@ -1308,7 +1308,7 @@ function lastVal(block, measure, tenor){
   const b=DATA.countries.US.instruments.nominal;
   const bench=b.benchmarks; if(!bench || !Object.keys(bench).length) return;
   panel('benchmarks','Cross-check','Our US term premium vs the standard models',
-    ['The US 10-year term premium is a much-watched number with several published estimates that often disagree by a percentage point or more. Here our estimate sits alongside <b>ACM</b> (NY Fed, 5-factor), <b>Kim-Wright</b> (Fed Board, 3-factor), <b>DKW</b> (D’Amico-Kim-Wei, nominal+real), and <b>Christensen-Rudebusch</b> (SF Fed) — the series our expected-rate anchor was calibrated to. Monthly; pick a maturity.']);
+    ['The US 10-year term premium is a much-watched number with several published estimates that often disagree by a percentage point or more. Here our estimate sits alongside <b>ACM</b> (NY Fed, 5-factor), <b>Kim-Wright</b> (Fed Board, 3-factor), <b>DKW</b> (D’Amico-Kim-Wei, nominal+real), and <b>Christensen-Rudebusch</b> (SF Fed) — the series our expected-rate anchor was calibrated to. Every line is daily, as each model publishes; pick a maturity.']);
   const s=M.lastChild;
   // fixed colour per source (categorical, stable)
   const BCOL={ours:'blue', cr:'crimson', acm:'orange', kim_wright:'teal', dkw:'purple'};
@@ -1335,7 +1335,7 @@ function lastVal(block, measure, tenor){
   function render(){
     const t=BM.tenor, inWin=p=>p[0]>=BM.xlo-1e-6&&p[0]<=BM.xhi+1e-6;
     ct.textContent=`US ${t}-year term premium — our estimate vs external models`;
-    cn.textContent='Percent, monthly. Each line is a different published term-premium model. Drag the handles below to zoom.';
+    cn.textContent='Percent, daily. Each line is a different published term-premium model, at the frequency it publishes. Drag the handles below to zoom.';
     const series=[];
     ORDER.forEach(k=>{
       let pts;

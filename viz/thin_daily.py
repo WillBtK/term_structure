@@ -394,7 +394,15 @@ def _attach_germany_history(countries: dict) -> None:
 def _attach_us_benchmarks(countries: dict) -> None:
     """Attach external US term-premium benchmarks (ACM, Kim-Wright, DKW, C&R) to
     US:nominal as a `benchmarks` sub-block, each `{label, tp:{tenor:[pct]}, x, dates}`
-    at month-end resolution (the panel is a slow-moving comparison)."""
+    at each source's NATIVE frequency.
+
+    All four publish daily (ACM from 1961, DKW 1983, Kim-Wright 1990, C&R 1998), and our
+    own series beside them is daily. They used to be cut to the last observation of each
+    month, which put a daily line next to four monthly ones: the comparison looked
+    smoother for the external models than for ours, and the gaps between them -- which
+    open fastest in exactly the episodes the panel exists to show (2008, the 2013 taper,
+    March 2020) -- were sampled once a month. Nothing is resampled now; a source that
+    publishes less often simply contributes fewer points."""
     from validation import benchmarks as bm
     from validation import sf_fed
     from validation import config as vcfg
@@ -417,8 +425,8 @@ def _attach_us_benchmarks(countries: dict) -> None:
         if df is None or "term_premium" not in df.columns or df.empty:
             continue
         d = df.dropna(subset=["term_premium"]).copy()
-        d["date"] = pd.to_datetime(d["date"])
-        d = d.groupby([d["date"].dt.year, d["date"].dt.month, "maturity"]).tail(1)  # month-end
+        d["date"] = pd.to_datetime(d["date"]).dt.normalize()
+        d = d.sort_values("date").groupby(["date", "maturity"]).tail(1)   # one per day
         dates = pd.DatetimeIndex(sorted(d["date"].unique()))
         tp = {}
         for mat, g in d.groupby("maturity"):
@@ -426,7 +434,8 @@ def _attach_us_benchmarks(countries: dict) -> None:
             tp["%g" % float(mat)] = [None if pd.isna(v) else round(float(v) * 100, 4) for v in s]
         out[key] = {"label": label, "x": _xdec(dates),
                     "dates": [str(x.date()) for x in dates], "tp": tp}
-        print(f"benchmark {key}: {len(dates)} months, tenors {sorted(tp)}")
+        print(f"benchmark {key}: {len(dates)} dates {dates[0].date()}..{dates[-1].date()}, "
+              f"tenors {sorted(tp, key=float)}")
     if out:
         countries["US"]["instruments"]["nominal"]["benchmarks"] = out
 
