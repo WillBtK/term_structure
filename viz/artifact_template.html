@@ -282,6 +282,8 @@ footer.rail-foot{ margin-top:26px; padding-top:16px; border-top:1px solid var(--
 }
 .theme-toggle button.active{ background:var(--surface); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,0.08); }
 .foot-credit{ font-size:11px; color:var(--faint); margin-top:14px; line-height:1.5; }
+.page-notes{ order:999; font-size:12px; color:var(--faint); line-height:1.55; border-top:1px solid var(--line-2); padding-top:14px; margin-top:8px; }
+.page-notes p{ margin:0 0 6px; }
 .hint{ font-size:12px; color:var(--faint); margin-top:8px; }
 .anchor-badge{ color:var(--teal); font-weight:600; white-space:nowrap; }
 .matrix-cell{ cursor:pointer; }
@@ -634,6 +636,13 @@ function infodot(html){
   d.appendChild(h('div',{class:'pop',html})); return d;
 }
 document.getElementById('footCredit').textContent = 'Model: AFNS + Christensen–Rudebusch shadow rate, ~3.5y mean-reversion floor. As of '+DATA.meta.asof+'.';
+// page footnote: the two choices behind the expected-rate path that move the level
+(function(){
+  const n=h('div',{class:'page-notes',id:'notes'});
+  n.appendChild(h('p',{html:'<b>Notes.</b> Expected rates are anchored to surveys of professional forecasters. Between survey rounds they move by <b>0.16</b> of the change in the matching market forward rate (US 2–10y, elsewhere 5–10y): the share forecasters’ long-horizon rate expectations have absorbed historically, pooled across seven surveys. Single-survey estimates range from 0.07 to 0.22; across that range today’s 10-year premia move by at most about ±5bp.'}));
+  n.appendChild(h('p',{html:'US expectations are measured on a <b>Treasury-bill</b> basis, consistent with a model fitted to the Treasury curve and with the Kim–Wright and ACM benchmarks. Measured against the fed funds rate instead, the US 10-year premium would be about 0.2pp lower.'}));
+  M.appendChild(n);
+})();
 
 const MON3=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const xYear=v=>String(Math.round(v));
@@ -1677,7 +1686,7 @@ function lastVal(block, measure, tenor){
 
   // interpretation caveat
   const cav=h('div',{class:'callout orange'});
-  cav.innerHTML='<b>Anchoring the expected-rate path.</b> A yields-only model tends to a near-unit-root, so the expected-average short rate would track <b>today’s</b> policy rate and the term premium would degenerate into the term spread (collapsing to deeply negative in the 2022–23 hiking cycle). We instead impose a calibrated <b>~3.5-year mean-reversion</b> so the expected path reverts to its long-run mean — calibrated on the US against the <b>SF Fed Christensen–Rudebusch</b> series (10y correlation 0.80, identical latest value 1.19%) and applied uniformly to every market. One residual caveat: a yields-only model still cannot see central-bank bond purchases, so it does not separately identify QE’s compression of the premium.';
+  cav.innerHTML='<b>Anchoring the expected-rate path.</b> A yields-only model tends to a near-unit-root, so the expected-average short rate would track <b>today’s</b> policy rate and the term premium would degenerate into the term spread (collapsing to deeply negative in the 2022–23 hiking cycle). We instead impose a calibrated <b>~3.5-year mean-reversion</b> so the expected path reverts to a long-run level — the <b>survey-anchored</b> endpoint wherever long-horizon rate surveys exist (see the notes at the foot of the page), the model’s long-run mean otherwise. The reversion speed is calibrated on the US against the <b>SF Fed Christensen–Rudebusch</b> series (10y correlation 0.80, identical latest value 1.19%) and applied uniformly to every market. One residual caveat: a yields-only model still cannot see central-bank bond purchases, so it does not separately identify QE’s compression of the premium.';
   s.appendChild(cav);
   // historical-extension caveat
   const cav2=h('div',{class:'callout orange'});
