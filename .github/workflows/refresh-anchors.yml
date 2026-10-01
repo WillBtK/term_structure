@@ -1,13 +1,14 @@
 name: Refresh neutral-anchor fallbacks
 
-# Self-maintains the PUBLIC fallback rungs of the neutral anchors — Ferreira r* (Fed
-# FEDS Note; the JA and EA columns of one file), BoJ Tankan 5y inflation, and the ECB
-# SPF longer-term expectation — by fetching their official sources on the GitHub runner
-# (open egress) and committing any refreshed CSVs under japan/ and germany/data/anchors/.
-# This is the half of each anchor that CAN be maintained; the Consensus snapshots beside
-# them are frozen by design and never touched here. Best-effort and non-fatal: a failed scrape keeps the committed
-# file. The proprietary Consensus CSVs are provided manually and are never touched here.
-# These fallbacks only affect the published premium if Consensus is ever absent.
+# Self-maintains the LIVING survey rungs of the neutral anchors by fetching their
+# official sources on the GitHub runner (open egress) and committing refreshed CSVs.
+# The Consensus Economics snapshots are a ONE-OFF purchase (history to Jul-2026), never
+# refreshed; past their last release each anchor is carried by these public sources:
+#   US  SPF (means) + NY Fed SME        UK  BoE Market Participants Survey (neutral)
+#   DE  ECB SPF longer-term rate (mean)  CA  BoC Market Participants Survey
+#   CH  KOF consensus                    JP  no public long-horizon rate survey: glides
+#                                            to the BoJ-communicated neutral corridor
+# Best-effort and non-fatal: a failed scrape keeps the committed file.
 
 on:
   schedule:
@@ -49,7 +50,7 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m us.fetch_sme
-      - name: Fetch BoE MPS neutral/5y Bank Rate (UK carry-forward)
+      - name: Fetch BoE MPS neutral rate (UK carry-forward)
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m uk.fetch_neutral

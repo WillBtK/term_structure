@@ -172,3 +172,49 @@ in both surveys moved by tenths of a point, so the yield rise is almost all prem
 Not used: the FOMC SEP longer-run **median** (FRED FEDTARMDLR). It steps for the same
 reason and is not an input anywhere. Refreshed weekly in `refresh-anchors.yml`; the
 September SME round posts in early October.
+
+## Living rungs after the one-off Consensus snapshot (2026-10-01)
+
+The Consensus Economics files are a one-off purchase with history to 2026-07-13 and are
+never refreshed. Past that date each market's anchor is carried by a public source,
+level-bridged over the overlap:
+
+| Market | Living source | Statistic |
+|---|---|---|
+| UK | BoE Market Participants Survey, neutral-rate question | interquartile mean (fixed below) |
+| DE | ECB SPF longer-term rate assumption | mean (`AVG`) |
+| JP | none: glide to the BoJ neutral corridor midpoint, 2.0% | policy communication |
+
+### UK: parser bug inflated the anchor by 0.32pp
+
+The BoE renumbers the neutral question between rounds (1g, 1f, 1e, 1ei, 1b, 1bi), and the
+old parser picked the sheet by name. As a result:
+* The 2022-03 "neutral" read (2.0%) came from a different question. The neutral
+  question starts in June 2023.
+* Jun-24, Mar-25 and Sep-26 fell back to the five-years-ahead Bank Rate.
+* Seven valid rounds (Jun-23 to Mar-24) were missed.
+* The 2.0% read was carried through two years of overlap, which pushed the splice
+  offset up. The UK endpoint stood at 3.47% instead of 3.14%.
+
+The fix: identify the question by its wording on each round's HTML results page, read
+that sheet, and use the interquartile mean (p25+p50+p75)/3. The BoE publishes no mean,
+and the median sits on the 25bp grid respondents answer in. The result has 27 rounds,
+2023-06 to 2026-09, all on the neutral question.
+
+UK 10y term premium: unchanged to mid-2025, then +2bp at Dec-25, +12bp at Jun-26, and
+**+18bp now (1.56% → 1.74%)**.
+
+### JP: the BoJ Bond Market Survey was checked and not wired in
+
+The BoJ Bond Market Survey (quarterly, 2015+, public) publishes mean forecasts of 2-,
+5-, 10-, 20- and 30-year JGB yields about 2.1-2.9 years ahead. It is the only living
+Japan-specific rate survey found; the ESP Forecast is membership-gated. Against
+Consensus 6-10y, 2015-2026:
+* Levels correlate 0.9, but quarterly changes do not (2022+: −0.2).
+* The gap drifts from +0.7pp (zero-rate era) to −0.4pp now.
+* Since Nov-25 the 2-year-yield forecast rose 0.67pp while Consensus 6-10y rose 0.05pp.
+
+The survey measures the 2-5 year path, including term premium, not the 6-10y neutral.
+A whole-overlap splice would jump the endpoint ~0.9pp, and a latest-basis splice would
+import the near-path repricing as a neutral-rate move. It is left out pending a
+decision; the parsed series is reproducible from `boj.or.jp/en/paym/bond/bond_list/`.

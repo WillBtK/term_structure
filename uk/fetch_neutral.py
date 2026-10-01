@@ -1,21 +1,31 @@
 """Fetch the UK endpoint survey — the Bank of England **Market Participants Survey**.
 
-Published per MPC round since 2022 as one xlsx of aggregate percentiles from ~70-80
-professional respondents. Two usable objects:
+Published per MPC round since 2022 as one xlsx of aggregate percentiles from ~70-90
+professional respondents. The anchor object is the DIRECT neutral-rate question,
+"where do you see the level of Bank Rate at which monetary policy is neither
+expansionary nor contractionary", asked every round since June 2023.
 
-  * ``Q1b`` — "the level of Bank Rate at which monetary policy is neither expansionary
-    nor contractionary": a DIRECT neutral-rate question, the endpoint concept itself;
-  * ``Q1a`` — the Bank Rate path table, whose "Five years ahead" row is the fallback
-    for rounds that predate the neutral question.
+The question's NUMBER drifts between rounds (1g, 1f, 1e, 1ei, 1b, 1bi ...) and the
+workbook carries no question text, so the number is read off the round's HTML results
+page by the question's wording and then matched to the workbook sheet. Matching on
+sheet name alone silently picked up other questions (Sep-2026 fell back to the
+five-years-ahead Bank Rate after the sheet was renamed Q1bi). Rounds without the
+neutral question are skipped, not substituted: a different question is a different
+object.
 
-The median becomes the UK anchor's public carry-forward rung, level-bridged onto the
-Consensus 6-10y history over their multi-year overlap. Best-effort: rounds that do not
-exist 404 and are skipped; a bad parse never overwrites the committed file.
+Central estimate: the INTERQUARTILE MEAN (p25+p50+p75)/3. The survey publishes no
+mean, and the median is a step function on the 25bp grid respondents answer in.
+
+This is the UK anchor's living carry-forward after the one-off Consensus snapshot,
+level-bridged over their overlap. Best-effort: rounds that do not exist 404 and are
+skipped; a bad parse never overwrites the committed file.
 """
 from __future__ import annotations
 
+import html as _html
 import io
 import logging
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -27,47 +37,41 @@ OUT = "boe_mps_neutral.csv"
 OUT_CPI = "boe_mps_cpi_5y.csv"
 _URL = ("https://www.bankofengland.co.uk/-/media/boe/files/markets/market-intelligence/"
         "survey/{year}/market-participants-survey-results-{month}-{year}.xlsx")
+_PAGE = ("https://www.bankofengland.co.uk/markets/market-intelligence/survey-results/"
+         "{year}/market-participants-survey-results-{month}-{year}")
 _MONTHS = ["january", "february", "march", "april", "may", "june",
            "july", "august", "september", "october", "november", "december"]
 FIRST_YEAR = 2022
+_NEUTRAL_Q = re.compile(r"(\d+[a-z]+(?:\s*\(?[ivx]+\)?)?)\)[^)]{0,160}?"
+                        r"neither expansionary nor contractionary", re.I)
 
 
-def _round_value(content: bytes):
-    """(median, which_question) from one round's workbook, or None.
+def _norm(label: str) -> str:
+    return re.sub(r"[\s()]", "", str(label)).lower().lstrip("q")
 
-    Q1b is a single percentile row; if absent, fall back to Q1a's 'Five years ahead'
-    row. Sheets are located by name, values by header text — resilient to the row
-    count changing between rounds.
-    """
+
+def neutral_label(page_html: str) -> "str | None":
+    """The neutral question's number on one round's results page ('1bi'), or None."""
+    txt = re.sub(r"\s+", " ", _html.unescape(re.sub(r"<[^>]+>", " ", page_html)))
+    m = _NEUTRAL_Q.search(txt)
+    return _norm(m.group(1)) if m else None
+
+
+def _round_value(content: bytes, label: str):
+    """(p25, p50, p75) of the neutral question from one round's workbook, or None."""
     x = pd.read_excel(io.BytesIO(content), sheet_name=None, header=None)
-
-    def _ok(v):                       # a Bank Rate level, not a stock or an index
-        return pd.notna(v) and 0.0 <= float(v) <= 8.0
-
-    if "Q1b" in x:
-        df = x["Q1b"]
-        hdr = df.iloc[0].astype(str).str.lower().tolist()
-        if any("50th" in h for h in hdr):
-            col = [i for i, h in enumerate(hdr) if "50th" in h][0]
-            v = pd.to_numeric(df.iloc[1, col], errors="coerce")
-            if _ok(v):
-                return float(v), "neutral"
-    # Fallback for rounds predating the neutral question: the five-years-ahead point of
-    # the BANK RATE path. Sheet numbering drifts across rounds and several sheets carry
-    # a "Five years ahead" row (CPI, gilt stock — one early round read 400 from it), so
-    # the Bank Rate sheet is identified by what only it has: rows labelled with MPC
-    # meeting dates.
     for name, df in x.items():
-        col0 = df[0].astype(str) if 0 in df.columns else pd.Series(dtype=str)
-        if col0.str.contains("MPC", na=False).sum() < 3:
+        if _norm(name) != label or df.shape[0] < 2:
             continue
         hdr = df.iloc[0].astype(str).str.lower().tolist()
-        cols = [i for i, h in enumerate(hdr) if "50th" in h]
-        rows = df[col0.str.contains("Five years ahead", case=False, na=False)]
-        if cols and len(rows):
-            v = pd.to_numeric(rows.iloc[0, cols[0]], errors="coerce")
-            if _ok(v):
-                return float(v), "five_years"
+        try:
+            cols = [next(i for i, h in enumerate(hdr) if p in h)
+                    for p in ("25th", "50th", "75th")]
+        except StopIteration:
+            return None
+        v = [pd.to_numeric(df.iloc[1, c], errors="coerce") for c in cols]
+        if all(pd.notna(q) and 0.0 <= float(q) <= 8.0 for q in v) and v[0] <= v[1] <= v[2]:
+            return tuple(float(q) for q in v)
     return None
 
 
@@ -103,11 +107,12 @@ def _round_cpi(content: bytes):
 
 
 def fetch_boe_mps(out_dir: "Path | None" = None) -> bool:
-    """Crawl every round since 2022 and write the median series."""
+    """Crawl every round since 2022 and write the neutral-question series."""
     import requests
     out = Path(out_dir) if out_dir is not None else ANCHOR_DIR
     rows, cpi = [], []
     today = pd.Timestamp.today()
+    ua = {"User-Agent": "Mozilla/5.0"}
     try:
         for year in range(FIRST_YEAR, today.year + 1):
             for mi, month in enumerate(_MONTHS, start=1):
@@ -115,31 +120,34 @@ def fetch_boe_mps(out_dir: "Path | None" = None) -> bool:
                     break
                 try:
                     r = requests.get(_URL.format(year=year, month=month), timeout=45,
-                                     headers={"User-Agent": "Mozilla/5.0"})
+                                     headers=ua)
                     if r.status_code != 200 or b"PK" != r.content[:2]:  # xlsx = zip
                         continue
                     stamp = pd.Timestamp(year=year, month=mi, day=15)
-                    got = _round_value(r.content)
-                    if got:
-                        rows.append({"date": stamp, "value": got[0],
-                                     "question": got[1]})
                     infl = _round_cpi(r.content)
                     if infl is not None:
                         cpi.append({"date": stamp, "value": infl})
+                    pg = requests.get(_PAGE.format(year=year, month=month), timeout=45,
+                                      headers=ua)
+                    label = neutral_label(pg.text) if pg.status_code == 200 else None
+                    q = _round_value(r.content, label) if label else None
+                    if q:
+                        rows.append({"date": stamp, "value": round(sum(q) / 3.0, 4),
+                                     "p25": q[0], "p50": q[1], "p75": q[2],
+                                     "question": label})
                 except Exception as exc:                            # noqa: BLE001
                     logger.debug("MPS %s-%d: %s", month, year, exc)
         if len(rows) < 8:
             raise ValueError(f"only {len(rows)} rounds parsed — refusing to overwrite")
         df = pd.DataFrame(rows).sort_values("date")
-        med = df["value"]
-        if not (0.0 <= med.median() <= 8.0):
-            raise ValueError("implausible medians")
+        if not (0.0 <= df["value"].median() <= 8.0):
+            raise ValueError("implausible values")
         out.mkdir(parents=True, exist_ok=True)
-        df[["date", "value", "question"]].to_csv(out / OUT, index=False)
-        n_neu = int((df["question"] == "neutral").sum())
-        logger.info("BoE MPS: %d rounds %s..%s (%d neutral-question, %d five-year); "
-                    "latest %.2f%%", len(df), df["date"].min().date(),
-                    df["date"].max().date(), n_neu, len(df) - n_neu, df["value"].iloc[-1])
+        df.to_csv(out / OUT, index=False, date_format="%Y-%m-%d")
+        logger.info("BoE MPS neutral: %d rounds %s..%s; latest IQ mean %.2f%% "
+                    "(quartiles %s)", len(df), df["date"].min().date(),
+                    df["date"].max().date(), df["value"].iloc[-1],
+                    df[["p25", "p50", "p75"]].iloc[-1].tolist())
         if len(cpi) >= 8:
             c = pd.DataFrame(cpi).sort_values("date")
             c.to_csv(out / OUT_CPI, index=False)

@@ -1,9 +1,10 @@
 """UK expected-rate NEUTRAL anchor — survey-era shifting endpoint.
 
 Same construction as every other market (one rule): the endpoint exists exactly where
-long-horizon rate SURVEYS exist — Consensus 6-10y (2017+, frozen one-off snapshot)
-carried forward by the BoE-MPS survey's median neutral/5y Bank-rate expectation
-(public, auto-refreshed), level-bridged over their multi-year overlap. NaN before the
+long-horizon rate SURVEYS exist — Consensus 6-10y (2017 to Jul-2026, a frozen one-off
+snapshot that is never refreshed) carried forward by the BoE Market Participants
+Survey's neutral-rate question (interquartile mean; public, refreshed weekly),
+level-bridged over their overlap (Jun-2023 onward). NaN before the
 survey era, so pre-2017 history keeps the yields-only constant-theta decomposition.
 No model r* anywhere in the construction. See model.neutral_anchor.build_survey_neutral.
 
