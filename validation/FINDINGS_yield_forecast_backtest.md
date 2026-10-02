@@ -149,3 +149,8 @@ The rate call pays in every market. The inflation call pays through the premium 
 (at the model's coefficient) and the euro area (three-quarters of it); in the UK and Japan
 the modelled premium response is far too large and a correct inflation call made the
 forecast WORSE -- there it moves yields through the policy path, not the premium.
+
+US mispricing spills over: leaning against the US residual at the spread market's beta cuts
+4-5q error by 4-5% for gilts and 7% for Bunds (slope of the yield change on the US residual
+-0.47 to -0.71, as in the US itself); Japan neutral (slope -0.14 against beta 0.5).
+Baseline path on this construction: scenarios/year_end_10y.py.
