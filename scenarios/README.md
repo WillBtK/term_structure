@@ -225,13 +225,14 @@ have been moved off their opening values.
 market (`scenarios/data/*_scenarios.csv`, Baseline rows; revised 2026-10-02).
 
 **Definitions.** Inflation is the calendar-year average of monthly year-on-year rates
-(headline CPI; HICP for Germany); growth the average of the four quarterly year-on-year
+(seasonally adjusted headline CPI; for the German market, euro-area HICP); growth the average of the four quarterly year-on-year
 rates; the policy rate a year-end level. Each inflation value therefore governs its own
 year. For the current year the published months are history: the sheet prices the
 remaining months at the rate that delivers the stated average,
-`(12 x average - sum of published months) / months remaining`, using the forecast's own
-CPI measure (`macro/fetch_headline_cpi.py`: BLS CPI-U NSA, euro-area HICP for Germany,
-OECD all-items for Japan, ONS CPI for the UK), refreshed every daily run. The sheet shows
+`(12 x average - sum of published months) / months remaining`, using seasonally
+adjusted CPI (`macro/fetch_headline_cpi.py`: BLS CPI-U SA; ECB euro-area HICP SA for the
+German market; OECD all-items SA for Japan; ONS CPI for the UK, adjusted here with STL
+because the ONS publishes no SA CPI), refreshed every daily run. The sheet shows
 the split under the grid. The alternative scenarios' 2026 inflation is set to the
 Baseline's (2026 was two-thirds published when they were reviewed); their departures
 start in 2027. Beyond the
