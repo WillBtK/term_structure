@@ -154,3 +154,21 @@ US mispricing spills over: leaning against the US residual at the spread market'
 4-5q error by 4-5% for gilts and 7% for Bunds (slope of the yield change on the US residual
 -0.47 to -0.71, as in the US itself); Japan neutral (slope -0.14 against beta 0.5).
 Baseline path on this construction: scenarios/year_end_10y.py.
+
+## Addendum: Japan's US-premium beta (validation/backtest_japan_beta.py)
+
+The production relative model carries 0.48 of a US premium move into JGBs (levels fit,
+2000+). For forecasting JGB yield CHANGES, with the US premium move and the JGB rate path
+known (perfect foresight), relative RMSE vs no-change at 4q:
+
+| beta | 0 | 0.10 | 0.15 | 0.25 | 0.35 | 0.48 |
+|---|---|---|---|---|---|---|
+| 2006-2026 (79) | 0.84 | 0.80 | **0.80** | 0.82 | 0.88 | 1.00 |
+| pre-YCC (42) | 0.88 | 0.80 | **0.79** | 0.83 | 0.93 | 1.14 |
+| YCC (30) | 1.13 | **1.07** | 1.08 | 1.16 | 1.31 | 1.58 |
+| post-YCC (7) | 0.72 | 0.71 | 0.71 | 0.70 | 0.69 | 0.69 |
+
+Slope of the JGB yield change (less the rate leg) on the US premium change: +0.14 overall,
++0.12 pre-YCC, +0.09 under YCC, +0.41 (4q) / +0.98 (5q) since YCC ended, on 6-7 points.
+The US-mispricing spillover adds nothing at any beta. Forecasting beta for Japan: 0.15,
+to be revisited as post-YCC quarters accumulate -- the few so far point higher.
