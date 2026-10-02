@@ -570,3 +570,23 @@ def test_a_stated_deficit_is_keyed_by_calendar_year_like_the_official_path(tmp_p
     sc = load_scenario(f)
     assert sc.deficit == {0: 6.0, 1: 6.5, 2: 7.0}
     assert all(k > 0 for k in sc.policy_rate)          # the other rows are unchanged
+
+
+def test_calendar_inflation_is_a_year_average_keyed_at_the_year_start(tmp_path):
+    """Inflation in calendar years is a year AVERAGE: each value governs its own year
+    (keyed at the year's start), and the current year's published months are history --
+    the rest is priced at the rate that delivers the stated average."""
+    import pandas as pd
+    now = pd.Timestamp.today()
+    y0 = now.year
+    today_frac = y0 + (now.dayofyear - 1) / 365.25
+    p = tmp_path / "us.csv"
+    pd.DataFrame({"year": [y0, y0 + 1, y0 + 2], "policy_rate": [4.0, 4.0, 3.75],
+                  "inflation": [3.6, 3.2, 2.6], "real_growth": [2.0, 2.0, 2.0]}).to_csv(p, index=False)
+    sc = load_scenario(p, cpi_ytd={"year": y0, "n": 8, "mean": 3.0})
+    keys = sorted(sc.inflation)
+    assert keys[0] == pytest.approx(y0 - today_frac, abs=1e-3)          # this year's start
+    assert sc.inflation[keys[0]] == pytest.approx((12 * 3.6 - 8 * 3.0) / 4)
+    assert sc.inflation[keys[1]] == 3.2 and sc.calendar
+    # the policy rate stays a year-end level
+    assert min(sc.policy_rate) == pytest.approx((y0 + 1) - today_frac, abs=1e-3)

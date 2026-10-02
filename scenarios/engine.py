@@ -198,6 +198,10 @@ class Scenario:
     # True for the house forecast, False for a conditional "if the world is X" state.
     # It selects the convergence rate and nothing else -- see convergence_for.
     is_view: bool = False
+    # True when the paths come from CALENDAR years (the sheet / a calendar CSV): the
+    # inflation path is then keyed at each year's START (a calendar-year average governs
+    # its own year) and the uncertainty driver reads it month by calendar month.
+    calendar: bool = False
 
     def __post_init__(self):
         for name in ("policy_rate", "inflation"):
@@ -205,7 +209,10 @@ class Scenario:
             if not path:
                 raise ValueError(f"{self.country}: scenario needs a {name} path")
             years = sorted(path)
-            if years[0] <= 0:
+            # a calendar inflation path is keyed at year STARTS, so the current year
+            # sits at a negative horizon (it began before today); it must still end ahead
+            floor = -1.0 if (self.calendar and name == "inflation") else 0.0
+            if years[0] <= floor:
                 raise ValueError(f"{self.country}: {name} years must be positive "
                                  f"horizons ahead of today, got {years}")
             if len(set(years)) != len(years):
@@ -342,7 +349,17 @@ def propagated_uncertainty(state: MarketState, scenario: Scenario, horizon: int,
     hl = halflife or UNCERTAINTY_HALFLIFE
     hist = state.core_history.dropna()
     n = horizon * 12
-    scen = [step(scenario.inflation, 1 + m // 12) for m in range(n)]
+    if getattr(scenario, "calendar", False):
+        # each month after the last core print takes its CALENDAR year's inflation:
+        # dated at its midpoint, read off the year-start-keyed path (as the sheet does)
+        last = pd.Timestamp(hist.index[-1])
+        a0 = last.year + (last.month - 1) / 12.0
+        now = pd.Timestamp.today()
+        today_frac = now.year + (now.dayofyear - 1) / 365.25
+        scen = [step(scenario.inflation, a0 + (m + 1) / 12.0 + 1 / 24.0 - today_frac)
+                for m in range(n)]
+    else:
+        scen = [step(scenario.inflation, 1 + m // 12) for m in range(n)]
     base = [float(hist.iloc[-1])] * n
     delta = _ewma_vol_at(hist, scen, hl) - _ewma_vol_at(hist, base, hl)
     return max(state.drivers_today["inflation_uncertainty"] + delta, 0.0)
@@ -532,11 +549,17 @@ def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dic
 
 # ------------------------------------------------------------------ repo-data wiring
 
-def load_scenario(path: "Path | str") -> Scenario:
+def load_scenario(path: "Path | str", cpi_ytd: "dict | None" = None) -> Scenario:
     """A scenario CSV: columns ``year, policy_rate, inflation, real_growth`` (percent,
     year 1 = first full year ahead), optional ``price_insensitive`` / ``debt_gdp`` /
     ``fiscal_balance`` (deficit negative, as the sheet displays and exports) or the
-    older deficit-positive ``deficit``."""
+    older deficit-positive ``deficit``.
+
+    In CALENDAR years, inflation and growth are calendar-year averages of y/y rates and
+    the policy rate a year-end level. Inflation is keyed at each year's start; for the
+    current year the published months are history and the rest is priced at the rate
+    that delivers the stated average (``cpi_ytd``, from
+    ``macro.fetch_headline_cpi.year_to_date``; looked up by file stem when omitted)."""
     path = Path(path)
     df = pd.read_csv(path)
     missing = set(REQUIRED_COLUMNS) - set(df.columns)
@@ -556,6 +579,26 @@ def load_scenario(path: "Path | str") -> Scenario:
     def col(name):
         return {key(y): float(v) for y, v in df[name].dropna().items()} \
             if name in df else {}
+
+    def inflation_col():
+        if "inflation" not in df:
+            return {}
+        if not calendar:
+            return col("inflation")
+        from macro.fetch_headline_cpi import remaining_rate, year_to_date
+        ytd = cpi_ytd
+        if ytd is None:
+            try:
+                ytd = year_to_date(path.stem.upper()[:2], now.year)
+            except Exception:                                       # noqa: BLE001
+                ytd = {}
+        out = {}
+        for y, v in df["inflation"].dropna().items():
+            v = float(v)
+            if int(y) == (ytd or {}).get("year"):
+                v = remaining_rate(v, ytd)
+            out[round(int(y) - today_frac, 4)] = v       # the calendar year's START
+        return out
     # Fiscal comes in on either sign convention: ``fiscal_balance`` (deficit
     # negative, what the sheet shows and exports) is negated to the internal
     # deficit-positive convention the coefficient was measured on.
@@ -568,10 +611,10 @@ def load_scenario(path: "Path | str") -> Scenario:
     if calendar:
         deficit = {int(round(k - 1 + today_frac)) - now.year: v for k, v in deficit.items()}
     return Scenario(country=path.stem.upper(),
-                    policy_rate=col("policy_rate"), inflation=col("inflation"),
+                    policy_rate=col("policy_rate"), inflation=inflation_col(),
                     real_growth=col("real_growth"),
                     price_insensitive=col("price_insensitive"),
-                    debt_gdp=col("debt_gdp"), deficit=deficit)
+                    debt_gdp=col("debt_gdp"), deficit=deficit, calendar=calendar)
 
 
 def deficit_defaults(markets=("US", "UK", "DE", "JP")) -> dict:

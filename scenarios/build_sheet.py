@@ -243,6 +243,15 @@ def build() -> dict:
     except Exception as exc:                                        # noqa: BLE001
         logger.warning("learning speed not refitted (%s); using committed values", exc)
 
+    cpi_ytd = {}
+    try:
+        from macro.fetch_headline_cpi import load as load_headline, year_to_date
+        hl_cpi = load_headline(refresh=True)
+        cpi_ytd = {c: year_to_date(c, now.year, hl_cpi) for c in MARKETS}
+    except Exception as exc:                                        # noqa: BLE001
+        logger.warning("headline CPI year-to-date unavailable (%s); the current year's "
+                       "inflation input is used as stated", exc)
+
     payload = {"halflife": HL, "tenor": TENOR, "lam": 0.5 ** (1.0 / HL),
                "asof": str(obs["date"].max().date()), "markets": {},
                "view_convergence": VIEW_CONVERGENCE, "learning": learning,
@@ -290,6 +299,10 @@ def build() -> dict:
                      "v": round(float(v.iloc[-1]), 6),
                      "last": round(float(hist.iloc[-1]), 3),
                      "asof": str(hist.index[-1].date())},
+            # this year's published headline CPI months (the forecast's own measure):
+            # the inflation row is a calendar-year average, so the sheet prices the
+            # unpublished months at the rate that delivers it (headline_cpi.remaining_rate)
+            "cpi_ytd": cpi_ytd.get(c, {"year": int(now.year), "n": 0, "mean": None, "last": None}),
             "deficit_proj": {str(k): round(float(x), 2)
                              for k, x in sorted(deficits.get(c, {}).items())},
             # the deficit source's own growth baseline, {calendar year: %} -- the
