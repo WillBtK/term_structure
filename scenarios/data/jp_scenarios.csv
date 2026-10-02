@@ -10,7 +10,7 @@ Baseline,JP,2033,0.9,2,1.5
 Baseline,JP,2034,0.9,2,1.5
 Baseline,JP,2035,0.9,2,1.5
 Baseline,JP,2036,0.9,2,1.5
-Goldilocks,JP,2026,1.35,1.9,1.6
+Goldilocks,JP,2026,0.8,1.9,1.6
 Goldilocks,JP,2027,1.35,1.6,1.6
 Goldilocks,JP,2028,1.35,1.6,1.6
 Goldilocks,JP,2029,1.35,1.6,1.6
@@ -21,7 +21,7 @@ Goldilocks,JP,2033,1.35,1.6,1.6
 Goldilocks,JP,2034,1.35,1.6,1.6
 Goldilocks,JP,2035,1.35,1.6,1.6
 Goldilocks,JP,2036,1.35,1.6,1.6
-High Growth High Inflation,JP,2026,1.6,1.9,2.0
+High Growth High Inflation,JP,2026,0.8,1.9,1.75
 High Growth High Inflation,JP,2027,1.6,2.6,2.0
 High Growth High Inflation,JP,2028,1.6,2.6,2.0
 High Growth High Inflation,JP,2029,1.6,2.6,2.0
@@ -32,7 +32,7 @@ High Growth High Inflation,JP,2033,1.6,2.6,2.0
 High Growth High Inflation,JP,2034,1.6,2.6,2.0
 High Growth High Inflation,JP,2035,1.6,2.6,2.0
 High Growth High Inflation,JP,2036,1.6,2.6,2.0
-Stagflation,JP,2026,-0.5,1.9,2.0
+Stagflation,JP,2026,0.8,1.9,2
 Stagflation,JP,2027,0.63,3.5,2.0
 Stagflation,JP,2028,0.63,3.5,2.0
 Stagflation,JP,2029,0.63,3.5,2.0
@@ -43,7 +43,7 @@ Stagflation,JP,2033,0.63,3.5,2.0
 Stagflation,JP,2034,0.63,3.5,2.0
 Stagflation,JP,2035,0.63,3.5,2.0
 Stagflation,JP,2036,0.63,3.5,2.0
-Hard Landing,JP,2026,-0.4,1.9,0.0
+Hard Landing,JP,2026,0.8,1.9,0.25
 Hard Landing,JP,2027,0.54,0.8,0.0
 Hard Landing,JP,2028,0.54,0.8,0.0
 Hard Landing,JP,2029,0.54,0.8,0.0
