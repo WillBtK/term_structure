@@ -10,7 +10,7 @@ import json
 from playwright.sync_api import sync_playwright
 JS = r"""() => {
   activate('Baseline');
-  const BASIS = {US: 0.152, UK: 0, DE: 0, JP: 0};       // policy rate -> curve short rate
+  const BASIS = {US: 0.277, UK: 0, DE: 0, JP: 0};       // policy rate -> curve short rate (US: house rate = FF lower bound; curve = midpoint + 0.152)
   const S_INFL = {UK: 0.15, DE: 0.75, JP: 0.0};          // measured premium response
   const RHO_US = 0.5;
   const avg = (path, h, span=10) => { let s=0,n=0; for(let x=h+0.125; x<h+span; x+=0.25){ s+=step(path,x); n++; } return s/n; };
