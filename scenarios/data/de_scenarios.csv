@@ -32,7 +32,7 @@ High Growth High Inflation,DE,2033,1.375,2.6,3.0
 High Growth High Inflation,DE,2034,1.375,2.6,3.0
 High Growth High Inflation,DE,2035,1.375,2.6,3.0
 High Growth High Inflation,DE,2036,1.375,2.6,3.0
-Stagflation,DE,2026,1,2.7,3.5
+Stagflation,DE,2026,-0.32,3.94,3.5
 Stagflation,DE,2027,0.8,4.5,4.0
 Stagflation,DE,2028,0.8,4.5,4.0
 Stagflation,DE,2029,0.8,4.5,4.0
@@ -43,7 +43,7 @@ Stagflation,DE,2033,0.8,4.5,4.0
 Stagflation,DE,2034,0.8,4.5,4.0
 Stagflation,DE,2035,0.8,4.5,4.0
 Stagflation,DE,2036,0.8,4.5,4.0
-Hard Landing,DE,2026,1,2.7,1.5
+Hard Landing,DE,2026,-0.42,1.94,1.5
 Hard Landing,DE,2027,0.5,1.1,0.0
 Hard Landing,DE,2028,0.5,1.1,0.0
 Hard Landing,DE,2029,0.5,1.1,0.0
