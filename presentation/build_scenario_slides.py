@@ -35,24 +35,28 @@ MARKETS = ("US", "UK", "DE", "JP")
 _JS = """() => {
   const out = {asof: D.asof, scen: {}, today: {}, models: {}, hl: {}, cmp: {}};
   for(const c of ['US','UK','DE','JP']) out.today[c] = {tp: D.markets[c].tp_today, y: D.markets[c].y_today};
-  for(const c of ['UK','DE','JP']){ const m = D.markets[c].model;
-    out.models[c] = {beta: m.beta_us, own: m.adjust.fiscal,
-                     spill: m.beta_us*D.markets.US.model.adjust.fiscal - m.adjust.fiscal}; }
+  for(const c of ['UK','DE','JP']){ const m = D.markets[c].model, fc = FC_BETA[c];
+    const beta = fc ?? m.beta_us;          // the forecasting beta where one replaces the fit
+    out.models[c] = {beta, own: m.adjust.fiscal,
+                     spill: beta*D.markets.US.model.adjust.fiscal - (fc != null ? 0 : m.adjust.fiscal)}; }
   out.models.US = {own: D.markets.US.model.adjust.fiscal};
   for(const s of SCEN_NAMES){ activate(s); out.scen[s] = {};
     for(const c of ['US','UK','DE','JP'])
       out.scen[s][c] = project(c,[3,10]).map(x=>({tp:+x.tp.toFixed(2), y:+x.y.toFixed(2)})); }
-  // Baseline vs Hard Landing at the ten-year horizon: the fiscal channel and the premium
+  // Baseline vs Hard Landing at the ten-year horizon: the fiscal channel and the premium.
+  // The year-end construction: the US premium's move is the fair value on the scenario's
+  // own drivers (no phase-in; today's unexplained part fades identically in every
+  // scenario, so it cancels in the comparison); a spread market takes the US move at its
+  // forecasting beta and its own drivers, the inflation channel scaled (INFL_SCALE).
   for(const s of ['Baseline','Hard Landing']){ activate(s);
-    const mu = D.markets.US.model, us0 = D.markets.US.drivers, usH = driversAt('US', scenarioFor('US'), 10);
-    const vwU = 1 - Math.pow(lamFor(SCEN,'US'), 10);
-    const usPart = {inflation: mu.coef.expected_inflation*(kink(usH.expected_inflation)-kink(us0.expected_inflation))*vwU,
-                    uncertainty: mu.coef.inflation_uncertainty*(usH.inflation_uncertainty-us0.inflation_uncertainty)*vwU,
-                    fiscal: mu.adjust.fiscal*(usH.fiscal-us0.fiscal)*vwU};
-    const m = D.markets.DE.model, own0 = D.markets.DE.drivers, ownH = driversAt('DE', scenarioFor('DE'), 10);
-    const vw = 1 - Math.pow(lamFor(SCEN,'DE'), 10), r0 = relDrivers(own0, us0), rH = relDrivers(ownH, usH);
-    const g = k => (m.coef[k] ?? m.adjust[k] ?? 0);
-    const de = {}; for(const k in usPart) de[k] = m.beta_us*usPart[k] + g(k)*((rH[k]??m.base[k])-(r0[k]??m.base[k]))*vw;
+    const mu = D.markets.US.model, us0 = driversAt('US', scenarioFor('US'), 0), usH = driversAt('US', scenarioFor('US'), 10);
+    const usPart = {inflation: mu.coef.expected_inflation*(kink(usH.expected_inflation)-kink(us0.expected_inflation)),
+                    uncertainty: mu.coef.inflation_uncertainty*(usH.inflation_uncertainty-us0.inflation_uncertainty),
+                    fiscal: mu.adjust.fiscal*(usH.fiscal-us0.fiscal)};
+    const m = D.markets.DE.model, own0 = driversAt('DE', scenarioFor('DE'), 0), ownH = driversAt('DE', scenarioFor('DE'), 10);
+    const r0 = relDrivers(own0, us0), rH = relDrivers(ownH, usH), beta = FC_BETA.DE ?? m.beta_us;
+    const g = k => (m.coef[k] ?? m.adjust[k] ?? 0), sc = k => (k === 'fiscal' ? 1 : INFL_SCALE.DE);
+    const de = {}; for(const k in usPart) de[k] = beta*usPart[k] + sc(k)*g(k)*((rH[k]??m.base[k])-(r0[k]??m.base[k]));
     out.cmp[s] = {US: usPart, DE: de,
                   tp: Object.fromEntries(['US','UK','DE','JP'].map(c=>[c, project(c,[10])[0].tp]))};
   }

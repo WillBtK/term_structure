@@ -172,3 +172,12 @@ Slope of the JGB yield change (less the rate leg) on the US premium change: +0.1
 +0.12 pre-YCC, +0.09 under YCC, +0.41 (4q) / +0.98 (5q) since YCC ended, on 6-7 points.
 The US-mispricing spillover adds nothing at any beta. Forecasting beta for Japan: 0.15,
 to be revisited as post-YCC quarters accumulate -- the few so far point higher.
+
+## Addendum: policy rate -> curve short-rate basis (validation/policy_basis.py)
+
+Curve's shortest fitted tenor less the policy rate, net of the policy change realised over
+the tenor, 2017-2026 (2023+ in brackets): Bund 3m vs ECB deposit rate -0.21 (-0.16); gilt 6m
+vs Bank Rate -0.19 (-0.36); JGB 1y vs call rate -0.10 (-0.06). US: the house rate is the fed
+funds LOWER bound; the fitted 3m runs +0.152 over the target midpoint, so +0.277. The full
+window is used: the 2023+ gilt figure is contaminated by the gap between priced and realised
+cuts. All are applied in the scenario sheet (POLICY_BASIS).

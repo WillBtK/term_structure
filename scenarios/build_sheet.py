@@ -252,6 +252,15 @@ def build() -> dict:
         logger.warning("headline CPI year-to-date unavailable (%s); the current year's "
                        "inflation input is used as stated", exc)
 
+    gdp_ytd = {}
+    try:
+        from macro.fetch_quarterly_gdp import load as load_gdp, year_to_date as gdp_to_date
+        q_gdp = load_gdp(refresh=True)
+        gdp_ytd = {c: gdp_to_date(c, now.year, q_gdp) for c in MARKETS}
+    except Exception as exc:                                        # noqa: BLE001
+        logger.warning("quarterly GDP year-to-date unavailable (%s); remaining-period "
+                       "growth inputs are used as annual", exc)
+
     payload = {"halflife": HL, "tenor": TENOR, "lam": 0.5 ** (1.0 / HL),
                "asof": str(obs["date"].max().date()), "markets": {},
                "view_convergence": VIEW_CONVERGENCE, "learning": learning,
@@ -303,6 +312,9 @@ def build() -> dict:
             # the inflation row is a calendar-year average, so the sheet prices the
             # unpublished months at the rate that delivers it (headline_cpi.remaining_rate)
             "cpi_ytd": cpi_ytd.get(c, {"year": int(now.year), "n": 0, "mean": None, "last": None}),
+            # this year's published real GDP quarters (y/y): a scenario that states a rate
+            # for the rest of the year is turned into its annual average with these
+            "gdp_ytd": gdp_ytd.get(c, {"year": int(now.year), "n": 0, "yoy": [], "last": None}),
             "deficit_proj": {str(k): round(float(x), 2)
                              for k, x in sorted(deficits.get(c, {}).items())},
             # the deficit source's own growth baseline, {calendar year: %} -- the
