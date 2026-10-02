@@ -187,7 +187,8 @@ SLIDES.push(function(st){
    ["Other markets are the US plus a difference","relative inflation, relative ownership, relative "
     + "fiscal position - the last at a sensitivity pooled across five markets, not the US's"],
    ["Your macro path prices out","the deficit follows your growth view, but only its structural "
-    + "part is priced; both legs converge from today's market pricing, never jumping to the answer"]]
+    + "part is priced; both legs start from today's market and move with your calls, so the "
+    + "spreads between scenarios move only when the calls do"]]
    .forEach((r,i)=>{ const s=div("step");
      s.appendChild(div("n",String(i+1)));
      s.appendChild(div("t","<b>"+r[0]+"</b> - "+r[1]));
@@ -249,13 +250,13 @@ SLIDES.push(function(st){
   const foot=div("panel"); foot.style.borderLeft="3px solid var(--rule)";
   foot.innerHTML = "<span class=\"tag\">What it is not</span>"
     + "<div style=\"font:400 13px/1.5 var(--sans);color:var(--ink2)\">"
-    + "It <b style=\"color:var(--ink)\">prices scenarios; it does not forecast</b> - out of sample at "
-    + "three years it does no better than assuming yields stay put, which is the honest result. "
-    + "<b style=\"color:var(--ink)\">Japan is directional only.</b> And the speed at which the market "
-    + "converges to a stated view is a <b style=\"color:var(--ink)\">judgement we expose as a dial</b>, "
-    + "not a number we measured. <b style=\"color:var(--ink)\">A growth view is read as the "
-    + "cycle</b>, so a structural fiscal view is stated on the deficit row. Present it as a "
-    + "sensitivity, never as a point forecast."
+    + "Its year-end forecasts are only as good as the calls: nothing published beats assuming "
+    + "yields stay put at a year, and the one piece of the model that does on its own - fading "
+    + "today's unexplained US premium, <b style=\"color:var(--ink)\">7-9% less error</b> in real time - "
+    + "is built in. <b style=\"color:var(--ink)\">Japan follows only 0.15 of a US move</b> for "
+    + "forecasting. <b style=\"color:var(--ink)\">A growth view is read as the "
+    + "cycle</b>, so a structural fiscal view is stated on the deficit row. The Baseline is the "
+    + "house forecast; the other scenarios are conditional."
     + "</div>";
   o.b.appendChild(foot);
 });

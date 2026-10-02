@@ -9,9 +9,8 @@ import pytest
 
 from model.tp_drivers import DriverModel
 from model.tp_relative import RelativeModel
-from model.tp_drivers import RESIDUAL_PERSISTENCE
 from scenarios.engine import (HORIZONS, MarketState, Scenario,
-                              blended_policy_average, drivers_at, forward_average,
+                              rate_leg, drivers_at, forward_average, path_average,
                               leibowitz_return, load_scenario, market_forward_average,
                               propagated_uncertainty, real_return, run, run_market,
                               step)
@@ -24,6 +23,14 @@ STATE = MarketState("US", y_today=4.74, tp_today=1.63,
 US_MODEL = DriverModel(intercept=0.5,
                        coef={"expected_inflation": 1.25, "inflation_uncertainty": 0.4,
                              "price_insensitive": -0.065, "debt_gdp": 0.014})
+
+@pytest.fixture(autouse=True)
+def _no_policy_basis(monkeypatch):
+    """The generic contracts are stated on a curve whose short rate IS the policy rate;
+    the basis conversion has its own tests below."""
+    import scenarios.engine as eng
+    monkeypatch.setattr(eng, "POLICY_BASIS", {})
+
 
 def flat_scenario(country="US", policy=3.0, infl=2.3, n=3, **kw):
     return Scenario(country, policy_rate={i: policy for i in range(1, n + 1)},
@@ -144,11 +151,7 @@ def _flat_everything(policy=CURVE):
 
 
 def _rows(sc, state=STATE, model=US_MODEL, rho=1.0):
-    tp = {0: state.tp_today}
-    for h in HORIZONS:
-        tp[h] = model.scenario(state.drivers_today, drivers_at(state, sc, h),
-                               state.tp_today, horizon=h, rho=rho)
-    return run_market(state, sc, tp)
+    return run(model, {}, {"US": state}, {"US": sc}, rho=rho, view_convergence=0.8)["US"]
 
 
 def test_the_residual_decays_geometrically_and_is_whole_at_the_zero_horizon():
@@ -173,7 +176,7 @@ def test_a_temporary_premium_shock_fades_rather_than_persisting():
     """The point of the dial: an unexplained spike today must not be projected forward
     as though permanent."""
     spiked = replace(STATE, tp_today=STATE.tp_today + 1.0)
-    sc, rho = _flat_everything(), RESIDUAL_PERSISTENCE
+    sc, rho = _flat_everything(), 0.5
     calm_kept, calm_faded = _rows(sc, rho=1.0), _rows(sc, rho=rho)
     kept, faded = _rows(sc, state=spiked, rho=1.0), _rows(sc, state=spiked, rho=rho)
     for ck, cf, k, f in zip(calm_kept, calm_faded, kept, faded):
@@ -211,7 +214,8 @@ def test_a_policy_view_above_the_curve_raises_the_yield_and_costs_return():
     base, hawk = _rows(_flat_everything()), _rows(_flat_everything(policy=CURVE + 0.5))
     for b, h in zip(base, hawk):
         assert h.policy_gap == pytest.approx(0.5, abs=1e-9)
-        assert h.yield_10y == pytest.approx(b.yield_10y + 0.5, abs=1e-9)
+        # the view phases in from today's priced level at 1 - lam^h
+        assert h.yield_10y == pytest.approx(b.yield_10y + 0.5 * (1 - 0.8 ** h.horizon), abs=1e-9)
         assert h.nominal_return < b.nominal_return
 
 
@@ -226,8 +230,9 @@ def test_higher_inflation_means_higher_yield_and_lower_three_year_return():
     hot = flat_scenario(policy=CURVE, infl=4.5,
                         price_insensitive=base.price_insensitive,
                         debt_gdp=base.debt_gdp)
-    b, h = _rows(base)[0], _rows(hot)[0]
-    assert h.yield_10y > b.yield_10y + 1.0     # premium + expectations both rise
+    # a held inflation view reaches the premium as today's unexplained part fades
+    b, h = _rows(base, rho=0.5)[0], _rows(hot, rho=0.5)[0]
+    assert h.yield_10y > b.yield_10y + 1.0
     assert h.nominal_return < b.nominal_return
     assert h.real_return < b.real_return - 1.0
 
@@ -346,50 +351,67 @@ def test_the_market_forward_average_is_not_flat_across_horizons():
     assert market_forward_average(EXP_CURVE, 10) < market_forward_average(EXP_CURVE, 3)
 
 
-def test_at_the_zero_horizon_the_blend_is_the_market_and_the_identity_holds():
+def test_at_the_zero_horizon_the_rate_leg_is_todays_priced_level():
     """No part of a view is expressed yet at h=0, whatever the view is -- so
     y(0) = TP(0) + Pbar(0) must reproduce today's yield exactly."""
     st = _state_with_curve()
     sc = Scenario("US", policy_rate={1: 9.0}, inflation={1: 2.3})   # a wild view
-    pbar = blended_policy_average(st, sc, 0)
-    assert pbar == pytest.approx(st.y_today - st.tp_today, abs=1e-9)
+    assert rate_leg(st, sc, 0) == pytest.approx(st.y_today - st.tp_today, abs=1e-9)
 
 
 def test_the_view_phases_in_monotonically_with_horizon():
     st = _state_with_curve()
     sc = Scenario("US", policy_rate={1: 5.0}, inflation={1: 2.3})   # above the market
-    got = [blended_policy_average(st, sc, h) for h in (0, 1, 3, 5, 10, 20)]
+    got = [rate_leg(st, sc, h) for h in (0, 1, 3, 5, 10, 20)]
     assert got == sorted(got)                       # rising toward the view
     assert got[-1] < 5.0                            # but never overshoots it
 
 
-def test_the_convergence_dial_spans_market_only_to_view_only():
+def test_the_convergence_dial_spans_todays_level_to_the_view():
     st = _state_with_curve()
     sc = Scenario("US", policy_rate={1: 5.0}, inflation={1: 2.3})
-    at_h = 3
-    assert blended_policy_average(st, sc, at_h, view_convergence=0.0) == pytest.approx(
-        forward_average(sc.policy_rate, at_h))          # the view, in full, as before
-    assert blended_policy_average(st, sc, at_h, view_convergence=1.0) == pytest.approx(
-        market_forward_average(EXP_CURVE, at_h))            # the market, view ignored
+    assert rate_leg(st, sc, 3, lam=0.0) == pytest.approx(path_average(sc.policy_rate, 3))
+    assert rate_leg(st, sc, 3, lam=1.0) == pytest.approx(st.y_today - st.tp_today)
 
 
-def test_a_market_without_an_expected_curve_falls_back_to_the_view():
-    """Offline or partially-loaded markets must stay runnable, not blow up."""
+def test_the_market_s_own_priced_drift_is_not_projected():
+    """The curve here expects policy to fall, but a forecast that only restates today's
+    priced level must not inherit that fall: the priced drift did not materialise on
+    average (validation/FINDINGS_yield_forecast_backtest.md)."""
+    st = _state_with_curve()
+    curve = st.y_today - st.tp_today
+    sc = Scenario("US", policy_rate={1: curve}, inflation={1: 2.3})
+    assert market_forward_average(EXP_CURVE, 3) < curve - 0.2
+    for h in (1, 3, 10):
+        assert rate_leg(st, sc, h) == pytest.approx(curve, abs=1e-9)
+
+
+def test_a_market_without_an_expected_curve_still_runs():
+    """The rate leg needs only today's yield and premium."""
     st = MarketState("US", 4.74, 1.63, dict(TODAY), CORE)           # no curve
     sc = Scenario("US", policy_rate={1: 5.0}, inflation={1: 2.3})
-    assert blended_policy_average(st, sc, 3) == pytest.approx(
-        forward_average(sc.policy_rate, 3))
+    assert np.isfinite(rate_leg(st, sc, 3))
 
 
-def test_the_blend_damps_a_rate_view_at_three_years():
-    """The reported problem: a three-year projection used to pair the market's term
-    premium with the whole rate view. Half of it should be in, not all."""
+def test_the_view_is_phased_in_at_one_minus_lambda_to_the_h():
     st = _state_with_curve()
     sc = Scenario("US", policy_rate={1: 4.0}, inflation={1: 2.3})
-    mkt, view = market_forward_average(EXP_CURVE, 3), 4.0
-    got = blended_policy_average(st, sc, 3)
-    assert mkt < got < view
-    assert (got - mkt) / (view - mkt) == pytest.approx(1 - 0.8 ** 3)
+    curve = st.y_today - st.tp_today
+    got = rate_leg(st, sc, 3)
+    assert (got - curve) / (4.0 - curve) == pytest.approx(1 - 0.8 ** 3)
+
+
+def test_the_policy_path_is_put_on_the_curve_s_own_basis(monkeypatch):
+    """The house US rate is the fed funds lower bound; the curve's short rate sits 0.277
+    above it, so a path at the curve's level less the basis returns today's yield."""
+    import scenarios.engine as eng
+    monkeypatch.setattr(eng, "POLICY_BASIS", {"US": 0.277})
+    st = _state_with_curve()
+    curve = st.y_today - st.tp_today
+    sc = Scenario("US", policy_rate={1: curve - 0.277}, inflation={1: 2.3})
+    for h in (0, 3, 10):
+        assert rate_leg(st, sc, h) == pytest.approx(curve, abs=1e-9)
+    assert eng.policy_view(st, sc, 3) == pytest.approx(curve, abs=1e-9)
 
 
 # ------------------------------------------------- the endogenous deficit in run()
@@ -451,13 +473,16 @@ def test_a_stated_cut_the_growth_row_cannot_explain_is_priced_in_full():
     m, st, official, baseline = _one_market_setup()
     sc = Scenario("US", policy_rate={1: 3.5}, inflation={1: 2.3},
                   real_growth={1: 1.8}, deficit={k: v - 1.0 for k, v in official.items()})
-    kw = dict(deficit_defaults={"US": official}, rho=1.0, view_convergence=0.0,
-              growth_defaults={"US": baseline})
-    r = {x.horizon: x.tp for x in run(m, {}, {"US": st}, {"US": sc}, **kw)["US"]}
-    r0 = {x.horizon: x.tp for x in run(m, {}, {"US": st},
-                                       {"US": replace(sc, deficit=dict(official))},
-                                       **kw)["US"]}
-    assert r[3] - r0[3] == pytest.approx(-0.52, abs=1e-9)
+    # a view held from today is part of fair value at once and fades in from the
+    # unexplained premium at rho: all of it at rho=0, none at rho=1, 1 - rho^h between
+    for rho, share in ((0.0, 1.0), (0.5, 1 - 0.5 ** 3), (1.0, 0.0)):
+        kw = dict(deficit_defaults={"US": official}, rho=rho, view_convergence=0.0,
+                  growth_defaults={"US": baseline})
+        r = {x.horizon: x.tp for x in run(m, {}, {"US": st}, {"US": sc}, **kw)["US"]}
+        r0 = {x.horizon: x.tp for x in run(m, {}, {"US": st},
+                                           {"US": replace(sc, deficit=dict(official))},
+                                           **kw)["US"]}
+        assert r[3] - r0[3] == pytest.approx(-0.52 * share, abs=1e-9)
 
 
 def test_an_explicit_deficit_still_switches_the_rule_off():

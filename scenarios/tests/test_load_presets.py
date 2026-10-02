@@ -146,3 +146,16 @@ def test_a_later_file_overrides_only_the_cells_it_states(tmp_path):
                  "Baseline,US,2027,2.1,3.2,4.00\n")
     out = lp.parse_many([a, b], range(2026, 2032))
     assert out["Baseline"]["US"]["policy_rate"] == {2026: 3.75, 2027: 4.00}
+
+
+def test_rest_of_year_columns_become_a_remaining_block(tmp_path):
+    """growth_rest / inflation_rest state a rate for the unpublished part of the year;
+    the sheet turns them into the annual figure on every data refresh."""
+    from scenarios.load_presets import parse
+    f = tmp_path / "us.csv"
+    f.write_text("scenario,market,year,growth,inflation,policy,growth_rest,inflation_rest\n"
+                 "Hard Landing,US,2026,0.71,2.67,2.75,-1.0,1.0\n"
+                 "Hard Landing,US,2027,1.25,1.5,1.0,,\n")
+    p = parse(f, range(2026, 2032))["Hard Landing"]["US"]
+    assert p["remaining"] == {"real_growth": {2026: -1.0}, "inflation": {2026: 1.0}}
+    assert p["real_growth"] == {2026: 0.71, 2027: 1.25}

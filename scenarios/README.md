@@ -1,7 +1,8 @@
 # Scenario tool
 
 A macro forecast in, a ten-year yield and a bond return out, for the US, UK, Germany
-and Japan. One instrument — the ten-year bond — at two horizons: three years and ten.
+and Japan. One instrument — the ten-year bond — at every calendar year end to ten years
+out (the house year-end forecasts), and at three and ten years for returns.
 
 ## Inputs
 
@@ -65,8 +66,11 @@ and so is the interest-cost feedback of our own yields onto the deficit (loop ga
 ## Running it
 
 ```bash
+python -m scenarios.year_end_10y --scenario all --round   # year-end 10y table, off the sheet
+python -m scenarios.load_presets scenarios/data/{us,uk,de,jp}_scenarios.csv   # CSVs -> sheet
 python -m scenarios.engine          # the demo scenario, all four markets
 python -m scenarios.build_sheet     # refresh the browser payload
+python -m validation.sheet_engine_parity   # engine vs sheet, year-end horizons
 ```
 
 ```python
@@ -75,31 +79,48 @@ from scenarios.engine import load_scenario, latest_states, debt_projections, run
 
 ## The chain
 
+The construction was chosen on a real-time backtest of year-end forecasts against no
+change, 1992-2026 (`validation/FINDINGS_yield_forecast_backtest.md`). It is built so a
+forecast moves with the house's calls and not with the market's noise, without
+ignoring a repricing: today's yield and premium are common to every scenario, so the
+spreads between scenarios move only when their calls do.
+
 | step | what happens |
 |---|---|
-| **Term premium** | the driver models price the scenario's *change*; today's observed premium supplies the level |
-| **Yield** | `y(h) = TP(h) + P̄(h)`, `P̄` blending the market's forward expectation toward your path |
+| **Rate leg** | today's priced ten-year average converging on your policy path: `P̄(h) = curve + [view(h) − curve]·(1 − λ^h)`, **no drift of the market's own** |
+| **US premium** | the driver model's fair value on *your* drivers, plus today's unexplained part fading at `ρ = 0.5` a year |
+| **Spread premia** | today's premium + the US premium's move at the forecasting beta + their own drivers, the inflation channel scaled to what yields have shown; their own unexplained part held |
 | **Return** | Leibowitz constant-maturity: `R = y₀ + (Δy/H)·((H+1)/2 − D)`, deflated by your own inflation path for the real figure |
 
-**Both legs start from the market**, and converge at rates you control. That symmetry is
-the point. The premium leg carries today's unexplained residual forward, decaying at `ρ`
-toward the model's fair value. The expectations leg does the same with your rate view:
+`curve = y₀ − TP₀` is what the market prices today and `view(h)` your policy path
+averaged over `[h, h+10]`, **put on the curve's own short-rate basis**: the house US
+rate is the fed funds *lower bound* and the fitted 3m runs 0.152 above the target
+midpoint, so +0.277; Bund 3m vs the ECB deposit rate −0.21, gilt 6m vs Bank Rate −0.19,
+JGB 1y vs the call rate −0.10, each net of the policy change realised over the tenor
+(`validation/policy_basis.py`). Unconverted, the gap would be booked as premium.
 
-```
-P̄(h) = mkt(h) + [your(h) − mkt(h)] · (1 − λ^h)
-```
+Why each piece (all real time, error relative to no change at 4-5 quarters):
 
-`mkt(h)` is the market's **own** expected average over the ten years from `h`, read off
-the published expected-rate curve — and it is not the same number at every horizon. The
-US curve prices 3.11% over the next ten years but 2.75% over the ten years starting in
-three, because it expects policy to fall. Anchoring every horizon on the spot ten-year
-average would smuggle that decline in as a view nobody expressed.
+* **No market drift.** Adding the curve's priced drift made forecasts worse in every
+  market; the drift did not materialise on average.
+* **US residual fades at 0.5.** Leaning against the part of the US premium the drivers
+  cannot explain cut error 7-9% (both halves of the sample), and passed into gilts and
+  Bunds at their beta it helped there too (4-7%). Reverting to a trailing mean did not.
+* **Spread markets' own residual is held.** Leaning against it was 5-22% worse.
+* **Japan's forecasting beta is 0.15** (0.48 in the level fit): best on JGB yield
+  changes since 2006 and before yield-curve control; 0.48 was no better than no change.
+  The quarters since YCC ended point higher, so it is under review. Japan reaches the
+  US *only* through this beta: its relative drivers are read against the US held at
+  today.
+* **Inflation response.** A correct inflation call paid through the premium at the
+  model's coefficient in the US, at 0.75 of it in the euro area, and not at all in the
+  UK (0.15) or Japan (0) — there it works through the policy path.
+* **A correct rate call is worth most** (7-23% less error); the house view is phased in
+  at 20% a year.
 
-Without this, a three-year projection paired the **market's** term premium with your
-**entire** rate view — an inconsistency that showed up as an implausibly high ten-year
-yield at short horizons. At `h = 0` no view is in yet, so `y(0) = TP(0) + P̄(0)`
-reproduces today's yield exactly. Every result carries `market_policy_avg`,
-`view_policy_avg` and `view_weight` so the blend is inspectable.
+The parameters live in `scenarios.engine` (`RESIDUAL_FADE_US`, `POLICY_BASIS`,
+`FORECAST_BETA`, `INFLATION_RESPONSE`) and travel to the sheet in its payload, so the two
+cannot drift apart. At `h = 0` no view is in yet and `y(0)` is today's yield.
 
 **λ is fitted, and it is not about persuasion.** It used to be asserted at 0.8 and
 justified as how quickly your view reaches the market. That justification does not
@@ -130,24 +151,19 @@ force agreement — the market has seen what we have seen and concluded somethin
 and there is a genuine chance we are simply wrong. So it keeps the slower disagreement
 rate, `λ = 0.8`, and a scenario carries `is_view` to say which of the two it is.
 
-The gap is not academic. Baseline states policy at 3.75% flat while the curve prices it
-falling to about 2.7%, so the view sits ~64bp above the market today and ~128bp above
-at ten years. At the disagreement rate that reads 4.74% / 4.97% at three and ten years;
-at a learning rate it would read 5.23% / 5.15%. Same inputs, and the difference is
-entirely how much of a *disputed forecast* should be treated as already priced.
-
 **Your typed paths are untouched.** At long horizons the yield still converges on
 exactly what you entered — policy at 1% still delivers 1%. Only the route there is
 faster. The dial above the grid overrides λ by hand (`0` = perfect foresight, `1` =
-project the market's own forward curve); leaving it on *fitted* uses the table.
+hold today's priced level); leaving it on *fitted* uses the table.
 
 ## The two inflation channels
 
 Your single inflation path feeds two drivers that sit at different levels today, so no
 flat path zeroes both — and that is correct rather than a defect.
 
-* **Long-run expectation** is the ten-year forward average of your path, measured
-  against today's *surveyed* expectation (US: 2.3%).
+* **Long-run expectation** is the average of your path over the bond's ten-year life.
+  Today's reading uses your path too, so any gap to the surveyed expectation sits in the
+  unexplained premium and fades with it (US) or is held (spread markets).
 * **Uncertainty** is the fitted EWMA volatility propagated through your path and
   measured against a *status-quo baseline* — inflation continuing at its latest
   realised reading (US core: 2.8%).
@@ -173,8 +189,8 @@ while derived, the exported CSV omits the fiscal column so the engine re-derives
 identical full path.
 
 It computes entirely in the browser from `scenarios/data/sheet_payload.json` (built by
-`build_sheet.py`) and agrees with `scenarios.engine` to about **0.2 basis points**; the
-gap is payload rounding, nothing else. Export writes a CSV in exactly the format
+`build_sheet.py`) and agrees with `scenarios.engine` to **0.05 basis points** at every
+year-end horizon (`validation/sheet_engine_parity.py`); the gap is payload rounding. Export writes a CSV in exactly the format
 `load_scenario` reads.
 
 ### UK breakevens are put on a CPI footing before display
@@ -207,11 +223,12 @@ inlined payload, publish `scenarios/sheet/index.html`.
 
 ## What this is, and is not
 
-A **conditional mapping**: you supply the scenario, the tool prices it. Not a forecaster
-— see `validation/FINDINGS_scenario_oos.md`, where matching the random walk at three
-years is the expected result. Present sensitivities, never forecasts; the scenarios
-carry the uncertainty. Japan is directional only: its beta on the US premium is 0.74
-over the full sample against 0.12 on changes since 2010.
+The Baseline is the **house forecast**; the other four are **conditional** ("if the
+world is stagflationary, how do bonds price?") and are priced faster, because the state
+happens and the market sees it. A forecast is only as good as its calls: nothing
+published beats no change at a year, and the one piece of the model that does on its
+own — fading today's unexplained US premium — is built in. Everything else is your
+rate and inflation calls, priced.
 
 ## Named scenarios
 
@@ -233,9 +250,16 @@ remaining months at the rate that delivers the stated average,
 adjusted CPI (`macro/fetch_headline_cpi.py`: BLS CPI-U SA; ECB euro-area HICP SA for the
 German market; OECD all-items SA for Japan; ONS CPI for the UK, adjusted here with STL
 because the ONS publishes no SA CPI), refreshed every daily run. The sheet shows
-the split under the grid. The alternative scenarios' 2026 inflation is set to the
-Baseline's (2026 was two-thirds published when they were reviewed); their departures
-start in 2027. Beyond the
+the split under the grid, and does the same for growth from the published GDP quarters
+(`macro/fetch_quarterly_gdp.py`; euro-area GDP for the German market).
+
+The alternative scenarios' 2026 growth and inflation are the Baseline's, except
+Stagflation and Hard Landing, which state their 2026 rates for the **unpublished periods
+only** — the `growth_rest` / `inflation_rest` columns, which `load_presets` turns into a
+`remaining` block; the sheet rebuilds the annual figure on every data refresh. Their
+2026 year-end policy rates are capped by the meetings left: 50bp a meeting in
+Stagflation and Hard Landing, 25bp in the other two, or the stated target if nearer.
+The US policy rate is the fed funds **lower bound**. Beyond the
 sheet's 2026-31 grid the 2031 values hold, which matches the forecast's flat tails to
 2045. The fiscal balance follows the official projection, re-aligned to the growth row.
 After changing presets, refresh the deck's scenario slides with

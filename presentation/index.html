@@ -822,8 +822,9 @@ SLIDES.push({steps:3, render(st,k,anim){
     +"relative inflation, relative official ownership, relative fiscal position, the last "
     +"at a sensitivity pooled across five markets rather than borrowed from the US. Moving "
     +"all four markets together moves nothing through the differentials; only genuine "
-    +"divergence does. Japan's beta is the loosest and we treat it as <i>directional "
-    +"only</i>: the relationship holds over decades, not over quarters.");
+    +"divergence does. For forecasting, Japan follows only <i>0.15</i> of a US premium move "
+    +"(0.48 in the level fit): the best fit to JGB yield changes since 2006. The few "
+    +"quarters since yield-curve control ended point higher, so it is under review.");
   st.appendChild(o.s);
   o.wrap.style.flexDirection="column"; o.wrap.style.gap="24px";
 
@@ -898,10 +899,10 @@ SLIDES.push({steps:2, render(st,k,anim){
      ["Japan",bpf(F.JP.own),bpf(F.JP.spill),F.JP.beta.toFixed(2)]]);
   left.appendChild(t);
   const foot=div(null,"<div style=\"font:400 13px/1.5 var(--serif);color:var(--ink2);max-width:46ch\">"
-    +"A US deficit reaches the others at <i>beta x US sensitivity, less their own</i>: "
+    +"A US deficit reaches gilts and Bunds at <i>beta x US sensitivity, less their own</i>: "
     +"about half the US response for the Bund, close to what the Bund's month-to-month "
-    +"co-movement with Treasuries implies, and almost nothing for Japan, which has largely "
-    +"decoupled. Neither route can turn negative.</div>");
+    +"co-movement with Treasuries implies. Japan takes it only through its forecasting "
+    +"beta, 0.15 of the US response. Neither route can turn negative.</div>");
   left.appendChild(foot);
   o.wrap.appendChild(left);
 
@@ -998,8 +999,10 @@ SLIDES.push({steps:1, render(st,k,anim){
   const o=shell(Q[11],"Five scenarios, four markets",
     "The ten-year term premium and ten-year yield each scenario implies, as the sheet "
     +"prices it. The US sets the direction; each market's own inflation, ownership and "
-    +"fiscal position set how far it travels. Both legs converge from today's market "
-    +"pricing rather than jumping to the model's answer.");
+    +"fiscal position set how far it travels. Both legs start from today's market: the "
+    +"rate view phases in from what the curve prices, with no drift of the market's own; "
+    +"the US premium moves to fair value on the scenario's drivers as today's unexplained "
+    +"part halves each year; the others follow it at their beta.");
   st.appendChild(o.s);
   o.wrap.style.gap="36px"; o.wrap.style.alignItems="flex-start";
   o.wrap.style.justifyContent="flex-start"; o.wrap.style.marginTop="14px";
@@ -1051,17 +1054,18 @@ SLIDES.push({steps:2, render(st,k,anim){
   o.wrap.classList.add("top"); o.wrap.style.paddingTop="6px";
 
   const cav=div(""); cav.style.cssText="display:flex;flex-direction:column;width:100%";
-  [["It prices scenarios - it does not forecast",
-    "Out of sample at three years it does no better than assuming yields stay put, which "
-    +"is the expected result and the honest one. You supply the macro view; this prices "
-    +"it. Present it as a sensitivity, never as a point forecast."],
-   ["Japan is directional only",
-    "Its link to the US premium holds across decades but weakly quarter to quarter. Use "
-    +"it for the sign and the rough magnitude, not the decimal."],
-   ["Some parameters are judgements, and are exposed as dials",
-    "How fast today's unexplained premium fades, and how fast a stated rate view gets "
-    +"priced into the curve, are settings rather than measurements. Both are visible in "
-    +"the tool and honest use means showing more than one."],
+  [["A forecast is only as good as its calls",
+    "Nothing published beats assuming yields stay put at a year. The one piece that does "
+    +"on its own - fading today's unexplained US premium - is built in (7-9% less error, "
+    +"real time); the rest is your rate and inflation calls, priced. The Baseline is the "
+    +"house forecast; the other scenarios are conditional."],
+   ["Japan's link to the US is weak",
+    "For forecasting it follows 0.15 of a US premium move, the best fit to JGB yields since "
+    +"2006; the quarters since yield-curve control ended point higher and it is under review."],
+   ["The speeds are set from backtests, and are still dials",
+    "Today's unexplained US premium halves each year, and a house rate view is priced at "
+    +"20% a year, both chosen on real-time forecast accuracy against no change. Gilts, Bunds "
+    +"and JGBs keep their own unexplained premium: leaning against it made them worse."],
    ["A growth view is read as the cycle",
     "Growth above the official baseline is treated as a boom, never as higher potential "
     +"growth, so it does not lower the priced deficit. A structural fiscal view is "

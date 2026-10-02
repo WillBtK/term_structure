@@ -9,18 +9,24 @@ headline equals core.
 
 The chain, every link anchored to today:
 
-  0. RESIDUAL DECAY.  The part of today's premium the drivers cannot explain does not
-     persist for ever. It survives at ``RESIDUAL_PERSISTENCE`` a year -- 0.9, a
-     half-life near six and a half years -- so a temporary spike is not projected
-     forward as though permanent, and the model does not assert a large mispricing
-     either. Turn it down for a shock you believe is temporary. The evidence, including
-     the markets that prefer no decay at all, is in ``model.tp_drivers``.
+  0. WHAT THE FORECAST IS BUILT TO DO. A year-end forecast should move with the house's
+     calls and not with the market's noise, without ignoring a repricing. Every choice
+     below was made on a real-time backtest against no change, 1992-2026
+     (validation/FINDINGS_yield_forecast_backtest.md): today's yield and premium are
+     common to every scenario, so the spreads between scenarios move only when their
+     calls do.
 
-  1. TERM PREMIUM.  The driver models (``model.tp_drivers`` for the US,
-     ``model.tp_relative`` for the spread markets) translate the scenario's driver
-     values into a premium CHANGE from today; today's observed premium supplies the
-     level. Two drivers come straight from the scenario: long-run expected inflation
-     is the ten-year forward average of the projected inflation path, and inflation
+  1. TERM PREMIUM.  US: the driver model's fair value on the SCENARIO's drivers, plus
+     the part of today's premium those drivers cannot explain, fading at
+     ``RESIDUAL_FADE_US`` (0.5) a year -- leaning against that residual cut 4-5 quarter
+     error by 7-9% in real time. Spread markets: today's premium, plus the US premium's
+     move at ``FORECAST_BETA`` (the fitted beta, except Japan at 0.15, which is then the
+     whole US effect), plus their own drivers relative to the US, with the premium's
+     response to an inflation call scaled to what yields have shown
+     (``INFLATION_RESPONSE``). Their own unexplained premium is held: leaning against it
+     made their forecasts worse. Two drivers come straight from the scenario: long-run
+     expected inflation is the average of the projected inflation path over the bond's
+     life, and inflation
      uncertainty is the fitted EWMA volatility propagated through the scenario months
      and measured AGAINST A STATUS-QUO BASELINE -- the same history extended with
      inflation simply continuing at its latest reading. Without the baseline, any
@@ -33,47 +39,17 @@ The chain, every link anchored to today:
      overrides it; debt/GDP defaults to the committed WEO/national-source projection
      (``macro.debt_gdp``), also overridable.
 
-  2. YIELD.  y(h) = TP(h) + Pbar(h), where Pbar(h) is the expected average short rate
-     over the ten years from h -- and it is BLENDED, not taken from the user alone.
+  2. YIELD.  y(h) = TP(h) + Pbar(h), Pbar(h) the expected average short rate over the
+     ten years from h:
 
-     The reason is a consistency one. The premium leg is anchored on the market and
-     converges to the model's fair value at ``rho``; if the expectations leg took the
-     user's path at face value from day one, a three-year projection would pair the
-     MARKET's term premium with the USER's entire rate view, and the disagreement would
-     land undamped on a yield that is otherwise mostly the market's. So both legs start
-     from the market and move toward the view:
+         Pbar(h) = curve + [view(h) - curve] * (1 - lam ** h)
 
-         Pbar(h) = mkt(h) + [user(h) - mkt(h)] * (1 - VIEW_CONVERGENCE ** h)
-
-     ``mkt(h)`` is the market's OWN expected average over the ten years from h, read
-     off the published expected-rate curve (``market_forward_average``). It is not the
-     same number at every horizon and that matters: the US curve prices 3.11% over the
-     next ten years but 2.75% over the ten years starting in three, because it expects
-     policy to fall. Anchoring every horizon on the spot ten-year average would smuggle
-     that decline in as a view nobody expressed -- which is why the sheet's neutral
-     opening is the market's own year-by-year path rather than a flat line.
-
-     THE SAME WEIGHT APPLIES TO THE PREMIUM. A view is one object: "policy tightens
-     and inflation comes down with it" is a single forecast, not two. Until this was
-     made explicit the premium's drivers took the user's inflation path at face value
-     from year one while the expectations leg phased the matching rate view in at
-     1 - lam**h -- a fifth of it after a year. A disinflationary tightening therefore
-     put the whole premium fall in immediately and only a fifth of the rate rise, and
-     the net ten-year yield moved on the gap between two dials rather than on the
-     economics. Nothing supports the market believing one half of a forecast faster
-     than the other, so both legs now move at 1 - lam**h and the composition of the
-     yield at any horizon is coherent. The RESIDUAL still decays at ``rho``: it is not
-     a view, it is the part of today's premium the drivers cannot explain, and how
-     fast a mispricing dies is a different question from how fast a forecast is
-     believed.
-
-     At h = 0 no part of the view is in yet, so Pbar(0) is the market's number exactly
-     and y(0) = TP(0) + Pbar(0) reproduces today's yield. ``VIEW_CONVERGENCE = 0.8``
-     puts about half a stated view into the three-year horizon and nine tenths into the
-     ten-year one; 0 restores the old take-it-literally behaviour and 1 ignores the view
-     entirely. Every result carries ``market_policy_avg``, ``view_policy_avg`` and
-     ``view_weight`` so the blend is inspectable rather than buried, and ``policy_gap``
-     still reports the raw disagreement with today's curve.
+     ``curve`` is the ten-year average today's market prices (y0 - TP0), ``view(h)`` the
+     scenario's policy path averaged over [h, h+10] and put on the curve's own short-rate
+     basis (``POLICY_BASIS``), and ``lam`` the speed at which a view of this kind is
+     priced (``convergence_for``: the house forecast slowest). There is NO drift of the
+     market's own: the curve's priced drift did not materialise on average, and adding it
+     made forecasts worse. At h = 0, y(0) reproduces today's yield exactly.
 
   3. RETURN.  A constant-maturity ten-year position held H years with the yield
      moving linearly from y(0) to y(H) earns, annualised (Leibowitz-Bova-Kogelman),
@@ -99,7 +75,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from model.tp_drivers import DRIVERS, RESIDUAL_PERSISTENCE, DriverModel
+from model.tp_drivers import DRIVERS, DriverModel
 from model.tp_relative import RelativeModel
 
 logger = logging.getLogger(__name__)
@@ -150,6 +126,28 @@ VIEW_CONVERGENCE = 0.8
 LEARNING = {"low": 0.40, "high": 0.685,   # fitted; see FINDINGS_growth_drawdowns.md
             "view": VIEW_CONVERGENCE}     # our own forecast: disagreement, not learning
 LEARNING_INFL_SPLIT = 4.0                 # % mean inflation dividing the two regimes
+
+# --- The year-end construction's parameters (validation/FINDINGS_yield_forecast_backtest.md).
+# The scenario sheet reads these from its payload (scenarios.build_sheet), so the
+# browser and this module cannot drift apart.
+# Annual survival of the part of today's US premium the drivers cannot explain.
+RESIDUAL_FADE_US = 0.5
+# House policy rate -> the government curve's own short rate (validation/policy_basis.py,
+# validation/survey_basis.py). US: the house rate is the fed funds LOWER bound.
+POLICY_BASIS = {"US": 0.277, "UK": -0.185, "DE": -0.214, "JP": -0.102}
+# Share of a US premium move reaching a spread market's forecast, where it differs from
+# the fitted level beta (validation/backtest_japan_beta.py).
+FORECAST_BETA = {"JP": 0.15}
+# Realised / modelled premium response to an inflation call
+# (validation/backtest_inflation_channel.py).
+INFLATION_RESPONSE = {"US": 1.0, "UK": 0.15, "DE": 0.75, "JP": 0.0}
+
+
+def forecast_params() -> dict:
+    """What the scenario sheet needs to run the same construction."""
+    return {"rho_us": RESIDUAL_FADE_US, "policy_basis": dict(POLICY_BASIS),
+            "forecast_beta": dict(FORECAST_BETA),
+            "inflation_response": dict(INFLATION_RESPONSE)}
 
 
 def convergence_for(scenario, learning: dict | None = None,
@@ -259,6 +257,15 @@ def forward_average(path: dict, start: int, span: int = int(TENOR)) -> float:
     return float(np.mean([step(path, start + k) for k in range(1, span + 1)]))
 
 
+def path_average(path: dict, start: float, span: float = TENOR, step_y: float = 0.25) -> float:
+    """Average of a path over [start, start+span], quarterly -- what a bond bought at
+    ``start`` lives through. ``forward_average`` samples one point a year from start+1,
+    which skips the first year: right for the official deficit's annual keys, wrong for
+    a rate or inflation path held from day one. Mirrors the sheet's ``avgPath``."""
+    xs = np.arange(start + step_y / 2, start + span, step_y)
+    return float(np.mean([step(path, float(x)) for x in xs]))
+
+
 def market_forward_average(curve: dict, start: float, span: float = TENOR) -> float:
     """The MARKET's expected average short rate over ``span`` years beginning at
     ``start``, read off the published expected-rate curve.
@@ -294,28 +301,24 @@ def market_forward_average(curve: dict, start: float, span: float = TENOR) -> fl
     return (cum(start + span) - cum(start)) / span
 
 
-def blended_policy_average(state: MarketState, scenario: Scenario, horizon: float,
-                           view_convergence: float = VIEW_CONVERGENCE) -> float:
-    """The expectations leg at a horizon: the market's forward view, moved toward the
-    user's by the share of their view that has been expressed by then.
+def policy_view(state: MarketState, scenario: Scenario, horizon: float) -> float:
+    """The scenario's policy path averaged over the ten years from ``horizon``, on the
+    curve's own short-rate basis."""
+    return path_average(scenario.policy_rate, horizon) + POLICY_BASIS.get(state.country, 0.0)
 
-        Pbar(h) = mkt(h) + [user(h) - mkt(h)] * (1 - lam ** h)
 
-    At the zero horizon nothing of the view is in yet and this returns the market's own
-    number exactly, so ``y(0) = TP(0) + Pbar(0)`` reproduces today's yield. As the
-    horizon lengthens the user's path takes over. ``lam = 0`` restores the old
-    behaviour -- the whole view priced from day one -- and ``lam = 1`` ignores the view
-    entirely and projects the market's own forward curve.
+def rate_leg(state: MarketState, scenario: Scenario, horizon: float,
+             lam: float = VIEW_CONVERGENCE) -> float:
+    """The expectations leg at a horizon: today's priced ten-year average moving toward
+    the scenario's, with no drift of the market's own.
 
-    Falls back to the user's path unblended when no expected-rate curve is available,
-    which keeps an offline or partially-loaded market runnable rather than broken.
+        Pbar(h) = curve + [view(h) - curve] * (1 - lam ** h)
+
+    ``lam = 0`` prices the whole view at once; ``lam = 1`` holds today's priced level.
     """
-    user = forward_average(scenario.policy_rate, horizon)
-    mkt = market_forward_average(state.expected_curve, horizon)
-    if not np.isfinite(mkt):
-        return user
-    lam = float(view_convergence)
-    return float(mkt + (user - mkt) * (1.0 - lam ** float(horizon)))
+    curve = state.y_today - state.tp_today
+    w = 1.0 - float(lam) ** max(float(horizon), 0.0)
+    return float(curve + (policy_view(state, scenario, horizon) - curve) * w)
 
 
 def _ewma_vol_at(hist: pd.Series, monthly_path: list, hl: int) -> float:
@@ -348,7 +351,9 @@ def propagated_uncertainty(state: MarketState, scenario: Scenario, horizon: int,
     from macro.fetch_core_cpi import UNCERTAINTY_HALFLIFE
     hl = halflife or UNCERTAINTY_HALFLIFE
     hist = state.core_history.dropna()
-    n = horizon * 12
+    # months to the horizon; a fractional (year-end) horizon takes its part-month, as
+    # the sheet's loop does
+    n = int(np.ceil(float(horizon) * 12 - 1e-9))
     if getattr(scenario, "calendar", False):
         # each month after the last core print takes its CALENDAR year's inflation:
         # dated at its midpoint, read off the year-start-keyed path (as the sheet does)
@@ -370,7 +375,7 @@ def drivers_at(state: MarketState, scenario: Scenario, horizon: int,
                deficit_default: dict | None = None) -> dict:
     """The driver values the premium models see at a horizon."""
     out = {
-        "expected_inflation": forward_average(scenario.inflation, horizon),
+        "expected_inflation": path_average(scenario.inflation, horizon),
         "inflation_uncertainty": propagated_uncertainty(state, scenario, horizon),
         "price_insensitive": (step(scenario.price_insensitive, horizon)
                               if scenario.price_insensitive
@@ -433,11 +438,12 @@ class ScenarioResult:
     market_policy_avg: float = float("nan")
     view_policy_avg: float = float("nan")
     view_weight: float = float("nan")
+    carried: float = float("nan")         # the unexplained premium still in tp, %
 
 
 def run_market(state: MarketState, scenario: Scenario, tp_path: dict,
-               debt_default: dict | None = None,
-               view_convergence: float = VIEW_CONVERGENCE) -> list:
+               lam: float = VIEW_CONVERGENCE, horizons=HORIZONS,
+               carried: dict | None = None) -> list:
     """Assemble yields and returns from an already-computed premium path.
 
     ``tp_path`` maps horizon (0 included) to the premium in percent -- computed by the
@@ -448,37 +454,36 @@ def run_market(state: MarketState, scenario: Scenario, tp_path: dict,
     dur = macaulay_duration(today, today + pd.DateOffset(years=int(TENOR)),
                             coupon_pct=state.y_today, ytm=state.y_today / 100.0)
     curve = state.y_today - state.tp_today          # the market's expected average
-    gap = forward_average(scenario.policy_rate, 0) - curve
+    gap = policy_view(state, scenario, 0) - curve
     out = []
-    for h in HORIZONS:
-        pbar = blended_policy_average(state, scenario, h, view_convergence)
-        mkt = market_forward_average(state.expected_curve, h)
+    for h in horizons:
+        pbar = rate_leg(state, scenario, h, lam)
         y = tp_path[h] + pbar                       # the identity, not a difference
-        nom = leibowitz_return(state.y_today, y, h, dur)
+        hold = max(float(h), 1e-9)
+        nom = leibowitz_return(state.y_today, y, hold, dur)
         out.append(ScenarioResult(
             country=state.country, horizon=h, tp=tp_path[h], policy_avg=pbar,
             yield_10y=y, nominal_return=nom,
-            real_return=real_return(nom, scenario, h), duration=dur,
+            real_return=real_return(nom, scenario, max(int(round(hold)), 1)), duration=dur,
             curve_expected=curve, policy_gap=gap,
-            market_policy_avg=mkt,
-            view_policy_avg=forward_average(scenario.policy_rate, h),
-            view_weight=1.0 - float(view_convergence) ** float(h)))
+            market_policy_avg=market_forward_average(state.expected_curve, h),
+            view_policy_avg=policy_view(state, scenario, h),
+            view_weight=1.0 - float(lam) ** max(float(h), 0.0),
+            carried=(carried or {}).get(h, float("nan"))))
     return out
 
 
 def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dict,
         debt_defaults: dict | None = None, deficit_defaults: dict | None = None,
-        rho: float = RESIDUAL_PERSISTENCE,
+        rho: float = RESIDUAL_FADE_US,
         view_convergence: float | None = None,
-        growth_defaults: dict | None = None) -> dict:
-    """All markets. The US premium path is computed first; every spread market's
-    premium is a beta on it plus its drivers relative to the US, both at the same
-    horizon, exactly as fitted.
+        growth_defaults: dict | None = None, horizons=HORIZONS) -> dict:
+    """All markets, at ``horizons`` (years ahead; ``year_end_horizons`` for year-ends).
+    The US premium path is computed first; every spread market follows it at its
+    forecasting beta, plus its own drivers (module docstring, step 1).
 
-    ``rho`` is the annual survival of the part of today's premium the drivers cannot
-    explain. It applies to both legs -- the US residual reaches the spread markets
-    twice, once through their own residual and once through the US premium their beta
-    multiplies.
+    ``rho`` is the annual survival of the part of today's US premium the drivers cannot
+    explain; it reaches the spread markets only through the US premium they follow.
 
     ``growth_defaults`` ({market: {years ahead: baseline real growth}}) switches on
     the endogenous deficit (``macro.fiscal_rules``): a scenario that states a growth
@@ -518,33 +523,54 @@ def run(us_model: DriverModel, spread_models: dict, states: dict, scenarios: dic
     # one (the sheet's dial, and every test that wants a fixed weight).
     lam_of = {c: (float(view_convergence) if view_convergence is not None
                   else convergence_for(sc)) for c, sc in scenarios.items()}
-    us_drv = {0: us_state.drivers_today}
-    us_drv.update({h: drivers_at(us_state, us_scen, h, debt_defaults.get("US"),
-                                 deficit_defaults.get("US"))
-                   for h in HORIZONS})
-    # One view, one speed. The share of the user's view that has been priced at this
-    # horizon is 1 - lambda**h, and it now weights BOTH legs: the expectations leg in
-    # blended_policy_average and the premium's move in fair value here.
-    vw = {h: 1.0 - lam_of["US"] ** float(h) for h in HORIZONS}
-    us_tp = {0: us_state.tp_today}
-    us_tp.update({h: us_model.scenario(us_drv[0], us_drv[h], us_state.tp_today,
-                                       horizon=h, rho=rho, view_weight=vw[h])
-                  for h in HORIZONS})
+    hs = sorted(set(horizons) | {0})
 
-    results = {"US": run_market(us_state, us_scen, us_tp, debt_defaults.get("US"),
-                                lam_of["US"])}
+    def drv(state, sc, c, h):
+        return drivers_at(state, sc, h, debt_defaults.get(c), deficit_defaults.get(c))
+
+    # US: fair value on the scenario's own drivers + today's unexplained part, fading.
+    us_drv = {h: drv(us_state, us_scen, "US", h) for h in hs}
+    us_resid = us_state.tp_today - us_model.premium(**us_drv[0])
+    us_tp = {h: (us_state.tp_today if h <= 0
+                 else us_model.premium(**us_drv[h]) + us_resid * rho ** float(h)) for h in hs}
+    results = {"US": run_market(us_state, us_scen, us_tp, lam_of["US"], horizons,
+                                {h: us_resid * rho ** max(float(h), 0.0) for h in hs})}
+
+    def pick(a, b):
+        out = dict(a)
+        out.update({k: b[k] for k in ("expected_inflation", "inflation_uncertainty")})
+        return out
+
     for c, m in spread_models.items():
         if c not in scenarios:
             continue
         st, sc = states[c], scenarios[c]
+        beta = FORECAST_BETA.get(c, m.beta_us)
+        s_inf = INFLATION_RESPONSE.get(c, 1.0)
+        own0 = drv(st, sc, c, 0)
+        tp0_us = us_tp[0]
+        p0 = m.premium(us_drv[0], own0, tp0_us)
         tp = {0: st.tp_today}
-        for h in HORIZONS:
-            own_h = drivers_at(st, sc, h, debt_defaults.get(c), deficit_defaults.get(c))
-            tp[h] = m.scenario(us_drv[0], us_drv[h], st.drivers_today, own_h,
-                               us_tp[0], us_tp[h], st.tp_today, horizon=h, rho=rho,
-                               view_weight=1.0 - lam_of[c] ** float(h))
-        results[c] = run_market(st, sc, tp, debt_defaults.get(c), lam_of[c])
+        for h in hs:
+            if h <= 0:
+                continue
+            own_h = drv(st, sc, c, h)
+            # where a forecasting beta replaces the fitted one, the US reaches this
+            # market only through it: relative drivers read against the US held at today
+            us_ref = us_drv[0] if c in FORECAST_BETA else us_drv[h]
+            own = m.premium(us_ref, own_h, tp0_us) - p0
+            infl = m.premium(pick(us_drv[0], us_ref), pick(own0, own_h), tp0_us) - p0
+            tp[h] = st.tp_today + beta * (us_tp[h] - tp0_us) + own - (1.0 - s_inf) * infl
+        results[c] = run_market(st, sc, tp, lam_of[c], horizons,
+                                {h: st.tp_today - p0 for h in hs})
     return results
+
+
+def year_end_horizons(n: int = 10, today: "pd.Timestamp | None" = None) -> dict:
+    """{calendar year: horizon in years} for this year's end and the next ``n - 1``."""
+    now = pd.Timestamp.today() if today is None else pd.Timestamp(today)
+    frac = now.year + (now.dayofyear - 1) / 365.25
+    return {y: round((y + 1) - frac, 4) for y in range(now.year, now.year + n)}
 
 
 # ------------------------------------------------------------------ repo-data wiring
@@ -716,9 +742,9 @@ def _main() -> None:
     }
     import sys
     rho = float(next((a.split("=")[1] for a in sys.argv if a.startswith("--rho=")),
-                     RESIDUAL_PERSISTENCE))
-    print(f"residual persistence rho = {rho}/yr "
-          f"({rho ** 3:.0%} of today's residual survives to 3y, {rho ** 10:.0%} to 10y)")
+                     RESIDUAL_FADE_US))
+    print(f"US residual fade rho = {rho}/yr "
+          f"({rho:.0%} of today's unexplained US premium survives one year, {rho ** 3:.0%} three)")
     res = run(us_model, spread, states, demo, debt, deficit_defaults(), rho=rho,
               growth_defaults=growth_defaults())
     for c, rows in res.items():

@@ -79,6 +79,15 @@ _ROW_ALIASES = {
     "fiscal": "deficit", "budgetbalance": "deficit"}
 
 
+# A rate stated for the REST of the current year (``growth_rest``, ``inflation_rest``):
+# the published months and quarters are history, so the scenario's rate governs only
+# the unpublished part, and the sheet rebuilds the annual figure on every data refresh.
+# Stored as a ``remaining`` block: {scenario: {market: {"remaining": {row: {year: v}}}}}.
+_REST_ALIASES = {"growthrest": "real_growth", "gdprest": "real_growth",
+                 "realgrowthrest": "real_growth", "inflationrest": "inflation",
+                 "cpirest": "inflation"}
+
+
 def _key(s: object) -> str:
     return re.sub(r"[^a-z0-9]", "", str(s).lower())
 
@@ -176,6 +185,9 @@ def parse(path: str | Path, years: range | None = None) -> dict:
     """CSV -> ``{scenario: {market: {row: {year: value}}}}``, validated."""
     df = pd.read_csv(path)
     df.columns = [_key(c) for c in df.columns]
+    rest_cols = [c for c in df.columns if c in _REST_ALIASES]
+    rest = df[["scenario", "market", "year", *rest_cols]].copy() if rest_cols else None
+    df = df.drop(columns=rest_cols)
     df = _from_variable_columns(df) if _from_variable_columns(df) is not None \
         else _to_long(df)
     # the recommended six-column layout has one column PER ROW rather than a `row`
@@ -194,6 +206,7 @@ def parse(path: str | Path, years: range | None = None) -> dict:
     df = df.dropna(subset=["value"])
 
     out: dict = {}
+    skipped: set = set()
     for i, r in df.iterrows():
         scen = _match_scenario(r["scenario"])
         mkt = _match(r["market"], _MARKET_ALIASES, "market")
@@ -205,10 +218,22 @@ def parse(path: str | Path, years: range | None = None) -> dict:
             raise ValueError(f"row {i + 2}: year/value not numeric "
                              f"({r['year']!r}, {r['value']!r})") from exc
         if years is not None and year not in years:
-            logger.warning("row %d: %s is outside the sheet's grid %d-%d, skipped",
-                           i + 2, year, years[0], years[-1])
+            skipped.add(year)              # the grid holds its last year flat beyond
             continue
         out.setdefault(scen, {}).setdefault(mkt, {}).setdefault(row, {})[year] = value
+    if skipped:
+        logger.warning("%s: years %s are outside the sheet's grid %d-%d, skipped",
+                    Path(path).name, sorted(skipped), years[0], years[-1])
+    if rest is not None:
+        for _, r in rest.iterrows():
+            for col in rest_cols:
+                if pd.isna(r[col]):
+                    continue
+                scen = _match_scenario(r["scenario"])
+                mkt = _match(r["market"], _MARKET_ALIASES, "market")
+                rem = (out.setdefault(scen, {}).setdefault(mkt, {})
+                       .setdefault("remaining", {}).setdefault(_REST_ALIASES[col], {}))
+                rem[int(float(r["year"]))] = float(r[col])
     return out
 
 

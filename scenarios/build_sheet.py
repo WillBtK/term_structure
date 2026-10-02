@@ -261,6 +261,8 @@ def build() -> dict:
         logger.warning("quarterly GDP year-to-date unavailable (%s); remaining-period "
                        "growth inputs are used as annual", exc)
 
+    from scenarios.engine import forecast_params
+
     payload = {"halflife": HL, "tenor": TENOR, "lam": 0.5 ** (1.0 / HL),
                "asof": str(obs["date"].max().date()), "markets": {},
                "view_convergence": VIEW_CONVERGENCE, "learning": learning,
@@ -268,7 +270,10 @@ def build() -> dict:
                # the endogenous-deficit rule: deficit(t) = official(t) - eps*gap(t),
                # the gap cumulating growth deviations vs the WEO baseline and closing
                # at GAP_CLOSURE per year (macro.fiscal_rules has the provenance)
-               "fiscal_rule": {"eps": SEMI_ELASTICITY, "closure": GAP_CLOSURE}}
+               "fiscal_rule": {"eps": SEMI_ELASTICITY, "closure": GAP_CLOSURE},
+               # the year-end construction's parameters, from scenarios.engine, so the
+               # sheet and the engine run the same numbers
+               "forecast": forecast_params()}
     for c in MARKETS:
         st, hist = states[c], core[c].dropna()
         m = hist.ewm(halflife=HL).mean()
