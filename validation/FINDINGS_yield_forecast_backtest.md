@@ -96,3 +96,38 @@ rates). For the US this understates the view by 0.15pp, about +0.04pp on end-202
 Look-ahead: the expected-rate curve and premium history come from the Atlas's current
 estimation (full-sample parameters). The fair premium, the regression and all views are
 real-time.
+
+## Addendum: fair value + fading deviation (validation/backtest_fair_value_reversion.py)
+
+    y(end-year) = spot - (1 - rho^H) x resid + (1 - 0.8^H) x (view - market)
+    resid = today's premium - the driver model's fair premium (refitted each quarter, real time)
+
+Equivalently: fair value (house rate view, part-weighted, + the drivers' fair premium) plus
+rho^H of today's deviation from it.
+
+| Relative RMSE vs spot, 4q (5q) | rho 1 | rho 0.7 | rho 0.5 | rho 0.3 |
+|---|---|---|---|---|
+| US, no view | 1.00 | 0.95 (0.94) | 0.93 (0.91) | 0.93 (0.90) |
+| US, SPF view | 1.07 | 1.02 | 1.00 | 1.00 |
+| US, oracle view | 0.95 | 0.90 | 0.88 (0.84) | 0.87 |
+| UK / euro area / Japan, no view | 1.00 | 1.08 / 1.05 / 1.07 | 1.15 / 1.14 / 1.22 | |
+
+US: holds in both halves (1994-2009 0.90, 2010-2026 0.95 at rho 0.5, 4q); the sign of the
+residual calls the direction of the yield change 59-70% of the time. Forecasts move by
+0.75 of a spot move (sd of revisions 0.82 of spot's). UK, euro area, Japan: the residual has
+no predictive value; the driver models there are too weak to anchor a forecast.
+
+2026 (US, end-2027 target, house view held at today's Baseline):
+
+| | 27 Feb | 31 Mar | 30 Apr | 29 May | 30 Jun | 31 Jul | 31 Aug | 30 Sep |
+|---|---|---|---|---|---|---|---|---|
+| 10y (zero) | 4.04 | 4.37 | 4.46 | 4.53 | 4.49 | 4.83 | 4.83 | 5.28 |
+| Fair value, end-2027 | 4.43 | 4.42 | 4.43 | 4.55 | 4.54 | 4.53 | 4.49 | 4.87 |
+| Forecast, rho 0.5 | 4.15 | 4.24 | 4.28 | 4.38 | 4.39 | 4.53 | 4.51 | 4.95 |
+| Spot + tilt (rho 1) | 4.29 | 4.59 | 4.68 | 4.72 | 4.68 | 4.99 | 4.97 | 5.40 |
+
+Of the 1.24pp rise, expected rates 0.21, premium 1.02: fair premium +0.44, unexplained
++0.58. The September jump in fair value is the US expected-inflation driver moving
+2.43 -> 2.81, and that comes from the Cleveland Fed 10y series bridged on after the
+August SPF; that series is partly market-derived, so a fair value built on it chases
+yields. On the SPF alone, September fair value is 4.49 and the forecast 4.72.
