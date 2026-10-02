@@ -131,3 +131,21 @@ Of the 1.24pp rise, expected rates 0.21, premium 1.02: fair premium +0.44, unexp
 2.43 -> 2.81, and that comes from the Cleveland Fed 10y series bridged on after the
 August SPF; that series is partly market-derived, so a fair value built on it chases
 yields. On the SPF alone, September fair value is 4.49 and the forecast 4.72.
+
+## Addendum: what a correct house call is worth, by channel (validation/backtest_inflation_channel.py)
+
+Production models (US driver model; UK / euro area / Japan as US beta + relative drivers),
+refitted each quarter in real time. "Correct call" = perfect foresight on the policy path
+(oracle) or on the expected-inflation and uncertainty drivers. Relative RMSE vs spot, 4q (5q).
+
+| | US | UK | Euro area | Japan |
+|---|---|---|---|---|
+| Lean against residual, rho 0.5 | 0.93 (0.91) | 1.12 (1.12) | 1.16 (1.15) | 1.26 (1.27) |
+| Correct rate call | 0.84 (0.83) | 0.77 (0.74) | 0.89 (0.86) | 0.93 (0.89) |
+| + correct inflation call via the premium | 0.75 (0.74) | 0.86 (0.82) | 0.87 (0.84) | 1.12 (1.11) |
+| Realised / modelled premium response to inflation | 1.06 (1.01) | 0.10 (0.18) | 0.76 (0.72) | -0.08 (-0.09) |
+
+The rate call pays in every market. The inflation call pays through the premium in the US
+(at the model's coefficient) and the euro area (three-quarters of it); in the UK and Japan
+the modelled premium response is far too large and a correct inflation call made the
+forecast WORSE -- there it moves yields through the policy path, not the premium.
