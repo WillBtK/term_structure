@@ -221,10 +221,12 @@ The sheet holds five independent scenarios, switched by the bar above the market
 switching is instant and nothing leaks across; a dot on the bar marks the ones that
 have been moved off their opening values.
 
-`Baseline` opens where the sheet has always opened — each market's own expected policy
-path, the IMF WEO macro baseline for growth and inflation, and the official fiscal
-balance re-aligned to it. The other four start as copies until their numbers are
-entered.
+`Baseline` is the house forecast for growth, CPI inflation and the policy rate in each
+market (`scenarios/data/*_scenarios.csv`, Baseline rows; revised 2026-10-02). Beyond the
+sheet's 2026-31 grid the 2031 values hold, which matches the forecast's flat tails to
+2045. The fiscal balance follows the official projection, re-aligned to the growth row.
+After changing presets, refresh the deck's scenario slides with
+`python -m presentation.build_scenario_slides`.
 
 **Pre-populating from a CSV.** `python -m scenarios.load_presets views.csv` parses a
 scenario file and writes the sheet's `PRESETS` block. `--check` parses and reports
