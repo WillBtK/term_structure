@@ -80,7 +80,7 @@ the premium responds to.
 ## DV01 — the dollar amount
 
 `us_dv01.py` prices the **full** marketable ladder — bills, nominal notes and bonds,
-TIPS and FRNs — and emits four monthly series in $mn per 1bp, 2003-01 → present:
+TIPS and FRNs — and emits four monthly series in $mn per 1bp, **1994-01 → present**:
 
 | column | what |
 |---|---|
@@ -88,6 +88,33 @@ TIPS and FRNs — and emits four monthly series in $mn per 1bp, 2003-01 → pres
 | `soma_dv01_mn` | DV01 held by the Federal Reserve |
 | `supply_3m_dv01_mn` | rolling 3-month net new supply |
 | `soma_net_3m_dv01_mn` | rolling 3-month net SOMA purchases |
+
+Two further columns say where each month's number comes from:
+
+| era | `outstanding_method` | source |
+|---|---|---|
+| 1994-01 → 1998-03 | `auction_rebuild` | every auction since 1979-11 (Fiscal Data), summed by CUSIP, plus the 1955-79 bonds from the Jan-1994 statement |
+| 1998-04 → 2000-12 | `mspd_statement` | the monthly statement PDFs, Table III parsed security by security |
+| 2001-01 → | `mspd_api` | MSPD table 3 (Fiscal Data API) |
+
+| era | `soma_method` | source |
+|---|---|---|
+| 1994-01 → 1996-05 | `fed_bulletin` | Federal Reserve Bulletin table 1.19, maturity buckets (FRASER) |
+| 1996-06 → 2003-06 | `h41_buckets` | H.4.1 maturity distribution (federalreserve.gov archive) |
+| 2003-07 → | `cusip` | NY Fed SOMA holdings by CUSIP |
+
+Before 2003-07 SOMA is known only by remaining-maturity bucket, so each bucket is priced
+at the outstanding ladder's DV01 per dollar in that bucket, scaled by `soma_calibration`
+(0.948: within a bucket SOMA held more seasoned, lower-duration issues; fitted on the
+2003-07 → 2007-11 overlap, where the calibrated estimate's error is 0.0% ± 2.2%, range
+−5.5% to +3.6%). The 3-month SOMA net-purchase flow needs CUSIPs to tell purchases from
+the portfolio ageing across buckets, so it starts in 2003-10. Every source is checked in
+`validation/FINDINGS_dv01_1994.md`.
+
+**Callable bonds are priced to their first call.** Treasury called every callable bond
+(the 1974-84 30-year issues) at its first call date, and the SOMA file already dates
+them so; MSPD carries the final maturity. `fetch_us.CALLABLE_FIRST_CALL` puts both
+ladders on the call date, which lowers 2001-09 outstanding DV01 by up to 3%.
 
 **The flow series are not the change in the stock.** The stock moves every month even
 with zero primary-market activity, because every outstanding bond's own duration drifts
@@ -136,10 +163,12 @@ index provider's constituent file, TRACE, Mergent FISD).
 
 ```
 fetch_us.py             MSPD + SOMA ladders; *_all variants keep TIPS/FRNs for DV01
+fetch_us_hist.py        1994-2003: statement PDFs, auction rebuild, H.4.1 + Bulletin buckets
 fetch_jp.py             BoJ holdings x MoF auction reference
 tenyear.py              duration + ten-year-equivalent math (pure, unit-tested)
 us_tye.py  jp_tye.py    the duration share, monthly
 us_dv01.py              the four DV01 series, monthly
+us_dv01_hist.py         their 1994 extension (pricing, SOMA buckets, calibration, splice)
 price_insensitive.py    THE PRODUCTION DRIVER: price-insensitive ownership, % of GDP
 project_us.py           SOMA duration share under a neutral balance sheet
 validate_us.py          pre-registered test of the duration share on the premium

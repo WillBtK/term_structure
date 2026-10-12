@@ -132,6 +132,21 @@ def security_dv01(ladder: pd.DataFrame, asof, nominal_curve,
     return pd.Series(out, index=ladder.index, name="dv01_mn")
 
 
+def to_call(ladder: pd.DataFrame) -> pd.DataFrame:
+    """Callable bonds priced to their first call date, the date Treasury redeemed every
+    one of them (``supply.fetch_us.CALLABLE_FIRST_CALL``). A no-op for the SOMA ladder,
+    whose file already carries the call date."""
+    from supply.fetch_us import CALLABLE_FIRST_CALL
+    calls = ladder["cusip"].map(CALLABLE_FIRST_CALL)
+    if calls.isna().all():
+        return ladder
+    out = ladder.copy()
+    call = pd.to_datetime(calls)
+    out["maturity_date"] = call.where(call.notna() & (call < pd.to_datetime(out["maturity_date"])),
+                                      pd.to_datetime(out["maturity_date"]))
+    return out
+
+
 def _curves_by_month(gsw: pd.DataFrame, tips: pd.DataFrame):
     """{period('M') -> (nominal_curve, real_curve_or_None)}, most-recent-as-of-month-end."""
     gsw = gsw.dropna(subset=["BETA0", "BETA1", "BETA2", "BETA3", "TAU1", "TAU2"])
@@ -160,7 +175,7 @@ def _dv01_ladder(ladder_all: pd.DataFrame, date_col: str, gsw, tips, _lookup) ->
         tips_row = _lookup(asof, tips) if asof >= REAL_CURVE_START else None
         nom_curve = _nominal_curve_for(gsw_row)
         real_curve = _real_curve_for(tips_row) if tips_row is not None else None
-        dv01 = security_dv01(sub, asof, nom_curve, real_curve)
+        dv01 = security_dv01(to_call(sub), asof, nom_curve, real_curve)
         frames.append(pd.DataFrame({
             "date": asof, "cusip": sub["cusip"].to_numpy(), "asset_class": sub["asset_class"].to_numpy(),
             "amount": sub["amount"].to_numpy(), "dv01_mn": dv01.to_numpy(),
@@ -264,6 +279,9 @@ def build(refresh: bool = False) -> pd.DataFrame:
         held_ladder.to_parquet(HELD_LADDER_PARQUET)
 
     df = aggregate(out_ladder, held_ladder)
+    # back to 1994: statement PDFs, auction records and H.4.1 maturity buckets
+    from supply.us_dv01_hist import splice_hist
+    df = splice_hist(df, refresh=refresh)
     df.to_parquet(DV01_PARQUET)
     return df
 

@@ -45,6 +45,24 @@ KEEP_CLASSES = {"Notes", "Bonds", "Bills Maturity Value"}
 SOMA_KEEP = {"Bills", "NotesBonds"}
 _TIMEOUT = 90
 
+# Callable bonds and their FIRST call date. Treasury redeemed every one of them at its first
+# call (each leaves the MSPD the month before; the 8-1/4% 2000-05 in May 2000, the last,
+# 11-3/4% 2009-14, in Nov 2009), and the market priced them to call. MSPD records the final
+# maturity; the NY Fed's SOMA file already dates them to the call. ``supply.us_dv01``
+# prices every security in this map to its call date -- the 1979-84 issues from the
+# auction record's own ``call_date``, the 1975-79 ones from their titles.
+CALLABLE_FIRST_CALL = {
+    "912810BU1": "2000-05-15", "912810BX5": "2002-02-15", "912810BZ0": "2002-11-15",
+    "912810CC0": "2003-08-15", "912810CE6": "2003-11-15", "912810CG1": "2004-05-15",
+    "912810CK2": "2004-11-15", "912810CM8": "2005-02-15", "912810CP1": "2005-05-15",
+    "912810CS5": "2005-11-15", "912810CV8": "2006-05-15", "912810CY2": "2006-11-15",
+    "912810DB1": "2007-11-15", "912810DF2": "2008-08-15", "912810DJ4": "2009-05-15",
+    "912810DL9": "2009-08-15", "912810DN5": "2009-11-15",
+    # called before 1998, no CUSIP in the later statements (see supply.fetch_us_hist)
+    "PRE79-8.500-1999": "1994-05-15", "PRE79-7.875-2000": "1995-02-15",
+    "PRE79-8.375-2000": "1995-08-15", "PRE79-8.000-2001": "1996-08-15",
+}
+
 # Full ladder (DV01), vs the nominal-only ladder above (TYE). Treasury renamed its TIPS
 # class from "Inflation-Indexed Notes/Bonds" to "Inflation-Protected Securities" at
 # 2004-06 with no overlap (confirmed on the cached data: IIN/IIB end 2004-05, IPS starts
@@ -81,9 +99,13 @@ def _get(url: str, retries: int = 4) -> dict:
     raise RuntimeError(f"fetch failed for {url[:110]}: {last}")
 
 
-def fetch_mspd(start_year: int = 2003, end_year: int = 2026,
+def fetch_mspd(start_year: int = 2001, end_year: int | None = None,
                refresh: bool = False) -> pd.DataFrame:
-    """Marketable Treasury securities outstanding, one row per security-month."""
+    """Marketable Treasury securities outstanding, one row per security-month.
+
+    The API's table 3 starts at 2001-01; earlier months come from
+    ``supply.fetch_us_hist`` (statement PDFs and auction records, back to 1994)."""
+    end_year = end_year or pd.Timestamp.today().year
     if not refresh and MSPD_RAW.exists():
         return _shape_mspd(pd.read_parquet(MSPD_RAW))
     fields = ("record_date,security_class1_desc,security_class2_desc,"
