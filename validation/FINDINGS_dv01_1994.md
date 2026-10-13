@@ -62,8 +62,19 @@ The series previously began in 2003 because both security-level sources do: the 
   * 1996-05 → 06: SOMA 86.9 → 86.6.
   * 2003-06 → 07: SOMA 176.2 → 157.7 (−10.5%), with outstanding −10.6% in the same month
     (the July 2003 sell-off).
-* **No SOMA flow before 2003-10.** The 3-month SOMA net-purchase flow needs CUSIPs to
-  separate purchases from holdings ageing across buckets, so it starts there.
+* **Monthly flows (added 2026-10-13).**
+  * Outstanding: the CUSIP-level monthly flow throughout. Across the 1998-03 → 04 source
+    change it uses the auction rebuild at both ends; across 2000-12 → 2001-01 the
+    statement and API ladders, which are identical.
+  * SOMA through 2003-07: each bucket's holdings beyond what last month's holdings would
+    have aged into, with the ageing taken from the outstanding ladder CUSIP by CUSIP, priced
+    at the bucket's DV01 per dollar. A test checks that pure ageing (a note crossing a
+    bucket edge, a bill maturing) reads zero.
+  * Against the CUSIP-level monthly flow, 2003-08 → 2007-11 (52 months): correlation
+    0.90, mean absolute error $1.1mn/bp (monthly sd $3.1mn/bp), average 5.0 vs 5.4.
+  * The SOMA flow is left uncalibrated: purchases are mostly new issues, not the seasoned
+    paper behind the stock calibration.
+  * The 3-month SOMA flow remains CUSIP-only (2003-10 →).
 
 ## A rejected alternative
 

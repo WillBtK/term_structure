@@ -150,7 +150,7 @@ def build_hist(refresh: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
     frb = frb[(frb.index >= HIST_START.to_timestamp()) & (frb.index < h41.index.min())]
     buckets = pd.concat([frb[H41_KEYS], h41[H41_KEYS + ["tips"]]]).sort_index()
     soma_b = soma_from_buckets(ratios, buckets)
-    soma_b = soma_b[soma_b.index < SOMA_CUSIP_START.to_timestamp()]
+    soma_b = soma_b[soma_b.index < SOMA_CUSIP_START.to_timestamp()]   # 2003-07: CUSIP
     # Within each maturity bucket SOMA held lower-duration issues than the market average
     # (more seasoned, higher-coupon paper), so the bucket estimate reads high. Scale by the
     # overlap's average CUSIP/bucket ratio (``validate``).
@@ -164,7 +164,7 @@ def build_hist(refresh: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
     logger.info("SOMA bucket calibration: x%.3f", cal)
     soma_b = soma_b * cal
     idx = pd.date_range(HIST_START.to_timestamp("M"),
-                        (SOMA_CUSIP_START - 1).to_timestamp("M"), freq="M")
+                        SOMA_CUSIP_START.to_timestamp("M"), freq="M")
     df = pd.DataFrame(index=idx)
     df["outstanding_dv01_mn"] = out.reindex(idx)
     df["soma_dv01_mn"] = soma_b.reindex(idx)
@@ -175,9 +175,22 @@ def build_hist(refresh: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
                                                  "mspd_statement", "mspd_api"))
     df["soma_method"] = np.where(idx < h41.index.min(), "fed_bulletin", "h41_buckets")
     df["soma_calibration"] = cal
+    # monthly flows. SOMA's from buckets is NOT calibrated: the stock calibration reflects
+    # SOMA holding seasoned paper, while what it buys is mostly new issues at auction
+    # (uncalibrated, the bucket flow averages 5.0 against 5.4 CUSIP-level, 2003-08..2007-11)
+    fl = monthly_flows(priced, raw, cal=1.0)
+    df["supply_1m_dv01_mn"] = fl["supply_1m_dv01_mn"].reindex(idx)
+    df["soma_net_1m_dv01_mn"] = fl["soma_net_1m_dv01_mn"].reindex(idx)
+    # the 3m flows whose window crosses the 1998-03/04 source change: rebuild at both ends
+    seam = _price(auction_ladder(pd.period_range(TEXT_START - 3, TEXT_START + 2, freq="M")))
+    f3 = flow_dv01(seam, months=3)
+    f3.index = pd.DatetimeIndex(f3.index).to_period("M").to_timestamp("M")
+    for d in pd.period_range(TEXT_START, TEXT_START + 2, freq="M"):
+        df.loc[d.to_timestamp("M"), "supply_3m_dv01_mn"] = f3.loc[d.to_timestamp("M")]
     df.index.name = "date"
     # the API months' outstanding/supply come from supply.us_dv01 itself
-    df.loc[df.index >= API_START.to_timestamp(), ["outstanding_dv01_mn", "supply_3m_dv01_mn"]] = np.nan
+    df.loc[df.index >= API_START.to_timestamp(),
+           ["outstanding_dv01_mn", "supply_3m_dv01_mn", "supply_1m_dv01_mn"]] = np.nan
     df.to_parquet(HIST_DV01_PARQUET)
     return df, priced
 
@@ -237,21 +250,136 @@ def splice_hist(df: pd.DataFrame, refresh: bool = False) -> pd.DataFrame:
     out = out.reindex(idx)
     early_out = idx < API_START.to_timestamp()
     early_soma = idx < SOMA_CUSIP_START.to_timestamp()
-    for c in ("outstanding_dv01_mn", "supply_3m_dv01_mn", "outstanding_method"):
+    for c in ("outstanding_dv01_mn", "supply_3m_dv01_mn", "supply_1m_dv01_mn",
+              "outstanding_method"):
         out.loc[early_out, c] = hist.loc[idx[early_out], c].to_numpy()
+    # SOMA's 1m flow is bucket-based through 2003-07 (its t-1 is still a bucket month)
+    early_flow = idx <= SOMA_CUSIP_START.to_timestamp("M")
+    out.loc[early_flow, "soma_net_1m_dv01_mn"] = hist["soma_net_1m_dv01_mn"].reindex(
+        idx[early_flow]).to_numpy()
     out["soma_calibration"] = np.nan
     for c in ("soma_dv01_mn", "soma_method", "soma_calibration"):
-        out.loc[early_soma, c] = hist.loc[idx[early_soma], c].to_numpy()
+        out.loc[early_soma, c] = hist[c].reindex(idx[early_soma]).to_numpy()
     # the 3m supply flow across the 2000-12 / 2001-01 seam: statement and API ladders
     # carry identical CUSIPs and amounts (validated), so one flow over both is exact
     api = pd.read_parquet(OUT_LADDER_PARQUET)
     seam = pd.concat([priced_hist[priced_hist["date"] >= pd.Timestamp("2000-10-01")]
                       [api.columns.intersection(priced_hist.columns)],
                       api[api["date"] < pd.Timestamp("2001-04-01")]], ignore_index=True)
-    f = flow_dv01(seam, months=3)
-    f.index = pd.DatetimeIndex(f.index).to_period("M").to_timestamp("M")
-    for d, v in f.items():
-        if pd.Timestamp("2001-01-01") <= d < pd.Timestamp("2001-04-01"):
-            out.loc[d, "supply_3m_dv01_mn"] = v
+    for months, col in ((3, "supply_3m_dv01_mn"), (1, "supply_1m_dv01_mn")):
+        f = flow_dv01(seam, months=months)
+        f.index = pd.DatetimeIndex(f.index).to_period("M").to_timestamp("M")
+        for d, v in f.items():
+            if pd.Timestamp("2001-01-01") <= d < pd.Timestamp("2001-04-01"):
+                out.loc[d, col] = v
     out.index.name = "date"
     return out
+
+
+# ------------------------------------------------------------------ monthly flows
+def _bucket_of(maturity, asof) -> pd.Series:
+    yrs = (pd.to_datetime(maturity) - pd.to_datetime(asof)).dt.days / 365.25
+    return pd.cut(yrs, [H41_EDGES[k][0] for k in H41_KEYS] + [100.0], labels=H41_KEYS)
+
+
+def bucket_transitions(raw: pd.DataFrame) -> dict:
+    """{month t: 6x6 frame} -- of the outstanding par in bucket b' at month-end t-1, the
+    share in bucket b at t (rows b', columns b; what matured drops out). Bills and
+    nominal coupons, bucketed by final maturity as H.4.1 and the Bulletin do."""
+    r = raw[raw["asset_class"].isin(["bill", "nominal"])].copy()
+    r["month"] = pd.to_datetime(r["record_date"]).dt.to_period("M")
+    months = sorted(r["month"].unique())
+    out = {}
+    for prev, cur in zip(months[:-1], months[1:]):
+        if cur != prev + 1:
+            continue
+        a = r[r["month"] == prev]
+        t0, t1 = prev.to_timestamp("M"), cur.to_timestamp("M")
+        b0 = _bucket_of(a["maturity_date"], t0)
+        b1 = _bucket_of(a["maturity_date"], t1)          # NaN once matured
+        m = (pd.DataFrame({"b0": b0, "b1": b1, "amt": a["amount"]})
+             .pivot_table(index="b0", columns="b1", values="amt", aggfunc="sum", observed=False)
+             .reindex(index=H41_KEYS, columns=H41_KEYS).fillna(0.0))
+        tot = a.groupby(b0, observed=False)["amount"].sum().reindex(H41_KEYS)
+        out[cur.to_timestamp("M")] = m.div(tot, axis=0).fillna(0.0)
+    return out
+
+
+def soma_bucket_flow(buckets: pd.DataFrame, ratios: pd.DataFrame, trans: dict,
+                     cal: float) -> pd.Series:
+    """Monthly SOMA net purchases in DV01 from bucket holdings: what each bucket holds
+    beyond what last month's holdings would have aged into, priced at this month's DV01
+    per dollar of that bucket.  P_b(t) = H_b(t) - sum_b' H_b'(t-1) T_b'b(t)."""
+    b = _soma_buckets_ex_tips(buckets)
+    out = {}
+    for t, T in trans.items():
+        prev = (t.to_period("M") - 1).to_timestamp("M")
+        if t not in b.index or prev not in b.index or t not in ratios.index:
+            continue
+        expected = b.loc[prev] @ T
+        out[t] = float(((b.loc[t] - expected) * ratios.loc[t]).sum()) * cal
+    return pd.Series(out, name="soma_net_1m_dv01_mn").sort_index()
+
+
+def _api_raw(start: pd.Period, end: pd.Period) -> pd.DataFrame:
+    from supply.fetch_us import fetch_mspd_all
+    m = fetch_mspd_all()
+    m = m[(m["record_date"] >= start.to_timestamp()) & (m["record_date"] <= end.to_timestamp("M"))]
+    return m.drop_duplicates(["record_date", "cusip"])
+
+
+def validate_flow(start: str = "2003-08", end: str = "2007-11") -> pd.DataFrame:
+    """Bucket-based monthly SOMA flow against the CUSIP-level one (bills and nominal
+    coupons on both sides; SOMA's TIPS out of the buckets via the CUSIP file)."""
+    from supply.fetch_us import fetch_soma_all
+    from supply.us_dv01 import HELD_LADDER_PARQUET
+    p0 = pd.Period(start, "M") - 1
+    held = pd.read_parquet(HELD_LADDER_PARQUET)
+    held = held[(held["date"] >= p0.to_timestamp())
+                & (held["date"] <= pd.Period(end, "M").to_timestamp("M"))]
+    truth = flow_dv01(held[held["asset_class"].isin(["bill", "nominal"])], months=1)
+    truth.index = pd.DatetimeIndex(truth.index).to_period("M").to_timestamp("M")
+    s = fetch_soma_all()
+    s = s[s["asset_class"] == "tips"].copy()
+    s["month"] = s["asof"].dt.to_period("M").dt.to_timestamp("M")
+    s["bucket"] = _bucket_of(s["maturity_date"], s["asof"])
+    tips = s.groupby(["month", "bucket"], observed=False)["amount"].sum().unstack() \
+        .reindex(columns=H41_KEYS).fillna(0.0)
+    h41 = h41_buckets()[H41_KEYS]
+    h = (h41 - tips.reindex(h41.index).fillna(0.0)).clip(lower=0.0)
+    ratios = api_bucket_ratios(start=p0, end=pd.Period(end, "M"))
+    trans = bucket_transitions(_api_raw(p0, pd.Period(end, "M")))
+    est = soma_bucket_flow(h, ratios, trans, cal=1.0)
+    j = pd.DataFrame({"cusip": truth, "buckets": est}).dropna()
+    return j.loc[start:end]
+
+
+def monthly_flows(priced_hist: pd.DataFrame, raw_hist: pd.DataFrame, cal: float) -> pd.DataFrame:
+    """1-month net supply (all marketable) and 1-month SOMA net purchases, 1994-02 ..
+    the start of the CUSIP-level SOMA flow; the API-era outstanding flow is added by the
+    splice. The 1998-03/04 seam (auction rebuild -> statements) is bridged with the
+    rebuild at both ends, so ~0.15% level differences between sources are not booked as
+    supply."""
+    from supply.us_dv01 import OUT_LADDER_PARQUET
+    supply = flow_dv01(priced_hist, months=1)
+    supply.index = pd.DatetimeIndex(supply.index).to_period("M").to_timestamp("M")
+    seam = _price(auction_ladder(pd.period_range(TEXT_START - 1, TEXT_START, freq="M")))
+    f = flow_dv01(seam, months=1)
+    f.index = pd.DatetimeIndex(f.index).to_period("M").to_timestamp("M")
+    supply.loc[TEXT_START.to_timestamp("M")] = f.loc[TEXT_START.to_timestamp("M")]
+    # SOMA, from buckets, to the first CUSIP month (whose t-1 is still buckets)
+    raw_api = _api_raw(API_START, SOMA_CUSIP_START)
+    raw = pd.concat([raw_hist, raw_api[raw_hist.columns]], ignore_index=True)
+    trans = bucket_transitions(raw)
+    ratios_hist = bucket_ratios(priced_hist, priced_hist.merge(
+        raw_hist[["record_date", "cusip", "maturity_date"]].drop_duplicates(["record_date", "cusip"]),
+        left_on=["date", "cusip"], right_on=["record_date", "cusip"], how="left")["maturity_date"])
+    ratios = pd.concat([ratios_hist, api_bucket_ratios(end=SOMA_CUSIP_START)]).sort_index()
+    ratios = ratios[~ratios.index.duplicated()]
+    h41 = h41_buckets()
+    frb = frb_buckets()
+    frb = frb[(frb.index >= HIST_START.to_timestamp()) & (frb.index < h41.index.min())]
+    buckets = pd.concat([frb[H41_KEYS], h41[H41_KEYS + ["tips"]]]).sort_index()
+    soma = soma_bucket_flow(buckets, ratios, trans, cal)
+    soma = soma[soma.index <= SOMA_CUSIP_START.to_timestamp("M")]
+    return pd.DataFrame({"supply_1m_dv01_mn": supply, "soma_net_1m_dv01_mn": soma})

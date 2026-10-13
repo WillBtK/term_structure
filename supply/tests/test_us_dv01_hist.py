@@ -143,3 +143,25 @@ def test_bulletin_month_ends_are_dated_by_issue_not_by_the_ocrd_header():
     feb = rows[pd.Timestamp("1994-02-28")]
     assert (feb["total"], feb["b10p"], feb["b5y"]) == (333_404, 32_064, 77_654)
     assert abs(feb["bucket_total"] - feb["total"]) <= 3
+
+
+def test_soma_bucket_flow_is_zero_when_holdings_only_age():
+    """A 1.02-year note crossing into the under-1-year bucket, and a bill maturing, must
+    not read as purchases or sales: only what is beyond last month's aged holdings is."""
+    from supply.us_dv01_hist import H41_KEYS, bucket_transitions, soma_bucket_flow
+    raw = pd.DataFrame({
+        "record_date": pd.to_datetime(["1995-01-31"] * 2 + ["1995-02-28"]),
+        "cusip": ["N", "B", "N"], "asset_class": ["nominal", "bill", "nominal"],
+        "maturity_date": pd.to_datetime(["1996-02-10", "1995-02-15", "1996-02-10"]),
+        "amount": [100.0, 50.0, 100.0]})
+    T = bucket_transitions(raw)[pd.Timestamp("1995-02-28")]
+    assert T.loc["b5y", "b1y"] == pytest.approx(1.0) and T.loc["b90", "b15"] == 0.0
+    jan = dict.fromkeys(H41_KEYS, 0.0) | {"b5y": 30.0, "b90": 10.0}
+    feb = dict.fromkeys(H41_KEYS, 0.0) | {"b1y": 30.0}        # aged; the bill matured
+    buckets = pd.DataFrame([jan, feb], index=pd.to_datetime(["1995-01-31", "1995-02-28"]))
+    ratios = pd.DataFrame([dict.fromkeys(H41_KEYS, 1e-4)] * 2, index=buckets.index)
+    flow = soma_bucket_flow(buckets, ratios, {pd.Timestamp("1995-02-28"): T}, cal=1.0)
+    assert flow.iloc[0] == pytest.approx(0.0)
+    buckets.loc["1995-02-28", "b10p"] = 5.0                   # a genuine purchase
+    flow = soma_bucket_flow(buckets, ratios, {pd.Timestamp("1995-02-28"): T}, cal=1.0)
+    assert flow.iloc[0] == pytest.approx(5.0 * 1e-4)

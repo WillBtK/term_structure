@@ -239,6 +239,8 @@ def aggregate(out_ladder: pd.DataFrame, held_ladder: pd.DataFrame) -> pd.DataFra
         "soma_dv01_mn": held_tot,
         "supply_3m_dv01_mn": supply_flow,
         "soma_net_3m_dv01_mn": soma_flow,
+        "supply_1m_dv01_mn": _monthly_last(flow_dv01(out_ladder, months=1)),
+        "soma_net_1m_dv01_mn": _monthly_last(flow_dv01(held_ladder, months=1)),
     }).sort_index()
     df.index = df.index.to_timestamp("M")     # month-end, matching MSPD's own convention
     df.index.name = "date"
