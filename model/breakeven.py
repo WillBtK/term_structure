@@ -11,6 +11,11 @@
   breakeven's level toward any fitted value forecast worse than holding it
   (validation/FINDINGS_breakeven.md), so the premium is not mean-reverted.
 
+Phased in as the nominal projections are (``scenarios.engine.rate_leg``): from today's
+breakeven toward E(Y) + IRP, by 1 - lam^h at h years ahead, with the sheet's lam -- 0.8
+for the Baseline (the house forecast), and for the others the fitted learning speed of
+their inflation regime (0.685 at a mean of 4% or more, else 0.40; ``lam_for``).
+
 UK linkers pay RPI. E and IRP are on a CPI footing; the RPI breakeven adds the RPI-CPI
 wedge for the part of the ten years still on RPI rules. RPI moves to CPIH methodology in
 February 2030 for every RPI cashflow, gilts in issue included (announced 25 November
@@ -167,13 +172,27 @@ def irp_today(country: str, base: dict, now: dict | None = None) -> float:
     return now["be_cpi"] - expected_inflation(base, _year(now["date"]))
 
 
-def project(country: str, annual: dict, years, irp: float) -> dict:
-    """Year-end ten-year breakeven on the market's own index: E(Y) + IRP (+ the RPI
-    wedge still to run, for the UK)."""
+def lam_for(scenario: str, annual: dict, first: str = "Baseline") -> float:
+    """The sheet's convergence speed (``lamFor``): the house forecast converges at the
+    disagreement rate, any other scenario at the fitted speed of its inflation regime."""
+    from scenarios.engine import LEARNING, LEARNING_INFL_SPLIT
+    if scenario == first:
+        return LEARNING["view"]
+    v = list(annual.values())
+    return LEARNING["high"] if v and np.mean(v) >= LEARNING_INFL_SPLIT else LEARNING["low"]
+
+
+def project(country: str, annual: dict, years, irp: float, be0_cpi: float,
+            asof, lam: float) -> dict:
+    """Year-end ten-year breakeven on the market's own index: today's breakeven moving
+    toward E(Y) + IRP by 1 - lam^h (+ the RPI wedge still to run, for the UK)."""
+    t0 = _year(asof)
     out = {}
     for y in years:
         t = pd.Timestamp(int(y), 12, 31)
-        out[int(y)] = to_market(country, expected_inflation(annual, int(y) + 1.0) + irp, t)
+        view = expected_inflation(annual, int(y) + 1.0) + irp
+        w = 1.0 - lam ** max((int(y) + 1.0) - t0, 0.0)
+        out[int(y)] = to_market(country, be0_cpi + (view - be0_cpi) * w, t)
     return out
 
 
@@ -198,9 +217,11 @@ def year_end_table(markets=MARKETS, years=None, decimals: int = 2) -> pd.DataFra
         sc = scenario_inflation(c)
         irp = irp_today(c, sc["Baseline"], now)
         for s, annual in sc.items():
-            p = project(c, annual, years, irp)
+            lam = lam_for(s, annual)
+            p = project(c, annual, years, irp, now["be_cpi"], now["date"], lam)
             rows.append({"market": c, "index": BASIS[c], "scenario": s,
-                         "IRP": round(irp, decimals), "Today": round(now["be"], decimals),
+                         "IRP": round(irp, decimals), "lambda": lam,
+                         "Today": round(now["be"], decimals),
                          **{str(y): round(v, decimals) for y, v in p.items()}})
     return pd.DataFrame(rows)
 

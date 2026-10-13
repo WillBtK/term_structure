@@ -3,6 +3,8 @@
 Code: `model/breakeven.py`. Framework: BE = expected inflation (the scenario's own
 forecasts, averaged over the ten years) + inflation risk premium (today's breakeven less
 today's Baseline expected inflation, held constant).
+Phased in from today's breakeven by 1 - lam^h with the nominal projections' lam (0.8
+Baseline; 0.685 for a scenario averaging 4%+ inflation, else 0.40).
 
 Why the premium is held, not reverted. Out of sample on real-time refits (quarterly
 origins; US 2004-2026, UK 2004-2026 on a CPI footing), RMSE relative to no change:
