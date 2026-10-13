@@ -54,7 +54,7 @@ API_START = pd.Period("2001-01", "M")
 SOMA_CUSIP_START = pd.Period("2003-07", "M")
 # CUSIP / bucket SOMA DV01, mean over 2003-07 .. 2007-11 (validate); the build recomputes
 # it from the cached ladders and falls back to this
-SOMA_BUCKET_CALIBRATION = 0.948
+SOMA_BUCKET_CALIBRATION = 0.951
 HIST_LADDER_PARQUET = DATA / "us_dv01_ladder_outstanding_hist.parquet"
 HIST_DV01_PARQUET = DATA / "us_dv01_hist.parquet"
 
@@ -185,7 +185,7 @@ def build_hist(refresh: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
     df["soma_calibration"] = cal
     # monthly flows. SOMA's from buckets is NOT calibrated: the stock calibration reflects
     # SOMA holding seasoned paper, while what it buys is mostly new issues at auction
-    # (uncalibrated, the bucket flow averages 5.0 against 5.4 CUSIP-level, 2003-08..2007-11)
+    # (uncalibrated, the bucket flow averages 4.65 against 5.38 CUSIP-level, 2003-08..2007-11)
     fl = monthly_flows(priced, raw, cal=1.0)
     for c in fl.columns:
         df[c] = fl[c].reindex(idx)
@@ -213,9 +213,9 @@ def build_hist(refresh: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
     return df, priced
 
 
-def api_bucket_ratios(start=API_START, end=pd.Period("2007-11", "M"),
-                      value: str = "dv01_mn") -> pd.DataFrame:
-    """Bucket ratios from the API-era priced ladder (``supply.us_dv01``'s cache)."""
+def _api_priced(start, end) -> tuple[pd.DataFrame, pd.Series]:
+    """The API-era priced ladder (``supply.us_dv01``'s cache) for ``start`` .. ``end``,
+    with each row's final maturity."""
     from supply.fetch_us import fetch_mspd_all
     from supply.us_dv01 import OUT_LADDER_PARQUET
     priced = pd.read_parquet(OUT_LADDER_PARQUET)
@@ -225,7 +225,42 @@ def api_bucket_ratios(start=API_START, end=pd.Period("2007-11", "M"),
     mats = mats.drop_duplicates(["record_date", "cusip"])
     m = priced.merge(mats, left_on=["date", "cusip"], right_on=["record_date", "cusip"],
                      how="left")
-    return bucket_ratios(priced, m["maturity_date"], value)
+    return priced, m["maturity_date"]
+
+
+def api_bucket_ratios(start=API_START, end=pd.Period("2007-11", "M"),
+                      value: str = "dv01_mn") -> pd.DataFrame:
+    """Bucket ratios from the API-era priced ladder."""
+    return bucket_ratios(*_api_priced(start, end), value)
+
+
+def new_issue_ratios(priced: pd.DataFrame, maturity: pd.Series,
+                     value: str = "dv01_mn") -> pd.DataFrame:
+    """Per month t, per H.4.1 bucket: DV01 (or market value) per $1 of the par ISSUED in
+    that bucket since t-1 (new issues and reopenings, valued at t), and, in column
+    ``matured``, per $1 of what matured in between (valued at t-1). What the Fed buys is
+    mostly this paper, at auction, not the seasoned average of ``bucket_ratios``: in
+    each coupon bucket seasoned issues carry higher coupons, so more value and less
+    duration per dollar. NaN where nothing was issued; bills and nominal coupons."""
+    p = priced.assign(maturity_date=maturity.reindex(priced.index).to_numpy())
+    p = p[p["asset_class"].isin(["bill", "nominal"]) & p[value].notna()]
+    p = p.assign(month=p["date"].dt.to_period("M"))
+    out = {}
+    for t, cur in p.groupby("month"):
+        prev = p[p["month"] == t - 1]
+        if prev.empty:
+            continue
+        a0 = prev.groupby("cusip")["amount"].sum()
+        c = cur.set_index("cusip")
+        d_a = (c["amount"] - a0.reindex(c.index).fillna(0.0)).clip(lower=0.0)
+        b = _bucket_of(c["maturity_date"], c["date"])
+        r = c[value] / c["amount"]
+        row = ((d_a * r).groupby(b, observed=False).sum()
+               / d_a.groupby(b, observed=False).sum()).reindex(H41_KEYS)
+        gone = prev[~prev["cusip"].isin(c.index)]
+        row["matured"] = gone[value].sum() / gone["amount"].sum() if len(gone) else np.nan
+        out[t.to_timestamp("M")] = row
+    return pd.DataFrame(out).T.reindex(columns=H41_KEYS + ["matured"]).astype(float)
 
 
 def validate(start: str = "2003-07", end: str = "2007-11") -> pd.DataFrame:
@@ -304,9 +339,10 @@ def _bucket_of(maturity, asof) -> pd.Series:
 
 
 def bucket_transitions(raw: pd.DataFrame) -> dict:
-    """{month t: 6x6 frame} -- of the outstanding par in bucket b' at month-end t-1, the
-    share in bucket b at t (rows b', columns b; what matured drops out). Bills and
-    nominal coupons, bucketed by final maturity as H.4.1 and the Bulletin do."""
+    """{month t: 6x7 frame} -- of the outstanding par in bucket b' at month-end t-1, the
+    share in bucket b at t (rows b', columns b), and the share that matured in between
+    (column ``matured``). Bills and nominal coupons, bucketed by final maturity as H.4.1
+    and the Bulletin do."""
     r = raw[raw["asset_class"].isin(["bill", "nominal"])].copy()
     r["month"] = pd.to_datetime(r["record_date"]).dt.to_period("M")
     months = sorted(r["month"].unique())
@@ -322,25 +358,41 @@ def bucket_transitions(raw: pd.DataFrame) -> dict:
              .pivot_table(index="b0", columns="b1", values="amt", aggfunc="sum", observed=False)
              .reindex(index=H41_KEYS, columns=H41_KEYS).fillna(0.0))
         tot = a.groupby(b0, observed=False)["amount"].sum().reindex(H41_KEYS)
-        out[cur.to_timestamp("M")] = m.div(tot, axis=0).fillna(0.0)
+        T = m.div(tot, axis=0).fillna(0.0)
+        T["matured"] = (a["amount"][b1.isna()].groupby(b0[b1.isna()], observed=False).sum()
+                        .reindex(H41_KEYS).div(tot).fillna(0.0))
+        out[cur.to_timestamp("M")] = T
     return out
 
 
 def soma_bucket_flow(buckets: pd.DataFrame, ratios: pd.DataFrame, trans: dict,
-                     cal: float, ex_tips: bool = True) -> pd.Series:
+                     cal: float, ex_tips: bool = True,
+                     new: pd.DataFrame | None = None) -> pd.Series:
     """Monthly SOMA net purchases in DV01 (or market value, with value ratios) from
     bucket holdings: what each bucket holds beyond what last month's holdings would have
-    aged into, priced at this month's value per dollar of that bucket.
-    P_b(t) = H_b(t) - sum_b' H_b'(t-1) T_b'b(t). ``ex_tips=False`` keeps SOMA's TIPS in
-    the buckets (market value, where they count before 2004 too)."""
+    aged into, priced at this month's value per dollar of that bucket, less what matured
+    (redeemed, not rolled), at last month's value per dollar:
+    P_b(t) = H_b(t) - sum_b' H_b'(t-1) T_b'b(t);  M_b'(t) = H_b'(t-1) T_b',matured(t).
+    ``ex_tips=False`` keeps SOMA's TIPS in the buckets (market value, where they count
+    before 2004 too). ``new`` (``new_issue_ratios``) prices each bucket's purchases at the
+    value of that month's new issues and what matured at its own value, falling back to
+    the bucket averages."""
     b = _soma_buckets_ex_tips(buckets) if ex_tips else buckets[H41_KEYS]
     out = {}
     for t, T in trans.items():
         prev = (t.to_period("M") - 1).to_timestamp("M")
         if t not in b.index or prev not in b.index or t not in ratios.index:
             continue
-        expected = b.loc[prev] @ T
-        out[t] = float(((b.loc[t] - expected) * ratios.loc[t]).sum()) * cal
+        expected = b.loc[prev] @ T[H41_KEYS]
+        matured = b.loc[prev] * (T["matured"] if "matured" in T else 0.0)
+        r_buy = ratios.loc[t]
+        r_mat = ratios.loc[prev] if prev in ratios.index else ratios.loc[t]
+        if new is not None and t in new.index:
+            r_buy = new.loc[t, H41_KEYS].fillna(r_buy)
+            if np.isfinite(new.loc[t, "matured"]):
+                r_mat = pd.Series(new.loc[t, "matured"], index=H41_KEYS)
+        out[t] = float(((b.loc[t] - expected) * r_buy).sum()
+                       - (matured * r_mat).sum()) * cal
     return pd.Series(out, name="soma_net_1m_dv01_mn").sort_index()
 
 
@@ -375,9 +427,11 @@ def validate_flow(start: str = "2003-08", end: str = "2007-11",
         .reindex(columns=H41_KEYS).fillna(0.0)
     h41 = h41_buckets()[H41_KEYS]
     h = h41 if value == "mv_mn" else (h41 - tips.reindex(h41.index).fillna(0.0)).clip(lower=0.0)
-    ratios = api_bucket_ratios(start=p0, end=pd.Period(end, "M"), value=value)
+    priced, mats = _api_priced(p0 - 1, pd.Period(end, "M"))
+    ratios = bucket_ratios(priced, mats, value)
+    new = new_issue_ratios(priced, mats, value)
     trans = bucket_transitions(_api_raw(p0, pd.Period(end, "M")))
-    est = soma_bucket_flow(h, ratios, trans, cal=1.0, ex_tips=False)
+    est = soma_bucket_flow(h, ratios, trans, cal=1.0, ex_tips=False, new=new)
     j = pd.DataFrame({"cusip": truth, "buckets": est}).dropna()
     return j.loc[start:end]
 
@@ -406,17 +460,24 @@ def monthly_flows(priced_hist: pd.DataFrame, raw_hist: pd.DataFrame, cal: float)
         raw_hist[["record_date", "cusip", "maturity_date"]].drop_duplicates(["record_date", "cusip"]),
         left_on=["date", "cusip"], right_on=["record_date", "cusip"], how="left")["maturity_date"]
 
+    api, api_mats = _api_priced(API_START, SOMA_CUSIP_START)
+    both = pd.concat([priced_hist[api.columns.intersection(priced_hist.columns)], api],
+                     ignore_index=True)
+    both_mats = pd.concat([mats, api_mats], ignore_index=True)
+
     def _ratios(value):
         r = pd.concat([bucket_ratios(priced_hist, mats, value),
-                       api_bucket_ratios(end=SOMA_CUSIP_START, value=value)]).sort_index()
-        return r[~r.index.duplicated()]
+                       bucket_ratios(api, api_mats, value)]).sort_index()
+        return r[~r.index.duplicated()], new_issue_ratios(both, both_mats, value)
     h41 = h41_buckets()
     frb = frb_buckets()
     frb = frb[(frb.index >= HIST_START.to_timestamp()) & (frb.index < h41.index.min())]
     buckets = pd.concat([frb[H41_KEYS], h41[H41_KEYS + ["tips"]]]).sort_index()
     end = SOMA_CUSIP_START.to_timestamp("M")
-    soma = soma_bucket_flow(buckets, _ratios("dv01_mn"), trans, cal)
-    soma_mv = soma_bucket_flow(buckets, _ratios("mv_mn"), trans, 1.0, ex_tips=False) / 1e3
+    r, new = _ratios("dv01_mn")
+    soma = soma_bucket_flow(buckets, r, trans, cal, new=new)
+    r, new = _ratios("mv_mn")
+    soma_mv = soma_bucket_flow(buckets, r, trans, 1.0, ex_tips=False, new=new) / 1e3
     return pd.DataFrame({"supply_1m_dv01_mn": supply["dv01_mn"],
                          "soma_net_1m_dv01_mn": soma[soma.index <= end],
                          "supply_1m_mv_bn": supply["mv_mn"] / 1e3,

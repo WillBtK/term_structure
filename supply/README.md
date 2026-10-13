@@ -91,6 +91,23 @@ TIPS and FRNs — and emits four monthly series in $mn per 1bp, **1994-01 → pr
 | `supply_3m_dv01_mn` | rolling 3-month net new supply |
 | `soma_net_3m_dv01_mn` | rolling 3-month net SOMA purchases (CUSIP-level, 2003-10 →) |
 
+and the same in **market value**, $bn (par × the curve-implied invoice price; FRNs at par,
+TIPS at par before the real curve):
+
+| column | what |
+|---|---|
+| `outstanding_mv_bn` | market value outstanding |
+| `soma_mv_bn` | market value held by the Federal Reserve |
+| `supply_1m_mv_bn` | monthly net market value of issuance, 1994-02 → |
+| `soma_net_1m_mv_bn` | monthly net SOMA purchases at market value, 1994-02 → |
+
+Net market value of issuance runs below the change in par (about $45bn a year in
+1994-2000, $250bn in 2023): bills and discount coupons are sold below par and redeemed
+at it, and the difference is interest, not supply. TIPS are carried at accreted
+principal on both ladders (SOMA's par plus inflation compensation), and every flow
+strips the month's accretion: SOMA's from its published par, MSPD's from the median
+change across TIPS, which all share one reference CPI.
+
 Two further columns say where each month's number comes from:
 
 | era | `outstanding_method` | source |
@@ -107,14 +124,24 @@ Two further columns say where each month's number comes from:
 
 Before 2003-07 SOMA is known only by remaining-maturity bucket, so each bucket is priced
 at the outstanding ladder's DV01 per dollar in that bucket, scaled by `soma_calibration`
-(0.948: within a bucket SOMA held more seasoned, lower-duration issues; fitted on the
-2003-07 → 2007-11 overlap, where the calibrated estimate's error is 0.0% ± 2.2%, range
-−5.5% to +3.6%). Before 2003-08 the monthly SOMA flow comes from the buckets too: what each bucket holds
+(0.951: within a bucket SOMA held more seasoned, lower-duration issues; fitted on the
+2003-07 → 2007-11 overlap, where the calibrated estimate's error is 0.1% ± 2.7%, range
+−6.8% to +3.9%). SOMA's market value is each bucket, TIPS in, at the market's value per
+dollar (error −0.1% ± 0.3% over the overlap, uncalibrated).
+
+Before 2003-08 the monthly SOMA flow comes from the buckets too: what each bucket holds
 beyond what last month's holdings would have aged into (the ageing taken from the
-outstanding ladder, CUSIP by CUSIP), priced at that bucket's DV01 per dollar. Against the
-CUSIP-level flow over 2003-08 → 2007-11 it correlates 0.90, with a mean absolute error of
-$1.1mn/bp against a monthly standard deviation of $3.1mn/bp, and averages 5.0 against 5.4.
-It is not calibrated: the Fed's purchases are mostly new issues, not seasoned paper. The
+outstanding ladder, CUSIP by CUSIP), less what matured, not rolled. Purchases are priced
+at the value per dollar of that month's new issues in the bucket (what the Fed mostly
+bought, at auction), maturities at their own. Against the CUSIP-level flow over
+2003-08 → 2007-11 (52 months):
+
+| | correlation | mean abs. error | monthly sd | average, buckets vs CUSIP |
+|---|---|---|---|---|
+| market value, $bn | 0.996 | 0.21 | 3.0 | 1.71 vs 1.71 |
+| DV01, $mn/bp | 0.89 | 1.25 | 3.1 | 4.65 vs 5.38 |
+
+Neither is calibrated; the DV01 flow reads about 14% low on average. The
 3-month SOMA flow stays CUSIP-only (2003-10 →). Three monthly flows do not add up to the
 3-month one: each is priced at its own month's DV01 per unit. Every source is checked in
 `validation/FINDINGS_dv01_1994.md`.

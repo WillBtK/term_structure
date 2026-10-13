@@ -50,8 +50,9 @@ The series previously began in 2003 because both security-level sources do: the 
   * Uncalibrated, the bucket method reads high: +5.5% on average (−0.4% to +9.2%).
   * Within every coupon bucket SOMA's DV01 per dollar runs 0.93-0.97× the market's, because
     SOMA held more seasoned, higher-coupon issues.
-  * Calibrated by the overlap mean (×0.948), the error is **0.0% ± 2.2%, range −5.5% to
-    +3.6%**.
+  * Calibrated by the overlap mean (×0.951), the error is **0.1% ± 2.7%, range −6.8% to
+    +3.9%** (SOMA's TIPS taken out of H.4.1 at accreted principal, as H.4.1 reports them;
+    at par, as before 2026-10-13, it was ×0.948 and 0.0% ± 2.2%).
   * The calibration is recomputed at each build and stored in `soma_calibration`.
 * **Bulletin vs H.4.1, 1996-06.** The coupon buckets agree to the dollar (91,694 /
   32,941 / 38,721). The short buckets differ only because one is the month-end and the
@@ -67,13 +68,33 @@ The series previously began in 2003 because both security-level sources do: the 
     change it uses the auction rebuild at both ends; across 2000-12 → 2001-01 the
     statement and API ladders, which are identical.
   * SOMA through 2003-07: each bucket's holdings beyond what last month's holdings would
-    have aged into, with the ageing taken from the outstanding ladder CUSIP by CUSIP, priced
-    at the bucket's DV01 per dollar. A test checks that pure ageing (a note crossing a
-    bucket edge, a bill maturing) reads zero.
-  * Against the CUSIP-level monthly flow, 2003-08 → 2007-11 (52 months): correlation
-    0.90, mean absolute error $1.1mn/bp (monthly sd $3.1mn/bp), average 5.0 vs 5.4.
-  * The SOMA flow is left uncalibrated: purchases are mostly new issues, not the seasoned
-    paper behind the stock calibration.
+    have aged into, with the ageing taken from the outstanding ladder CUSIP by CUSIP, less
+    what matured. A test checks that ageing reads zero and a bill redeemed, not rolled,
+    reads negative.
+  * Pricing (revised 2026-10-13): purchases at the value per dollar of that month's new
+    issues in the bucket, maturities at their own. The first version priced purchases at
+    the seasoned bucket average and left maturities out (gross, not net). In DV01 that
+    barely showed; in market value it read ~$100bn a month high.
+  * Against the CUSIP-level monthly flow, 2003-08 → 2007-11 (52 months):
+    * market value: correlation 0.996, mean absolute error $0.21bn (monthly sd $3.0bn),
+      average 1.71 vs 1.71;
+    * DV01: correlation 0.89, mean absolute error $1.25mn/bp (monthly sd $3.1mn/bp),
+      average 4.65 vs 5.38 (first version: 0.90, 1.1, 5.0 vs 5.4).
+  * Neither SOMA flow is calibrated.
+* **Market value (added 2026-10-13).** Par × curve-implied invoice price per security,
+  FRNs at par, TIPS at par before the real curve.
+  * SOMA's stock before 2003-07: every bucket, TIPS in, at the market's value per dollar;
+    error against the CUSIP-level stock, 2003-07 → 2007-11, −0.1% ± 0.3% (range −0.8% to
+    +0.7%).
+  * Net market value of issuance vs the change in par outstanding, 1994-2000 ($bn):
+    93/136, 138/181, 103/154, −50/−3, −144/−95, −123/−74, −357/−314. The gap is bills and
+    discount coupons sold below par and redeemed at it: interest, not supply.
+  * TIPS accretion: MSPD reports accreted principal, so each month's inflation uplift
+    was being booked as issuance (in DV01 too). Every flow now strips it: SOMA from its
+    published par (SOMA's TIPS now carried at accreted principal, like MSPD, which adds up
+    to $82mn/bp to its DV01 stock, 2022-08), MSPD from the median change across TIPS
+    (annual accretion 2021 6.2%, 2022 7.7%, 2023 3.3%, in line with lagged CPI). Largest
+    change to the monthly DV01 supply flow: $18mn/bp (2022-08).
   * The 3-month SOMA flow remains CUSIP-only (2003-10 →).
 
 ## A rejected alternative

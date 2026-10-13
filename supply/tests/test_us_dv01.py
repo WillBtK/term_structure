@@ -150,6 +150,17 @@ def test_tips_inflation_accretion_is_not_issuance():
     assert abs(f[t1] - 40.0 * 12.6 / 140.3) < 1e-9
 
 
+def test_with_par_carried_a_tips_flow_is_the_change_in_par():
+    """SOMA buys many TIPS in one month (2020), so a median cannot find the accretion
+    there; its par is published, and the flow is the change in par at value per par."""
+    t0, t1 = pd.Timestamp("2020-03-25"), pd.Timestamp("2020-04-29")
+    lad = pd.DataFrame({"date": [t0, t0, t1, t1], "cusip": list("ABAB"),
+                        "asset_class": "tips", "amount": [110.0, 110.0, 130.3, 130.3],
+                        "par": [100.0, 100.0, 118.0, 118.0], "dv01_mn": [9.0, 9.0, 11.0, 11.0]})
+    f = flow_dv01(lad, months=1)
+    assert abs(f[t1] - 2 * 18.0 * 11.0 / 118.0) < 1e-9
+
+
 # --------------------------------------------------------------------------- aggregate
 
 def test_aggregate_joins_on_calendar_month_not_exact_date():

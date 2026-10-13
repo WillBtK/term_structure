@@ -200,6 +200,8 @@ def _dv01_ladder(ladder_all: pd.DataFrame, date_col: str, gsw, tips, _lookup) ->
             "amount": sub["amount"].to_numpy(), "dv01_mn": v["dv01_mn"].to_numpy(),
             "mv_mn": v["mv_mn"].to_numpy(),
         }))
+        if "par" in sub:                    # SOMA: TIPS par apart from accreted principal
+            frames[-1]["par"] = sub["par"].to_numpy()
         if len(frames) % 36 == 0:
             logger.info("  %s  n=%d", asof.date(), len(sub))
     return pd.concat(frames, ignore_index=True)
@@ -221,16 +223,18 @@ def flow_dv01(ladder: pd.DataFrame, months: int = 3, value: str = "dv01_mn") -> 
     """Rolling ``months``-month net flow of ``value`` (DV01, or market value with
     ``value="mv_mn"``): for each date t with a match at t-months,
     ``sum_i [A_i(t) - A_i(t-months)] * ratio_i``, ``ratio_i`` = value-per-unit-par at t if
-    the CUSIP exists then, else at (t-months) if it existed there but not at t. A TIPS's
-    A_i(t-months) is first grown by the window's inflation accretion
-    (``tips_accretion``), so the uplift in its principal is not booked as issuance. See
-    the module docstring for why this -- not the change in the stock -- is "supply."
+    the CUSIP exists then, else at (t-months) if it existed there but not at t. The
+    uplift in a TIPS's principal is not issuance: where the ladder carries ``par``
+    (SOMA), A_i is par; otherwise (MSPD, accreted only) A_i(t-months) is first grown by
+    the window's inflation accretion (``tips_accretion``). See the module docstring for
+    why this -- not the change in the stock -- is "supply."
     """
-    piv_a = ladder.pivot_table(index="cusip", columns="date", values="amount", aggfunc="sum")
+    qty = "par" if "par" in ladder and ladder["par"].notna().all() else "amount"
+    piv_a = ladder.pivot_table(index="cusip", columns="date", values=qty, aggfunc="sum")
     piv_d = ladder.pivot_table(index="cusip", columns="date", values=value, aggfunc="sum")
     ratio = (piv_d / piv_a.replace(0, np.nan))
     tips = (pd.Index(ladder.loc[ladder["asset_class"] == "tips", "cusip"].unique())
-            if "asset_class" in ladder else pd.Index([]))
+            if "asset_class" in ladder and qty == "amount" else pd.Index([]))
     is_tips = piv_a.index.isin(tips)
     dates = sorted(piv_a.columns)
     per = pd.PeriodIndex(dates, freq="M")
