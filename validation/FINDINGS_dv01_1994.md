@@ -80,7 +80,11 @@ The series previously began in 2003 because both security-level sources do: the 
       average 1.71 vs 1.71;
     * DV01: correlation 0.89, mean absolute error $1.25mn/bp (monthly sd $3.1mn/bp),
       average 4.65 vs 5.38 (first version: 0.90, 1.1, 5.0 vs 5.4).
-  * Neither SOMA flow is calibrated.
+  * The market-value flow is left uncalibrated. The DV01 flow is scaled by the overlap's
+    ratio of mean flows, ×1.158 (`soma_flow_calibration`; a ratio of means because a
+    monthly flow can be near zero): mean absolute error $1.15mn/bp, average 5.38 vs 5.38.
+    Split-sample: fitted on 2003-08 → 2005-09 it is ×1.150 and gives 6.07 vs 6.14 over
+    the rest; fitted on 2005-10 → 2007-11, ×1.164 and 4.68 vs 4.63.
 * **Market value (added 2026-10-13).** Par × curve-implied invoice price per security,
   FRNs at par, TIPS at par before the real curve.
   * SOMA's stock before 2003-07: every bucket, TIPS in, at the market's value per dollar;

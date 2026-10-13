@@ -139,9 +139,12 @@ bought, at auction), maturities at their own. Against the CUSIP-level flow over
 | | correlation | mean abs. error | monthly sd | average, buckets vs CUSIP |
 |---|---|---|---|---|
 | market value, $bn | 0.996 | 0.21 | 3.0 | 1.71 vs 1.71 |
-| DV01, $mn/bp | 0.89 | 1.25 | 3.1 | 4.65 vs 5.38 |
+| DV01, $mn/bp, calibrated | 0.89 | 1.15 | 3.1 | 5.38 vs 5.38 |
 
-Neither is calibrated; the DV01 flow reads about 14% low on average. The
+The market-value flow needs no calibration. The DV01 flow read about 14% low (4.65), so
+it is scaled by `soma_flow_calibration` (1.158, the overlap's ratio of mean flows,
+recomputed at each build). Fitted on either half of the overlap the factor is 1.150 or
+1.164, and the other half's mean comes out within 1% (6.07 vs 6.14; 4.68 vs 4.63). The
 3-month SOMA flow stays CUSIP-only (2003-10 →). Three monthly flows do not add up to the
 3-month one: each is priced at its own month's DV01 per unit. Every source is checked in
 `validation/FINDINGS_dv01_1994.md`.

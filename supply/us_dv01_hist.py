@@ -55,6 +55,9 @@ SOMA_CUSIP_START = pd.Period("2003-07", "M")
 # CUSIP / bucket SOMA DV01, mean over 2003-07 .. 2007-11 (validate); the build recomputes
 # it from the cached ladders and falls back to this
 SOMA_BUCKET_CALIBRATION = 0.951
+# CUSIP / bucket mean monthly SOMA DV01 flow over 2003-08 .. 2007-11 (``validate_flow``);
+# recomputed at each build, this is the fallback
+SOMA_FLOW_CALIBRATION = 1.157
 HIST_LADDER_PARQUET = DATA / "us_dv01_ladder_outstanding_hist.parquet"
 HIST_DV01_PARQUET = DATA / "us_dv01_hist.parquet"
 
@@ -183,10 +186,21 @@ def build_hist(refresh: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
                                                  "mspd_statement", "mspd_api"))
     df["soma_method"] = np.where(idx < h41.index.min(), "fed_bulletin", "h41_buckets")
     df["soma_calibration"] = cal
-    # monthly flows. SOMA's from buckets is NOT calibrated: the stock calibration reflects
-    # SOMA holding seasoned paper, while what it buys is mostly new issues at auction
-    # (uncalibrated, the bucket flow averages 4.65 against 5.38 CUSIP-level, 2003-08..2007-11)
-    fl = monthly_flows(priced, raw, cal=1.0)
+    # monthly flows. SOMA's DV01 flow from buckets has its own calibration, not the
+    # stock's: the stock's reflects SOMA holding seasoned paper, while what it buys is
+    # mostly new issues. Uncalibrated it reads low (4.65 against 5.38 CUSIP-level,
+    # 2003-08..2007-11), so it is scaled by the overlap's ratio of means -- of means, as
+    # a monthly flow can be near zero. Its market value needs none (1.71 against 1.71).
+    try:
+        vf = validate_flow()
+        flow_cal = float(vf["cusip"].mean() / vf["buckets"].mean())
+    except Exception as exc:                                        # noqa: BLE001
+        logger.warning("SOMA flow calibration unavailable (%s); using %.3f",
+                       exc, SOMA_FLOW_CALIBRATION)
+        flow_cal = SOMA_FLOW_CALIBRATION
+    logger.info("SOMA bucket flow calibration: x%.3f", flow_cal)
+    df["soma_flow_calibration"] = flow_cal
+    fl = monthly_flows(priced, raw, cal=flow_cal)
     for c in fl.columns:
         df[c] = fl[c].reindex(idx)
     # market value, $bn. SOMA's stock: every bucket, TIPS in, at the market's value/par
@@ -309,7 +323,8 @@ def splice_hist(df: pd.DataFrame, refresh: bool = False) -> pd.DataFrame:
         out.loc[early_out, c] = hist.loc[idx[early_out], c].to_numpy()
     # SOMA's 1m flow is bucket-based through 2003-07 (its t-1 is still a bucket month)
     early_flow = idx <= SOMA_CUSIP_START.to_timestamp("M")
-    for c in ("soma_net_1m_dv01_mn", "soma_net_1m_mv_bn"):
+    out["soma_flow_calibration"] = np.nan
+    for c in ("soma_net_1m_dv01_mn", "soma_net_1m_mv_bn", "soma_flow_calibration"):
         out.loc[early_flow, c] = hist[c].reindex(idx[early_flow]).to_numpy()
     out["soma_calibration"] = np.nan
     for c in ("soma_dv01_mn", "soma_mv_bn", "soma_method", "soma_calibration"):

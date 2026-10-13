@@ -349,9 +349,10 @@ def export_csv(df: pd.DataFrame) -> None:
     dv = ["outstanding_dv01_mn", "soma_dv01_mn", "supply_1m_dv01_mn", "soma_net_1m_dv01_mn",
           "supply_3m_dv01_mn", "soma_net_3m_dv01_mn"]
     mv = ["outstanding_mv_bn", "soma_mv_bn", "supply_1m_mv_bn", "soma_net_1m_mv_bn"]
-    full = df[dv + mv + ["outstanding_method", "soma_method", "soma_calibration"]].copy()
+    cals = ["soma_calibration", "soma_flow_calibration"]
+    full = df[dv + mv + ["outstanding_method", "soma_method"] + cals].copy()
     full[dv + mv] = full[dv + mv].round(2)
-    full["soma_calibration"] = full["soma_calibration"].round(3)
+    full[cals] = full[cals].round(3)
     full.to_csv(here / "us_dv01_monthly.csv", date_format="%Y-%m-%d")
     f = df[["supply_1m_dv01_mn", "soma_net_1m_dv01_mn", "outstanding_method"]].round(2)
     f["soma_flow_method"] = flow_src
