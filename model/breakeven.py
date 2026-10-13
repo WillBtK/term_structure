@@ -170,6 +170,10 @@ def expected_inflation(annual: dict, start: float, tenor: float = TENOR) -> floa
 # Inflation risk premium, pp, CPI footing: Baseline nominal less real GDP growth less
 # expected inflation at year-end 2035 (scenarios/real_10y_year_end.py checks it).
 IRP = {"US": 0.38, "UK": 0.34}
+# The euro area, until its breakeven history is in: the US/UK average. Not calibrated on
+# Bunds -- the euro area's safe asset trades rich (anchoring Bund real yields on growth
+# would need -0.6pp), and the linker market prices off OATs and BTPs.
+IRP["EA"] = round((IRP["US"] + IRP["UK"]) / 2, 2)
 
 
 def irp_today(country: str, base: dict, now: dict | None = None) -> float:
@@ -216,12 +220,15 @@ def year_end_table(markets=MARKETS, years=None, decimals: int = 2) -> pd.DataFra
     years = list(years or range(pd.Timestamp.today().year, pd.Timestamp.today().year + 10))
     rows = []
     for c in markets:
+        sc = scenario_inflation(c)
         try:
             now = today(c)
         except FileNotFoundError as exc:
-            logger.warning("%s breakeven skipped: %s", c, exc)
-            continue
-        sc = scenario_inflation(c)
+            # no market level: today is the model's own, E + IRP, so nothing phases in
+            logger.warning("%s: %s -- today's breakeven is the model's", c, exc)
+            t = pd.Timestamp.today()
+            be0 = expected_inflation(sc["Baseline"], _year(t)) + IRP[c]
+            now = {"date": t, "be": be0, "be_cpi": be0, "head": None, "head_month": None}
         irp = IRP[c]
         for s, annual in sc.items():
             lam = lam_for(s, annual)
