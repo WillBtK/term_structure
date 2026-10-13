@@ -6,10 +6,12 @@
 * E(Y), expected inflation: the scenario's own headline-inflation forecasts averaged over
   the ten years a bond bought at year-end Y covers (Y+1 .. Y+10; the last stated year
   carries on beyond the scenario). Today's E is the Baseline's, from today.
-* IRP, the inflation risk premium (with the linker liquidity premium): today's breakeven
-  less today's Baseline expected inflation, held constant. Out of sample, reverting the
-  breakeven's level toward any fitted value forecast worse than holding it
-  (validation/FINDINGS_breakeven.md), so the premium is not mean-reverted.
+* IRP, the inflation risk premium: a constant per market (``IRP``), the premium at which
+  the Baseline's implied real yield (nominal projection less breakeven) converges on the
+  Baseline's real GDP growth by the end of the projection -- US 0.38pp, UK 0.34pp on a
+  CPI footing, in line with the 0.3-0.5pp usually estimated. Today's breakeven differs
+  from E + IRP (US by -0.35pp: TIPS illiquidity, and a market pricing less inflation
+  than our forecast); that gap is phased out, not carried.
 
 Phased in as the nominal projections are (``scenarios.engine.rate_leg``): from today's
 breakeven toward E(Y) + IRP, by 1 - lam^h at h years ahead, with the sheet's lam -- 0.8
@@ -165,6 +167,11 @@ def expected_inflation(annual: dict, start: float, tenor: float = TENOR) -> floa
     return acc / tenor
 
 
+# Inflation risk premium, pp, CPI footing: Baseline nominal less real GDP growth less
+# expected inflation at year-end 2035 (scenarios/real_10y_year_end.py checks it).
+IRP = {"US": 0.38, "UK": 0.34}
+
+
 def irp_today(country: str, base: dict, now: dict | None = None) -> float:
     """Today's inflation risk premium on a CPI footing: breakeven less the Baseline's
     expected inflation over the next ten years."""
@@ -215,7 +222,7 @@ def year_end_table(markets=MARKETS, years=None, decimals: int = 2) -> pd.DataFra
             logger.warning("%s breakeven skipped: %s", c, exc)
             continue
         sc = scenario_inflation(c)
-        irp = irp_today(c, sc["Baseline"], now)
+        irp = IRP[c]
         for s, annual in sc.items():
             lam = lam_for(s, annual)
             p = project(c, annual, years, irp, now["be_cpi"], now["date"], lam)
