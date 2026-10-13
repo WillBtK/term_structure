@@ -45,6 +45,13 @@ priced trade tickets:
 TIPS are priced off the REAL curve (``us.tips``), which starts existing in 1999 and is
 flagged reliable only from 2004-01 (``REAL_CURVE_START``, matching ``us.config
 .REAL_SAMPLE_START``); TIPS duration is NaN and excluded from every sum before that.
+TIPS amounts are accreted principal on both ladders (MSPD reports it; SOMA's par plus
+its inflation compensation), and the flows strip each month's accretion (``flow_dv01``).
+
+**Market value** (``mv_mn``, alongside ``dv01_mn``): par x the curve-implied invoice
+(dirty) price, the same pricing. FRNs at par; TIPS at par before the real curve, when
+what moves is mostly new issues sold near par. The net MARKET VALUE of issuance is the
+same flow as the DV01 one, with value per unit of par in place of DV01 per unit.
 """
 from __future__ import annotations
 
@@ -53,7 +60,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from model.bond_math import modified_duration, price_from_ytm
+from model.bond_math import accrued_interest, modified_duration, price_from_ytm
 from supply.fetch_us import DATA, fetch_mspd_all, fetch_soma_all
 
 logger = logging.getLogger(__name__)
@@ -97,14 +104,15 @@ def _real_curve_for(params_row) -> callable:
     return curve
 
 
-def security_dv01(ladder: pd.DataFrame, asof, nominal_curve,
-                  real_curve: "callable | None") -> pd.Series:
-    """Per-security DV01 in $mn per 1bp, aligned to ``ladder``'s index.
+def security_values(ladder: pd.DataFrame, asof, nominal_curve,
+                    real_curve: "callable | None") -> pd.DataFrame:
+    """Per-security DV01 ($mn per 1bp) and market value ($mn), aligned to ``ladder``.
 
     ``ladder`` needs ``maturity_date``, ``coupon_pct``, ``amount`` ($mn, par) and
     ``asset_class`` in {"nominal", "bill", "tips", "frn"}. ``real_curve=None`` (no
-    reliable real curve for this date) makes every TIPS row NaN, not zero -- so it is
-    excluded from a sum rather than silently misstated as riskless.
+    reliable real curve for this date) makes every TIPS DV01 NaN, not zero -- so it is
+    excluded from a sum rather than silently misstated as riskless; its market value is
+    then taken at par.
     """
     asof = pd.Timestamp(asof)
     yrs = (pd.to_datetime(ladder["maturity_date"]) - asof).dt.days / 365.25
@@ -112,15 +120,19 @@ def security_dv01(ladder: pd.DataFrame, asof, nominal_curve,
     coupons = ladder["coupon_pct"].to_numpy(dtype=float)
     ac = ladder["asset_class"].to_numpy()
     out = np.full(len(ladder), np.nan)
+    mv = np.full(len(ladder), np.nan)
     for i, (t, c, mat, a, cls) in enumerate(zip(
             yrs.to_numpy(), coupons, pd.to_datetime(ladder["maturity_date"]), amt, ac)):
         if not np.isfinite(t) or t <= 0 or not np.isfinite(a):
             continue
         if cls == "frn":
             out[i] = a * FRN_EFFECTIVE_DURATION * 0.0001
+            mv[i] = a
             continue
         curve = real_curve if cls == "tips" else nominal_curve
         if curve is None:
+            if cls == "tips":
+                mv[i] = a
             continue
         z = float(curve(t))
         ytm = 2.0 * (np.exp(z / 2.0) - 1.0)          # continuous zero -> semiannual BEY
@@ -129,7 +141,14 @@ def security_dv01(ladder: pd.DataFrame, asof, nominal_curve,
         if not np.isfinite(moddur) or not np.isfinite(price):
             continue
         out[i] = a * (price / 100.0) * moddur * 0.0001
-    return pd.Series(out, index=ladder.index, name="dv01_mn")
+        mv[i] = a * (price + accrued_interest(asof, mat, float(c))) / 100.0
+    return pd.DataFrame({"dv01_mn": out, "mv_mn": mv}, index=ladder.index)
+
+
+def security_dv01(ladder: pd.DataFrame, asof, nominal_curve,
+                  real_curve: "callable | None") -> pd.Series:
+    """Per-security DV01 in $mn per 1bp (``security_values``' first column)."""
+    return security_values(ladder, asof, nominal_curve, real_curve)["dv01_mn"]
 
 
 def to_call(ladder: pd.DataFrame) -> pd.DataFrame:
@@ -175,25 +194,44 @@ def _dv01_ladder(ladder_all: pd.DataFrame, date_col: str, gsw, tips, _lookup) ->
         tips_row = _lookup(asof, tips) if asof >= REAL_CURVE_START else None
         nom_curve = _nominal_curve_for(gsw_row)
         real_curve = _real_curve_for(tips_row) if tips_row is not None else None
-        dv01 = security_dv01(to_call(sub), asof, nom_curve, real_curve)
+        v = security_values(to_call(sub), asof, nom_curve, real_curve)
         frames.append(pd.DataFrame({
             "date": asof, "cusip": sub["cusip"].to_numpy(), "asset_class": sub["asset_class"].to_numpy(),
-            "amount": sub["amount"].to_numpy(), "dv01_mn": dv01.to_numpy(),
+            "amount": sub["amount"].to_numpy(), "dv01_mn": v["dv01_mn"].to_numpy(),
+            "mv_mn": v["mv_mn"].to_numpy(),
         }))
         if len(frames) % 36 == 0:
             logger.info("  %s  n=%d", asof.date(), len(sub))
     return pd.concat(frames, ignore_index=True)
 
 
-def flow_dv01(ladder: pd.DataFrame, months: int = 3) -> pd.Series:
-    """Rolling ``months``-month net DV01 flow: for each date t with a match at t-months,
-    ``sum_i [A_i(t) - A_i(t-months)] * ratio_i``, ``ratio_i`` = DV01-per-unit-par at t if
-    the CUSIP exists then, else at (t-months) if it existed there but not at t. See the
-    module docstring for why this -- not the change in the DV01 stock -- is "supply."
+def tips_accretion(piv_a: pd.DataFrame, tips: pd.Index, d, d_lag) -> float:
+    """The growth in a TIPS's accreted principal from ``d_lag`` to ``d`` that is
+    inflation, not issuance: every TIPS shares the same reference-CPI ratio, so it is the
+    median change across the TIPS outstanding at both dates (a reopening moves one or
+    two of them, not the median). 1.0 when there are too few to tell."""
+    if len(tips) == 0:
+        return 1.0
+    a_t, a_l = piv_a.loc[piv_a.index.intersection(tips), d], piv_a.loc[piv_a.index.intersection(tips), d_lag]
+    r = (a_t / a_l)[(a_t > 0) & (a_l > 0)]
+    return float(r.median()) if len(r) >= 3 else 1.0
+
+
+def flow_dv01(ladder: pd.DataFrame, months: int = 3, value: str = "dv01_mn") -> pd.Series:
+    """Rolling ``months``-month net flow of ``value`` (DV01, or market value with
+    ``value="mv_mn"``): for each date t with a match at t-months,
+    ``sum_i [A_i(t) - A_i(t-months)] * ratio_i``, ``ratio_i`` = value-per-unit-par at t if
+    the CUSIP exists then, else at (t-months) if it existed there but not at t. A TIPS's
+    A_i(t-months) is first grown by the window's inflation accretion
+    (``tips_accretion``), so the uplift in its principal is not booked as issuance. See
+    the module docstring for why this -- not the change in the stock -- is "supply."
     """
     piv_a = ladder.pivot_table(index="cusip", columns="date", values="amount", aggfunc="sum")
-    piv_d = ladder.pivot_table(index="cusip", columns="date", values="dv01_mn", aggfunc="sum")
+    piv_d = ladder.pivot_table(index="cusip", columns="date", values=value, aggfunc="sum")
     ratio = (piv_d / piv_a.replace(0, np.nan))
+    tips = (pd.Index(ladder.loc[ladder["asset_class"] == "tips", "cusip"].unique())
+            if "asset_class" in ladder else pd.Index([]))
+    is_tips = piv_a.index.isin(tips)
     dates = sorted(piv_a.columns)
     per = pd.PeriodIndex(dates, freq="M")
     lag_of = dict(zip(per, dates))
@@ -205,6 +243,8 @@ def flow_dv01(ladder: pd.DataFrame, months: int = 3) -> pd.Series:
         d_lag = lag_of[p_lag]
         a_t = piv_a[d].fillna(0.0)
         a_l = piv_a[d_lag].fillna(0.0)
+        g = tips_accretion(piv_a, tips, d, d_lag)
+        a_l = a_l.where(~is_tips, a_l * g)
         r_t = ratio[d]
         r_l = ratio[d_lag]
         r_used = r_t.where(a_t > 0, r_l)                 # exists now -> today's ratio,
@@ -242,17 +282,25 @@ def aggregate(out_ladder: pd.DataFrame, held_ladder: pd.DataFrame) -> pd.DataFra
         "supply_1m_dv01_mn": _monthly_last(flow_dv01(out_ladder, months=1)),
         "soma_net_1m_dv01_mn": _monthly_last(flow_dv01(held_ladder, months=1)),
     }).sort_index()
+    if "mv_mn" in out_ladder and "mv_mn" in held_ladder:          # market value, $bn
+        df["outstanding_mv_bn"] = _monthly_last(
+            out_ladder.groupby("date")["mv_mn"].sum(min_count=1)) / 1e3
+        df["soma_mv_bn"] = _monthly_last(held_ladder.groupby("date")["mv_mn"].sum(min_count=1)) / 1e3
+        df["supply_1m_mv_bn"] = _monthly_last(flow_dv01(out_ladder, 1, value="mv_mn")) / 1e3
+        df["soma_net_1m_mv_bn"] = _monthly_last(flow_dv01(held_ladder, 1, value="mv_mn")) / 1e3
     df.index = df.index.to_timestamp("M")     # month-end, matching MSPD's own convention
     df.index.name = "date"
     return df
 
 
 def build(refresh: bool = False) -> pd.DataFrame:
-    if not refresh and DV01_PARQUET.exists() and OUT_LADDER_PARQUET.exists() \
-            and HELD_LADDER_PARQUET.exists():
+    priced = (OUT_LADDER_PARQUET.exists() and HELD_LADDER_PARQUET.exists()
+              and "mv_mn" in pd.read_parquet(OUT_LADDER_PARQUET).columns
+              and "mv_mn" in pd.read_parquet(HELD_LADDER_PARQUET).columns)
+    if not refresh and DV01_PARQUET.exists() and priced:
         return pd.read_parquet(DV01_PARQUET)
 
-    if not refresh and OUT_LADDER_PARQUET.exists() and HELD_LADDER_PARQUET.exists():
+    if not refresh and priced:
         # The (expensive) per-security pricing is already cached -- only the cheap
         # aggregation below needs re-running, e.g. after fixing that step itself.
         out_ladder = pd.read_parquet(OUT_LADDER_PARQUET)
@@ -286,6 +334,29 @@ def build(refresh: bool = False) -> pd.DataFrame:
     df = splice_hist(df, refresh=refresh)
     df.to_parquet(DV01_PARQUET)
     return df
+
+
+def export_csv(df: pd.DataFrame) -> None:
+    """The committed CSVs: everything, the monthly DV01 flows, the monthly market-value
+    flows (each with the source of every month)."""
+    here = DATA.parent
+    soma_stock = df["soma_method"].where(df["soma_method"].notna())
+    flow_src = soma_stock.where(df.index != pd.Timestamp("2003-07-31"), "h41_buckets")
+    dv = ["outstanding_dv01_mn", "soma_dv01_mn", "supply_1m_dv01_mn", "soma_net_1m_dv01_mn",
+          "supply_3m_dv01_mn", "soma_net_3m_dv01_mn"]
+    mv = ["outstanding_mv_bn", "soma_mv_bn", "supply_1m_mv_bn", "soma_net_1m_mv_bn"]
+    full = df[dv + mv + ["outstanding_method", "soma_method", "soma_calibration"]].copy()
+    full[dv + mv] = full[dv + mv].round(2)
+    full["soma_calibration"] = full["soma_calibration"].round(3)
+    full.to_csv(here / "us_dv01_monthly.csv", date_format="%Y-%m-%d")
+    f = df[["supply_1m_dv01_mn", "soma_net_1m_dv01_mn", "outstanding_method"]].round(2)
+    f["soma_flow_method"] = flow_src
+    f.to_csv(here / "us_dv01_monthly_flows.csv", date_format="%Y-%m-%d")
+    m = df[["supply_1m_mv_bn", "soma_net_1m_mv_bn", "outstanding_mv_bn", "soma_mv_bn",
+            "outstanding_method"]].copy()
+    m[mv] = m[mv].round(2)
+    m["soma_flow_method"] = flow_src
+    m.to_csv(here / "us_mv_monthly_flows.csv", date_format="%Y-%m-%d")
 
 
 def _main() -> None:

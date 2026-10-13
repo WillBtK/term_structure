@@ -216,6 +216,9 @@ def _shape_soma_all(df: pd.DataFrame) -> pd.DataFrame:
     df["maturity_date"] = pd.to_datetime(df["maturityDate"], errors="coerce")
     df["coupon_pct"] = pd.to_numeric(df["coupon"], errors="coerce").fillna(0.0)
     df["amount"] = pd.to_numeric(df["parValue"], errors="coerce") / 1e6      # -> $mn
+    # TIPS at accreted principal, as MSPD reports them (par + inflation compensation)
+    ic = pd.to_numeric(df.get("inflationCompensation"), errors="coerce").fillna(0.0) / 1e6
+    df["amount"] = df["amount"] + ic.where(df["asset_class"] == "tips", 0.0)
     df = df.dropna(subset=["maturity_date", "amount"])
     return df[df["amount"] > 0][["asof", "cusip", "asset_class", "maturity_date",
                                 "coupon_pct", "amount"]]

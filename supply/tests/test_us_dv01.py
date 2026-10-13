@@ -6,8 +6,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from model.bond_math import modified_duration, price_from_ytm
-from supply.us_dv01 import FRN_EFFECTIVE_DURATION, aggregate, flow_dv01, security_dv01
+from model.bond_math import accrued_interest, modified_duration, price_from_ytm
+from supply.us_dv01 import (FRN_EFFECTIVE_DURATION, aggregate, flow_dv01, security_dv01,
+                            security_values)
 
 ASOF = pd.Timestamp("2020-01-15")
 
@@ -124,6 +125,29 @@ def test_no_flow_reported_when_the_lag_month_is_missing():
     lad = _flow_ladder([(t0, "A", 100.0, 8.0)])
     f = flow_dv01(lad, months=3)
     assert len(f) == 0
+
+
+def test_market_value_is_par_times_invoice_price():
+    mat = ASOF + pd.DateOffset(years=7, months=2)
+    lad = _ladder([(mat, 2.5, 1000.0, "nominal"), (mat, 1.0, 500.0, "frn"),
+                   (mat, 0.5, 300.0, "tips")])
+    v = security_values(lad, ASOF, flat(0.04), real_curve=None)
+    ytm = 2.0 * (np.exp(0.04 / 2.0) - 1.0)
+    dirty = price_from_ytm(ASOF, mat, 2.5, ytm) + accrued_interest(ASOF, mat, 2.5)
+    assert abs(v["mv_mn"].iloc[0] - 1000.0 * dirty / 100.0) < 1e-9
+    assert v["mv_mn"].iloc[1] == 500.0                    # FRN at par
+    assert v["mv_mn"].iloc[2] == 300.0                    # TIPS at par without a real curve
+
+
+def test_tips_inflation_accretion_is_not_issuance():
+    """Every TIPS's principal grows by the same reference-CPI ratio; only the reopening
+    of D (+40 par, on top of its accretion) is supply."""
+    t0, t1 = pd.Timestamp("2020-01-31"), pd.Timestamp("2020-02-29")
+    rows = [(t0, c, 100.0, 9.0) for c in "ABCD"] + [(t1, c, 100.3, 9.0) for c in "ABC"] \
+        + [(t1, "D", 140.3, 12.6)]
+    lad = _flow_ladder(rows).assign(asset_class="tips")
+    f = flow_dv01(lad, months=1)
+    assert abs(f[t1] - 40.0 * 12.6 / 140.3) < 1e-9
 
 
 # --------------------------------------------------------------------------- aggregate
