@@ -362,6 +362,18 @@ def export_csv(df: pd.DataFrame) -> None:
     m[mv] = m[mv].round(2)
     m["soma_flow_method"] = flow_src
     m.to_csv(here / "us_mv_monthly_flows.csv", date_format="%Y-%m-%d")
+    # the monthly flows in both units, UST and SOMA, with the market-value stocks
+    u = pd.DataFrame({
+        "ust_net_issuance_mv_bn": df["supply_1m_mv_bn"],
+        "soma_net_purchases_mv_bn": df["soma_net_1m_mv_bn"],
+        "ust_net_issuance_dv01_mn": df["supply_1m_dv01_mn"],
+        "soma_net_purchases_dv01_mn": df["soma_net_1m_dv01_mn"],
+        "ust_outstanding_mv_bn": df["outstanding_mv_bn"],
+        "soma_holdings_mv_bn": df["soma_mv_bn"],
+    }).round(2)
+    u["ust_method"] = df["outstanding_method"]
+    u["soma_flow_method"] = flow_src
+    u.to_csv(here / "us_supply_monthly.csv", date_format="%Y-%m-%d")
 
 
 def _main() -> None:

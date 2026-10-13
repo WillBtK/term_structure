@@ -101,6 +101,9 @@ TIPS at par before the real curve):
 | `supply_1m_mv_bn` | monthly net market value of issuance, 1994-02 → |
 | `soma_net_1m_mv_bn` | monthly net SOMA purchases at market value, 1994-02 → |
 
+`us_supply_monthly.csv` puts the four monthly flows side by side (net issuance and net
+SOMA purchases, in $bn of market value and $mn/bp of DV01) with both market-value stocks.
+
 Net market value of issuance runs below the change in par (about $45bn a year in
 1994-2000, $250bn in 2023): bills and discount coupons are sold below par and redeemed
 at it, and the difference is interest, not supply. TIPS are carried at accreted
