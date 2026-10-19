@@ -80,6 +80,10 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m exports.uk_term_premia_monthly
+      - name: Export daily 10y term premia (US, UK, DE, JP)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m exports.term_premia_10y_daily
       - name: Export to Supabase + publish Atlas (inert without secrets)
         timeout-minutes: 15       # Supabase upsert + upload normally ~3-4 min; fail fast if it hangs
         env:
@@ -118,7 +122,7 @@ jobs:
           set +e
           git config user.name  "atlas-bot"
           git config user.email "noreply@anthropic.com"
-          git add germany/data/bund_prices/ exports/uk_term_premia_monthly.csv supply/data/jp_boj_raw.parquet us/data_store/ust_noise_daily.parquet 2>/dev/null || true
+          git add germany/data/bund_prices/ exports/uk_term_premia_monthly.csv exports/term_premia_10y_daily.csv supply/data/jp_boj_raw.parquet us/data_store/ust_noise_daily.parquet 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "no new data to commit (Bund store, UK premia, BoJ store, UST noise unchanged)"
             exit 0
