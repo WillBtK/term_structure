@@ -80,13 +80,42 @@ def s_curve(x, lo, hi, mid, scale):
     return lo + (hi - lo) / (1.0 + np.exp(-(np.asarray(x) - mid) / scale))
 
 
-def fit_s_curve(p: pd.DataFrame) -> dict:
+def fit_s_curve(p: pd.DataFrame, n_boot: int = 0, seed: int = 0) -> dict:
+    """Logistic fit of the correlation on the ten-year average; with ``n_boot``, a 90%
+    bootstrap band for where it crosses zero."""
     from scipy.optimize import brentq, curve_fit
     x, y = p["pi"].to_numpy(), p["sbc"].to_numpy()
-    q, _ = curve_fit(s_curve, x, y, p0=[-0.3, 0.35, 2.5, 0.7], maxfev=20000)
+
+    def one(xx, yy):
+        q, _ = curve_fit(s_curve, xx, yy, p0=[-0.3, 0.35, 2.5, 0.7], maxfev=20000)
+        return q, brentq(lambda z: s_curve(z, *q), xx.min(), xx.max())
+    q, cross = one(x, y)
     r2 = 1 - ((y - s_curve(x, *q)) ** 2).sum() / ((y - y.mean()) ** 2).sum()
-    cross = brentq(lambda z: s_curve(z, *q), x.min(), x.max())
-    return {"lo": q[0], "hi": q[1], "mid": q[2], "scale": q[3], "r2": r2, "cross": cross}
+    out = {"lo": q[0], "hi": q[1], "mid": q[2], "scale": q[3], "r2": r2, "cross": cross}
+    if n_boot:
+        rng, draws = np.random.default_rng(seed), []
+        for _ in range(n_boot):
+            i = rng.integers(0, len(x), len(x))
+            try:
+                draws.append(one(x[i], y[i])[1])
+            except Exception:                                       # noqa: BLE001
+                continue
+        out["cross_lo"], out["cross_hi"] = (float(v) for v in np.percentile(draws, [5, 95]))
+    return out
+
+
+def block_cv(p: pd.DataFrame, years: int = 5) -> dict:
+    """Out-of-sample error, leaving out each block of ``years`` in turn: line vs S-curve."""
+    x, y, b = p["pi"].to_numpy(), p["sbc"].to_numpy(), p["year"].to_numpy() // years
+    el, es = [], []
+    for k in np.unique(b):
+        tr, te = b != k, b == k
+        sl, ic = np.polyfit(x[tr], y[tr], 1)
+        el += list(y[te] - (ic + sl * x[te]))
+        f = fit_s_curve(p[tr])
+        es += list(y[te] - s_curve(x[te], f["lo"], f["hi"], f["mid"], f["scale"]))
+    rm = lambda e: float(np.sqrt(np.mean(np.square(e))))
+    return {"linear": rm(el), "s_curve": rm(es)}
 
 
 if __name__ == "__main__":

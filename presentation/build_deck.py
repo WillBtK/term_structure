@@ -187,10 +187,23 @@ def build() -> dict:
            "n": len(sbc_pts), "markets": int(sp["country"].nunique())}
 
     # The level question the ratio model does not answer directly: at what rate of
-    # inflation does the correlation turn positive? Pooled across the four markets.
-    from validation.sbc_inflation_level import build_panel as sbcl_panel, fit as sbcl_fit
+    # inflation does the correlation turn positive? Pooled across the four markets, on
+    # the longest 10y yield histories (exports/deck/sbc_extended.py), against TEN-YEAR
+    # average core inflation -- the correlation's own window -- and fitted as an
+    # S-curve: the growth/inflation two-shock model bounds the correlation between a
+    # growth-dominated floor and an inflation-dominated ceiling, and the Okun kink
+    # places the transition. Out of sample (5-year blocks) it beats a line.
+    from exports.deck.sbc_extended import block_cv, fit_s_curve, panel as sbcl_panel
     sbcl = sbcl_panel()
-    sbc_level = dict(sbcl_fit(sbcl))
+    sc = fit_s_curve(sbcl, n_boot=1000)
+    lin_slope, lin_icpt = np.polyfit(sbcl["pi"], sbcl["sbc"], 1)
+    cv = block_cv(sbcl)
+    sbc_level = {**{k: round(float(v), 3) for k, v in sc.items()},
+                 "r2_linear": round(float(np.corrcoef(sbcl["pi"], sbcl["sbc"])[0, 1] ** 2), 3),
+                 "cv_linear": round(cv["linear"], 3), "cv_s": round(cv["s_curve"], 3),
+                 "n": int(len(sbcl)), "markets": int(sbcl["country"].nunique()),
+                 "first": {c: int(g["year"].min()) for c, g in sbcl.groupby("country")},
+                 "last": int(sbcl["year"].max()), "kink": okun["kink"]}
     sbc_level["pts"] = [[round(r["pi"], 2), round(r["sbc"], 3), r["country"]]
                         for _, r in sbcl.iterrows()]
 
