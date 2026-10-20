@@ -8,9 +8,14 @@ start 1971 (US 10y), 1979 (UK), 1986 (JP 10y) and 1997 (DE):
     JP  MoF JGB 10y, month-end; the 9y before 10y exists (to 1986-07), 1974-09+
 
 The correlation is the trailing 120-month correlation of monthly equity returns and
-bond returns (``model.stock_bond.realised_sbc``, duration 8), read each December; the
-inflation level is that calendar year's average of year-on-year core CPI. No growth
-data is required, so the panel runs to 2025.
+bond returns (``model.stock_bond.realised_sbc``, duration 8), read each December. The
+inflation level is the average of year-on-year core CPI over the SAME trailing 120
+months (``model.okun.rolling_level_vol``), and its standard deviation is carried too:
+a single year's inflation against a ten-year correlation halves the fit (R2 0.29 vs
+0.56). No growth data is required, so the panel runs to 2025.
+
+Two fits of the correlation on the ten-year average: a line, and an S-curve
+(logistic: a hedging floor, a transition, a ceiling), which fits markedly better.
 
     python -m exports.deck.sbc_extended
 """
@@ -53,27 +58,45 @@ def yields() -> pd.DataFrame:
 def panel(last_year: int = 2025) -> pd.DataFrame:
     from macro.fetch_core_cpi import core_inflation_yoy
     from macro.fetch_macro import load_share_prices
+    from model.okun import rolling_level_vol
     from model.stock_bond import realised_sbc
     y = yields()
     eq = load_share_prices()
     eq.index = pd.DatetimeIndex(eq.index).to_period("M").to_timestamp()
-    lev = core_inflation_yoy().resample("YS").mean()
+    ci = core_inflation_yoy()
     rows = []
     for c in ("US", "UK", "DE", "JP"):
+        lv = rolling_level_vol(ci[c], 120)
         sbc = realised_sbc(eq[c].dropna(), y[c].dropna(), window=120)
         for t, v in sbc[sbc.index.month == 12].items():
-            yr = pd.Timestamp(t.year, 1, 1)
-            if t.year <= last_year and yr in lev.index and np.isfinite(lev.at[yr, c]):
-                rows.append({"country": c, "year": t.year, "pi": float(lev.at[yr, c]),
-                             "sbc": float(v)})
+            m = pd.Timestamp(t.year, 12, 1)
+            if t.year <= last_year and m in lv.index:
+                rows.append({"country": c, "year": t.year, "pi": float(lv.at[m, "level"]),
+                             "vol": float(lv.at[m, "vol"]), "sbc": float(v)})
     return pd.DataFrame(rows)
+
+
+def s_curve(x, lo, hi, mid, scale):
+    return lo + (hi - lo) / (1.0 + np.exp(-(np.asarray(x) - mid) / scale))
+
+
+def fit_s_curve(p: pd.DataFrame) -> dict:
+    from scipy.optimize import brentq, curve_fit
+    x, y = p["pi"].to_numpy(), p["sbc"].to_numpy()
+    q, _ = curve_fit(s_curve, x, y, p0=[-0.3, 0.35, 2.5, 0.7], maxfev=20000)
+    r2 = 1 - ((y - s_curve(x, *q)) ** 2).sum() / ((y - y.mean()) ** 2).sum()
+    cross = brentq(lambda z: s_curve(z, *q), x.min(), x.max())
+    return {"lo": q[0], "hi": q[1], "mid": q[2], "scale": q[3], "r2": r2, "cross": cross}
 
 
 if __name__ == "__main__":
     from validation.sbc_inflation_level import fit
     p = panel()
-    f = fit(p)
-    out = p.rename(columns={"pi": "core_inflation_pct", "sbc": "stock_bond_corr"}).round(3)
-    out["fitted_corr"] = (f["slope"] * out["core_inflation_pct"] + f["intercept"]).round(3)
+    f, sc = fit(p), fit_s_curve(p)
+    out = p.rename(columns={"pi": "core_inflation_10y_avg_pct", "vol": "core_inflation_10y_vol_pp",
+                            "sbc": "stock_bond_corr_10y"}).round(3)
+    out["fitted_linear"] = (f["slope"] * p["pi"] + f["intercept"]).round(3)
+    out["fitted_s_curve"] = s_curve(p["pi"], sc["lo"], sc["hi"], sc["mid"], sc["scale"]).round(3)
     out.to_csv(OUT, index=False)
-    print({k: v for k, v in f.items() if k != "per_market"})
+    print("linear", {k: v for k, v in f.items() if k != "per_market"})
+    print("s-curve", sc)
