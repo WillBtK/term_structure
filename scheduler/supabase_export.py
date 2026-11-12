@@ -278,8 +278,12 @@ def _fresh_sheet_html() -> str:
         logger.warning("sheet payload anchor not found; uploading committed page")
         return raw
     try:
-        from scenarios.build_sheet import build
+        from scenarios.build_sheet import OUT as PAYLOAD_JSON, build
         payload = json.dumps(build())
+        # the same payload as a file, committed by the daily job, so the sheet's data
+        # can be read without the page (scenarios/data/sheet_payload.json)
+        PAYLOAD_JSON.parent.mkdir(parents=True, exist_ok=True)
+        PAYLOAD_JSON.write_text(payload)
         # lambda replacement: the payload may contain backslash escapes that re.sub
         # would otherwise interpret. An unchanged result just means the committed
         # page already carries today's payload.
